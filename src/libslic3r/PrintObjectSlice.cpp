@@ -4,6 +4,7 @@
 
 #include "ClipperUtils.hpp"
 #include "ElephantFootCompensation.hpp"
+#include "Geometry.hpp"
 #include "I18N.hpp"
 #include "Layer.hpp"
 #include "MultiMaterialSegmentation.hpp"
@@ -45,12 +46,33 @@ LayerPtrs new_layers(
     return out;
 }
 
+// Apply belt printer shear transform to mesh vertices in-place.
+// This maps tilted slicing planes to horizontal ones so the existing
+// horizontal-plane slicer can be reused for belt printers.
+static void apply_belt_shear_to_mesh(indexed_triangle_set &its,
+                                      double               angle_rad,
+                                      BeltDirection         direction)
+{
+    const float cot_angle = float(cos(angle_rad) / sin(angle_rad));
+    const float sin_angle = float(sin(angle_rad));
+    for (auto &v : its.vertices) {
+        if (direction == bdY)
+            v.y() -= v.z() * cot_angle;
+        else
+            v.x() -= v.z() * cot_angle;
+        v.z() *= sin_angle;
+    }
+}
+
 // Slice single triangle mesh.
 static std::vector<ExPolygons> slice_volume(
     const ModelVolume             &volume,
     const std::vector<float>      &zs,
     const MeshSlicingParamsEx     &params,
-    const std::function<void()>   &throw_on_cancel_callback)
+    const std::function<void()>   &throw_on_cancel_callback,
+    bool                           belt_printer = false,
+    double                         belt_angle_rad = 0,
+    BeltDirection                  belt_direction = bdY)
 {
     std::vector<ExPolygons> layers;
     if (! zs.empty()) {
@@ -60,6 +82,9 @@ static std::vector<ExPolygons> slice_volume(
             params2.trafo = params2.trafo * volume.get_matrix();
             if (params2.trafo.rotation().determinant() < 0.)
                 its_flip_triangles(its);
+            // Apply belt printer shear transform to the mesh copy
+            if (belt_printer)
+                apply_belt_shear_to_mesh(its, belt_angle_rad, belt_direction);
             layers = slice_mesh_ex(its, zs, params2, throw_on_cancel_callback);
             throw_on_cancel_callback();
         }
@@ -74,13 +99,16 @@ static std::vector<ExPolygons> slice_volume(
     const std::vector<float>                    &z,
     const std::vector<t_layer_height_range>     &ranges,
     const MeshSlicingParamsEx                   &params,
-    const std::function<void()>                 &throw_on_cancel_callback)
+    const std::function<void()>                 &throw_on_cancel_callback,
+    bool                                         belt_printer = false,
+    double                                       belt_angle_rad = 0,
+    BeltDirection                                belt_direction = bdY)
 {
     std::vector<ExPolygons> out;
     if (! z.empty() && ! ranges.empty()) {
         if (ranges.size() == 1 && z.front() >= ranges.front().first && z.back() < ranges.front().second) {
             // All layers fit into a single range.
-            out = slice_volume(volume, z, params, throw_on_cancel_callback);
+            out = slice_volume(volume, z, params, throw_on_cancel_callback, belt_printer, belt_angle_rad, belt_direction);
         } else {
             std::vector<float>                     z_filtered;
             std::vector<std::pair<size_t, size_t>> n_filtered;
@@ -96,7 +124,7 @@ static std::vector<ExPolygons> slice_volume(
                     n_filtered.emplace_back(std::make_pair(first, i));
             }
             if (! n_filtered.empty()) {
-                std::vector<ExPolygons> layers = slice_volume(volume, z_filtered, params, throw_on_cancel_callback);
+                std::vector<ExPolygons> layers = slice_volume(volume, z_filtered, params, throw_on_cancel_callback, belt_printer, belt_angle_rad, belt_direction);
                 out.assign(z.size(), ExPolygons());
                 i = 0;
                 for (const std::pair<size_t, size_t> &span : n_filtered)
@@ -127,6 +155,11 @@ static std::vector<VolumeSlices> slice_volumes_inner(
     const std::function<void()>                              &throw_on_cancel_callback)
 {
     model_volumes_sort_by_id(model_volumes);
+
+    // Belt printer parameters
+    const bool          belt_enabled   = print_config.belt_printer.value;
+    const double        belt_angle_rad = belt_enabled ? Geometry::deg2rad(print_config.belt_printer_angle.value) : 0;
+    const BeltDirection belt_direction = belt_enabled ? print_config.belt_printer_direction.value : bdY;
 
     std::vector<VolumeSlices> out;
     out.reserve(model_volumes.size());
@@ -178,7 +211,7 @@ static std::vector<VolumeSlices> slice_volumes_inner(
                     }
                     out.push_back({
                         model_volume->id(),
-                        slice_volume(*model_volume, zs, params, throw_on_cancel_callback)
+                        slice_volume(*model_volume, zs, params, throw_on_cancel_callback, belt_enabled, belt_angle_rad, belt_direction)
                     });
                 }
             } else {
@@ -190,7 +223,7 @@ static std::vector<VolumeSlices> slice_volumes_inner(
                 if (! slicing_ranges.empty())
                     out.push_back({
                         model_volume->id(),
-                        slice_volume(*model_volume, zs, slicing_ranges, params, throw_on_cancel_callback)
+                        slice_volume(*model_volume, zs, slicing_ranges, params, throw_on_cancel_callback, belt_enabled, belt_angle_rad, belt_direction)
                     });
             }
             if (! out.empty() && out.back().slices.empty())
@@ -1529,9 +1562,12 @@ std::vector<Polygons> PrintObject::slice_support_volumes(const ModelVolumeType m
         auto               throw_on_cancel_callback = std::function<void()>([print](){ print->throw_if_canceled(); });
         MeshSlicingParamsEx params;
         params.trafo = this->trafo_centered();
+        const bool          belt_enabled   = print->config().belt_printer.value;
+        const double        belt_angle_rad = belt_enabled ? Geometry::deg2rad(print->config().belt_printer_angle.value) : 0;
+        const BeltDirection belt_direction = belt_enabled ? print->config().belt_printer_direction.value : bdY;
         for (; it_volume != it_volume_end; ++ it_volume)
             if ((*it_volume)->type() == model_volume_type) {
-                std::vector<ExPolygons> slices2 = slice_volume(*(*it_volume), zs, params, throw_on_cancel_callback);
+                std::vector<ExPolygons> slices2 = slice_volume(*(*it_volume), zs, params, throw_on_cancel_callback, belt_enabled, belt_angle_rad, belt_direction);
                 if (slices.empty()) {
                     slices.reserve(slices2.size());
                     for (ExPolygons &src : slices2)

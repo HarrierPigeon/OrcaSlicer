@@ -627,6 +627,15 @@ private:
     Print* m_curr_print = nullptr;
     unsigned int m_toolchange_count;
     coordf_t m_nominal_z;
+
+    // Belt printer state
+    bool          m_belt_printer { false };
+    double        m_belt_angle_rad { 0 };
+    double        m_belt_cos_over_sin2 { 0 };  // precomputed cos(θ)/sin²(θ) for Y offset
+    double        m_belt_inv_sin { 0 };         // precomputed 1/sin(θ) for Z transform
+    BeltDirection m_belt_direction { bdY };
+    double        m_belt_sheared_z { 0 };       // current Z in sheared (slicing) space
+
     bool m_need_change_layer_lift_z = false;
     int m_start_gcode_filament = -1;
     std::string m_filament_instances_code;

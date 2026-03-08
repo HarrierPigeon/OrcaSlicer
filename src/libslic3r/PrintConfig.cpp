@@ -138,6 +138,12 @@ static t_config_enum_values s_keys_map_AuthorizationType {
 };
 CONFIG_OPTION_ENUM_DEFINE_STATIC_MAPS(AuthorizationType)
 
+static t_config_enum_values s_keys_map_BeltDirection {
+    { "X",              bdX },
+    { "Y",              bdY }
+};
+CONFIG_OPTION_ENUM_DEFINE_STATIC_MAPS(BeltDirection)
+
 static t_config_enum_values s_keys_map_GCodeFlavor {
     { "marlin",         gcfMarlinLegacy },
     { "reprap",         gcfRepRapSprinter },
@@ -2113,6 +2119,35 @@ void PrintConfigDef::init_fff_params()
     def->sidetext = L("mm");	// milimeters, CIS languages need translation
     def->mode    = comAdvanced;
     def->set_default_value(new ConfigOptionFloat(0));
+
+    // Belt printer settings
+    def = this->add("belt_printer", coBool);
+    def->label = L("Belt printer");
+    def->tooltip = L("Enable belt printer mode. When enabled, slicing is performed along a tilted plane "
+                   "to support belt (conveyor) style 3D printers.");
+    def->mode = comAdvanced;
+    def->set_default_value(new ConfigOptionBool(false));
+
+    def = this->add("belt_printer_angle", coFloat);
+    def->label = L("Belt angle");
+    def->tooltip = L("The tilt angle of the belt surface from horizontal, in degrees. "
+                   "Common values are 45 degrees (e.g., Creality CR-30) or 30 degrees.");
+    def->sidetext = L("\u00B0");
+    def->min = 10;
+    def->max = 80;
+    def->mode = comAdvanced;
+    def->set_default_value(new ConfigOptionFloat(45));
+
+    def = this->add("belt_printer_direction", coEnum);
+    def->label = L("Belt direction");
+    def->tooltip = L("The axis along which the belt moves.");
+    def->enum_keys_map = &ConfigOptionEnum<BeltDirection>::get_enum_values();
+    def->enum_values.push_back("X");
+    def->enum_values.push_back("Y");
+    def->enum_labels.push_back("X");
+    def->enum_labels.push_back("Y");
+    def->mode = comAdvanced;
+    def->set_default_value(new ConfigOptionEnum<BeltDirection>(bdY));
 
     def = this->add("grab_length",coFloats);
     def->label = L("Grab length");

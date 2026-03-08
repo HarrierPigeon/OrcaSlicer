@@ -1206,6 +1206,14 @@ StringObjectException Print::validate(StringObjectException *warning, Polygons* 
         }
     }
 
+    // Belt printer mode validation
+    if (m_config.belt_printer.value) {
+        for (PrintObject *object : m_objects) {
+            if (object->config().raft_layers > 0)
+                return {L("Raft is not supported in belt printer mode.")};
+        }
+    }
+
     if (m_config.print_sequence == PrintSequence::ByObject && (m_objects.size() > 1 || m_objects[0]->instances().size() > 1)) {
         if (m_config.timelapse_type == TimelapseType::tlSmooth)
             return {L("Smooth mode of timelapse is not supported when \"by object\" sequence is enabled.")};

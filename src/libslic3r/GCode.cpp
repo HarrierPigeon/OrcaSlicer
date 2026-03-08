@@ -8,6 +8,7 @@
 #include "Exception.hpp"
 #include "ExtrusionEntity.hpp"
 #include "EdgeGrid.hpp"
+#include "Geometry.hpp"
 #include "Geometry/ConvexHull.hpp"
 #include "GCode/PrintExtents.hpp"
 #include "GCode/Thumbnails.hpp"
@@ -1996,6 +1997,18 @@ void GCode::do_export(Print* print, const char* path, GCodeProcessorResult* resu
 
     // BBS
     m_curr_print = print;
+
+    // Initialize belt printer state
+    m_belt_printer = print->config().belt_printer.value;
+    if (m_belt_printer) {
+        m_belt_angle_rad     = Geometry::deg2rad(print->config().belt_printer_angle.value);
+        double sin_a         = sin(m_belt_angle_rad);
+        double cos_a         = cos(m_belt_angle_rad);
+        m_belt_inv_sin       = 1.0 / sin_a;
+        m_belt_cos_over_sin2 = cos_a / (sin_a * sin_a);
+        m_belt_direction     = print->config().belt_printer_direction.value;
+        m_belt_sheared_z     = 0;
+    }
 
     GCodeWriter::full_gcode_comment = print->config().gcode_comments;
     CNumericLocalesSetter locales_setter;
@@ -5487,7 +5500,16 @@ std::string GCode::change_layer(coordf_t print_z)
         // Increment a progress bar indicator.
         gcode += m_writer.update_progress(++ m_layer_index, m_layer_count);
     //BBS
-    coordf_t z = print_z + m_config.z_offset.value;  // in unscaled coordinates
+    coordf_t z;
+    if (m_belt_printer) {
+        // Belt printer: print_z is in sheared (slicing) space.
+        // Store sheared Z for use in point_to_gcode() inverse transform.
+        m_belt_sheared_z = print_z;
+        // Convert to real-world Z: z_real = z_sheared / sin(θ)
+        z = print_z * m_belt_inv_sin + m_config.z_offset.value;
+    } else {
+        z = print_z + m_config.z_offset.value;  // in unscaled coordinates
+    }
     if (FILAMENT_CONFIG(retract_when_changing_layer) && m_writer.will_move_z(z)) {
         LiftType lift_type = this->to_lift_type(ZHopType(FILAMENT_CONFIG(z_hop_types)));
         //BBS: force to use SpiralLift when change layer if lift type is auto
@@ -7767,7 +7789,14 @@ std::string GCode::set_object_info(Print *print) {
 Vec2d GCode::point_to_gcode(const Point &point) const
 {
     Vec2d extruder_offset = EXTRUDER_CONFIG(extruder_offset);
-    return unscale(point) + m_origin - extruder_offset;
+    Vec2d p = unscale(point) + m_origin - extruder_offset;
+    // Belt printer: apply inverse shear to map slicing-space XY back to real-world coordinates.
+    // Inverse: y_real = y_sheared + z_sheared * cos(θ) / sin²(θ)
+    if (m_belt_printer) {
+        int axis = (m_belt_direction == bdY) ? 1 : 0;
+        p[axis] += m_belt_sheared_z * m_belt_cos_over_sin2;
+    }
+    return p;
 }
 
 // convert a model-space scaled point into G-code coordinates
