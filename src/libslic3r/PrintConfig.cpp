@@ -475,7 +475,8 @@ static t_config_enum_values s_keys_map_PrinterStructure {
     {"corexy",          int(PrinterStructure::psCoreXY)},
     {"i3",              int(PrinterStructure::psI3)},
     {"hbot",            int(PrinterStructure::psHbot)},
-    {"delta",           int(PrinterStructure::psDelta)}
+    {"delta",           int(PrinterStructure::psDelta)},
+    {"belt",            int(PrinterStructure::psBelt)}
 };
 CONFIG_OPTION_ENUM_DEFINE_STATIC_MAPS(PrinterStructure)
 
@@ -2149,6 +2150,16 @@ void PrintConfigDef::init_fff_params()
     def->mode = comAdvanced;
     def->set_default_value(new ConfigOptionEnum<BeltDirection>(bdY));
 
+    def = this->add("belt_between_objects_gcode", coString);
+    def->label = L("Belt between-objects G-code");
+    def->tooltip = L("Custom G-code to emit between objects when printing sequentially on a belt printer. "
+                     "Use this to advance the belt, home axes, or prepare for the next object.");
+    def->multiline = true;
+    def->full_width = true;
+    def->height = 15;
+    def->mode = comAdvanced;
+    def->set_default_value(new ConfigOptionString(""));
+
     def = this->add("grab_length",coFloats);
     def->label = L("Grab length");
     def->sidetext = L("mm");	// milimeters, CIS languages need translation
@@ -3546,11 +3557,13 @@ void PrintConfigDef::init_fff_params()
     def->enum_values.push_back("i3");
     def->enum_values.push_back("hbot");
     def->enum_values.push_back("delta");
+    def->enum_values.push_back("belt");
     def->enum_labels.push_back(L("Undefine"));
     def->enum_labels.push_back(L("CoreXY"));
     def->enum_labels.push_back(L("I3"));
     def->enum_labels.push_back(L("Hbot"));
     def->enum_labels.push_back(L("Delta"));
+    def->enum_labels.push_back(L("Belt"));
     def->mode = comDevelop;
     def->set_default_value(new ConfigOptionEnum<PrinterStructure>(psUndefine));
 

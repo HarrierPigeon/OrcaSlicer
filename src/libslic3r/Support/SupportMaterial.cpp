@@ -1394,9 +1394,11 @@ static inline ExPolygons detect_overhangs(
     const coordf_t xy_expansion = scale_(object_config.support_expansion.value);
     float lower_layer_offset = 0;
 
-    if (layer_id == 0)
+    if (layer_id == 0 && !print_config.belt_printer.value)
     {
         // Don't fill in the holes. The user may apply a higher raft_expansion if one wants a better 1st layer adhesion.
+        // In belt printer mode, layer 0 rests on the belt surface (Z=0 in sheared space) and is fully supported,
+        // so we skip marking it as overhang.
         overhang_polygons = to_polygons(layer.lslices);
 
         for (auto& slice : layer.lslices) {

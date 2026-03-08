@@ -2832,6 +2832,11 @@ void GCode::_do_export(Print& print, GCodeOutputStream &file, ThumbnailsGenerato
     this->placeholder_parser().set("num_extruders", int(print.config().nozzle_diameter.values.size()));
     this->placeholder_parser().set("retract_length", new ConfigOptionFloats(print.config().retraction_length));
 
+    // Belt printer placeholder variables
+    this->placeholder_parser().set("is_belt_printer", print.config().belt_printer.value);
+    this->placeholder_parser().set("belt_angle", print.config().belt_printer_angle.value);
+    this->placeholder_parser().set("belt_direction", print.config().belt_printer_direction.value == bdY ? "Y" : "X");
+
     //Orca: support max MAXIMUM_EXTRUDER_NUMBER extruders/filaments
     std::vector<unsigned char> is_extruder_used(std::max(size_t(MAXIMUM_EXTRUDER_NUMBER), print.config().filament_diameter.size()), 0);
     for (unsigned int extruder : tool_ordering.all_extruders())
@@ -3254,6 +3259,15 @@ void GCode::_do_export(Print& print, GCodeOutputStream &file, ThumbnailsGenerato
                     this->_print_first_layer_bed_temperature(file, print, printing_by_object_gcode, initial_extruder_id, false);
                     this->_print_first_layer_extruder_temperatures(file, print, printing_by_object_gcode, initial_extruder_id, false);
                     file.writeln(printing_by_object_gcode);
+                    // Belt printer: emit between-objects G-code to advance the belt
+                    if (m_belt_printer && !print.config().belt_between_objects_gcode.value.empty()) {
+                        std::string belt_gcode = this->placeholder_parser_process(
+                            "belt_between_objects_gcode",
+                            print.config().belt_between_objects_gcode.value,
+                            initial_extruder_id);
+                        if (!belt_gcode.empty())
+                            file.writeln(belt_gcode);
+                    }
                 }
                 // Reset the cooling buffer internal state (the current position, feed rate, accelerations).
                 m_cooling_buffer->reset(this->writer().get_position());

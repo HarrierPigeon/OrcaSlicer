@@ -4353,6 +4353,11 @@ void TabPrinter::build_fff()
         optgroup->append_single_option_line("z_offset", "printer_basic_information_printable_space#z-offset");
         optgroup->append_single_option_line("preferred_orientation", "printer_basic_information_printable_space#preferred-orientation");
 
+        optgroup = page->new_optgroup(L("Belt Printer"), L"param_advanced");
+        optgroup->append_single_option_line("belt_printer");
+        optgroup->append_single_option_line("belt_printer_angle");
+        optgroup->append_single_option_line("belt_printer_direction");
+
         optgroup = page->new_optgroup(L("Advanced"), L"param_advanced");
 
         optgroup->append_single_option_line("printer_structure", "printer_basic_information_advanced#printer-structure");
@@ -4485,6 +4490,16 @@ void TabPrinter::build_fff()
         option.opt.height     = gcode_field_height; // 150;
         optgroup->append_single_option_line(option, "printer_machine_gcode#printing-by-object-g-code");
 
+        optgroup = page->new_optgroup(L("Belt between-objects G-code"), "param_gcode", 0);
+        optgroup->m_on_change = [this, &optgroup_title = optgroup->title](const t_config_option_key& opt_key, const boost::any& value) {
+            validate_custom_gcode_cb(this, optgroup_title, opt_key, value);
+        };
+        optgroup->edit_custom_gcode = edit_custom_gcode_fn;
+        option                = optgroup->get_option("belt_between_objects_gcode");
+        option.opt.full_width = true;
+        option.opt.is_code    = true;
+        option.opt.height     = gcode_field_height;
+        optgroup->append_single_option_line(option);
 
         optgroup = page->new_optgroup(L("Before layer change G-code"),"param_gcode", 0);
         optgroup->m_on_change = [this, &optgroup_title = optgroup->title](const t_config_option_key& opt_key, const boost::any& value) {
@@ -5209,6 +5224,11 @@ void TabPrinter::toggle_options()
 
         auto gcf = m_config->option<ConfigOptionEnum<GCodeFlavor>>("gcode_flavor")->value;
         toggle_line("enable_power_loss_recovery", is_BBL_printer || gcf == gcfMarlinFirmware);
+
+        // Belt printer: only show angle/direction when belt mode is enabled
+        bool is_belt = m_config->opt_bool("belt_printer");
+        toggle_line("belt_printer_angle", is_belt);
+        toggle_line("belt_printer_direction", is_belt);
     }
     
 
@@ -5216,6 +5236,9 @@ void TabPrinter::toggle_options()
         PresetBundle *preset_bundle = wxGetApp().preset_bundle;
         std::string   printer_type  = preset_bundle->printers.get_edited_preset().get_printer_type(preset_bundle);
         toggle_line("wrapping_detection_gcode", DevPrinterConfigUtil::support_wrapping_detection(printer_type));
+        // Only show belt between-objects gcode when belt mode is enabled
+        bool is_belt = m_config->opt_bool("belt_printer");
+        toggle_line("belt_between_objects_gcode", is_belt);
     }
 
     if (m_active_page->title() == L("Multimaterial")) {

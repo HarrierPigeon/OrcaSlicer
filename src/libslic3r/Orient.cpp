@@ -138,7 +138,9 @@ public:
 
             auto cost_items = get_features(orientation, params.min_volume);
 
-            float unprintability = target_function(cost_items, params.min_volume);
+            float unprintability = params.belt_mode
+                ? target_function_belt(cost_items, orientation, params.min_volume)
+                : target_function(cost_items, params.min_volume);
 
             results[orientation] = cost_items;
 
@@ -466,6 +468,38 @@ public:
 
         costs.unprintability = cost;
 
+        return cost;
+    }
+
+    // Belt-aware target function: reduces overhang penalty for faces resting against the belt surface
+    // and prefers orientations aligning the longest axis with the belt direction.
+    float target_function_belt(CostItems& costs, Vec3f orientation, bool min_volume)
+    {
+        // Compute the belt surface normal in world space
+        float belt_angle_rad = params.belt_angle_deg * float(M_PI) / 180.f;
+        Vec3f belt_normal;
+        if (params.belt_direction == 0) {
+            // Belt along Y: the belt tilts around X, normal points in -Y/+Z plane
+            belt_normal = Vec3f(0, -sin(belt_angle_rad), cos(belt_angle_rad));
+        } else {
+            // Belt along X: the belt tilts around Y, normal points in -X/+Z plane
+            belt_normal = Vec3f(-sin(belt_angle_rad), 0, cos(belt_angle_rad));
+        }
+
+        // How well does the current orientation align the "down" direction with the belt normal?
+        // orientation is the "up" direction, so -orientation is the "supported" direction.
+        float belt_alignment = (-orientation).dot(belt_normal);
+        // belt_alignment ranges from -1 (worst) to 1 (best alignment with belt surface)
+
+        // Start with the standard cost
+        float cost = target_function(costs, min_volume);
+
+        // Apply belt bonus: reduce cost when overhang faces align with belt surface
+        // A 30% cost reduction for perfect belt alignment
+        float belt_bonus = std::max(0.f, belt_alignment) * 0.3f;
+        cost *= (1.0f - belt_bonus);
+
+        costs.unprintability = cost;
         return cost;
     }
 };

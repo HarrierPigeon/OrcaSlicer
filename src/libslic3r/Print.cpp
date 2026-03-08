@@ -119,6 +119,7 @@ bool Print::invalidate_state_by_config_options(const ConfigOptionResolver & /* n
         "close_fan_the_first_x_layers",
         "machine_end_gcode",
         "printing_by_object_gcode",
+        "belt_between_objects_gcode",
         "filament_end_gcode",
         "post_process",
         "extruder_clearance_height_to_rod",
@@ -275,7 +276,11 @@ bool Print::invalidate_state_by_config_options(const ConfigOptionResolver & /* n
             // Spiral Vase forces different kind of slicing than the normal model:
             // In Spiral Vase mode, holes are closed and only the largest area contour is kept at each layer.
             // Therefore toggling the Spiral Vase on / off requires complete reslicing.
-            || opt_key == "spiral_mode") {
+            || opt_key == "spiral_mode"
+            // Belt printer settings change the shear transform applied to the mesh before slicing.
+            || opt_key == "belt_printer"
+            || opt_key == "belt_printer_angle"
+            || opt_key == "belt_printer_direction") {
             osteps.emplace_back(posSlice);
         } else if (
                opt_key == "print_sequence"
@@ -1209,9 +1214,11 @@ StringObjectException Print::validate(StringObjectException *warning, Polygons* 
     // Belt printer mode validation
     if (m_config.belt_printer.value) {
         for (PrintObject *object : m_objects) {
-            if (object->config().raft_layers > 0)
-                return {L("Raft is not supported in belt printer mode.")};
+            if (object->config().spiral_mode)
+                return {L("Spiral vase mode is not compatible with belt printer mode.")};
         }
+        if (m_config.timelapse_type == TimelapseType::tlSmooth)
+            return {L("Smooth timelapse is not compatible with belt printer mode.")};
     }
 
     if (m_config.print_sequence == PrintSequence::ByObject && (m_objects.size() > 1 || m_objects[0]->instances().size() > 1)) {

@@ -10967,6 +10967,14 @@ void Plater::priv::set_bed_shape(const Pointfs       &shape,
     Vec2d shape_position = partplate_list.get_current_shape_position();
     bool new_shape = bed.set_shape(shape, printable_height, extruder_areas, extruder_heights, custom_model, force_as_custom, shape_position);
 
+    // Propagate belt printer mode to bed visualization
+    {
+        bool belt_enabled = config->opt_bool("belt_printer");
+        double belt_angle = config->opt_float("belt_printer_angle");
+        int belt_dir = config->option<ConfigOptionEnum<BeltDirection>>("belt_printer_direction")->value == bdX ? 1 : 0;
+        bed.set_belt_mode(belt_enabled, belt_angle, belt_dir);
+    }
+
     float prev_height_lid, prev_height_rod;
     partplate_list.get_height_limits(prev_height_lid, prev_height_rod);
     double height_to_lid = config->opt_float("extruder_clearance_height_to_lid");
@@ -16223,7 +16231,10 @@ void Plater::on_config_change(const DynamicPrintConfig &config)
             update_scheduled = true;
             //p->sidebar->obj_list()->update_extruder_colors();
         }
-        else if (opt_key == "printable_height") {
+        else if (opt_key == "printable_height"
+                 || opt_key == "belt_printer"
+                 || opt_key == "belt_printer_angle"
+                 || opt_key == "belt_printer_direction") {
             bed_shape_changed = true;
             update_scheduled = true;
         }

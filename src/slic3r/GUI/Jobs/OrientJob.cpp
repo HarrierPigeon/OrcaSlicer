@@ -6,6 +6,7 @@
 #include "slic3r/GUI/GUI_App.hpp"
 #include "slic3r/GUI/NotificationManager.hpp"
 #include "libslic3r/PresetBundle.hpp"
+#include "libslic3r/PrintConfig.hpp"
 
 
 namespace Slic3r { namespace GUI {
@@ -168,6 +169,17 @@ void OrientJob::process(Ctl &ctl)
     }
     else {
         params.min_volume = true;
+    }
+
+    // Belt printer: pass belt parameters to orient cost function
+    {
+        auto* config = &wxGetApp().preset_bundle->printers.get_edited_preset().config;
+        if (config->has("belt_printer") && config->opt_bool("belt_printer")) {
+            params.belt_mode = true;
+            params.belt_angle_deg = float(config->opt_float("belt_printer_angle"));
+            auto belt_dir = config->option<ConfigOptionEnum<BeltDirection>>("belt_printer_direction");
+            params.belt_direction = (belt_dir && belt_dir->value == bdX) ? 1 : 0;
+        }
     }
 
     auto count = unsigned(m_selected.size() + m_unprintable.size());

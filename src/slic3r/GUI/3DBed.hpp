@@ -120,6 +120,11 @@ private:
     std::vector<double> m_extruder_heights;
     bool m_is_dark = false;
 
+    // Belt printer visualization state
+    bool   m_belt_mode{ false };
+    double m_belt_angle_deg{ 45.0 };
+    int    m_belt_direction{ 0 }; // 0 = Y axis, 1 = X axis
+
 public:
     Bed3D() = default;
     ~Bed3D() = default;
@@ -134,6 +139,8 @@ public:
 
     void set_position(Vec2d& position);
     void set_axes_mode(bool origin);
+    void set_belt_mode(bool enabled, double angle_deg = 45.0, int direction = 0);
+    bool is_belt_mode() const { return m_belt_mode; }
     const Vec2d& get_position() const { return m_position; }
 
     // Build volume geometry for various collision detection tasks.

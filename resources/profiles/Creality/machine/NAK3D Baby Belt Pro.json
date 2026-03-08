@@ -1,0 +1,12 @@
+{
+    "type": "machine_model",
+    "name": "NAK3D Baby Belt Pro",
+    "model_id": "NAK3D-BabyBeltPro",
+    "nozzle_diameter": "0.4",
+    "machine_tech": "FFF",
+    "family": "NAK3D",
+    "bed_model": "",
+    "bed_texture": "",
+    "hotend_model": "",
+    "default_materials": "Creality Generic PLA;Creality Generic PETG"
+}

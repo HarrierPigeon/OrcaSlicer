@@ -365,6 +365,16 @@ Point Bed3D::point_projection(const Point& point) const
     return m_polygon.point_projection(point);
 }*/
 
+void Bed3D::set_belt_mode(bool enabled, double angle_deg, int direction)
+{
+    if (m_belt_mode != enabled || m_belt_angle_deg != angle_deg || m_belt_direction != direction) {
+        m_belt_mode = enabled;
+        m_belt_angle_deg = angle_deg;
+        m_belt_direction = direction;
+        m_triangles.reset(); // Force bed triangles regeneration
+    }
+}
+
 void Bed3D::on_change_color_mode(bool is_dark)
 {
     m_is_dark = is_dark;
@@ -387,11 +397,26 @@ void Bed3D::render_internal(GLCanvas3D& canvas, const Transform3d& view_matrix, 
 
     m_model.set_color(m_is_dark ? DEFAULT_MODEL_COLOR_DARK : DEFAULT_MODEL_COLOR);
 
+    // For belt printers, apply a rotation transform to tilt the bed visualization
+    Transform3d belt_view_matrix = view_matrix;
+    if (m_belt_mode) {
+        double tilt_rad = (90.0 - m_belt_angle_deg) * M_PI / 180.0;
+        Transform3d tilt = Transform3d::Identity();
+        if (m_belt_direction == 0) {
+            // Belt along Y: rotate around X axis
+            tilt.rotate(Eigen::AngleAxisd(-tilt_rad, Vec3d::UnitX()));
+        } else {
+            // Belt along X: rotate around Y axis
+            tilt.rotate(Eigen::AngleAxisd(-tilt_rad, Vec3d::UnitY()));
+        }
+        belt_view_matrix = view_matrix * tilt;
+    }
+
     switch (m_type)
     {
-    case Type::System: { render_system(canvas, view_matrix, projection_matrix, bottom); break; }
+    case Type::System: { render_system(canvas, belt_view_matrix, projection_matrix, bottom); break; }
     default:
-    case Type::Custom: { render_custom(canvas, view_matrix, projection_matrix, bottom); break; }
+    case Type::Custom: { render_custom(canvas, belt_view_matrix, projection_matrix, bottom); break; }
     }
 
     glsafe(::glDisable(GL_DEPTH_TEST));
@@ -427,6 +452,12 @@ BoundingBoxf3 Bed3D::calc_extended_bounding_box() const
     if (model_bb.defined) {
         model_bb.translate(m_model_offset);
         out.merge(model_bb);
+    }
+    // Extend bounding box for belt printer tilt and elongation
+    if (m_belt_mode && out.defined) {
+        double tilt_rad = (90.0 - m_belt_angle_deg) * M_PI / 180.0;
+        double z_from_tilt = out.size().y() * sin(tilt_rad);
+        out.max.z() = std::max(out.max.z(), z_from_tilt);
     }
     return out;
 }
@@ -656,6 +687,30 @@ void Bed3D::update_bed_triangles()
     for (size_t i = 0; i < m_bed_shape.size(); i++) {
          origin_bed_shape.push_back(m_bed_shape[i]);
     }
+
+    // For belt printers, extend the bed shape in the belt direction to represent the conveyor
+    if (m_belt_mode && !origin_bed_shape.empty()) {
+        BoundingBox bb = get_extents(Polygon::new_scale(origin_bed_shape));
+        double belt_extension = 3.0; // Extend to 3x the original dimension
+        if (m_belt_direction == 0) {
+            // Belt along Y: extend Y range
+            double y_size = unscale<double>(bb.max.y() - bb.min.y());
+            double y_extend = y_size * belt_extension;
+            for (auto& pt : origin_bed_shape) {
+                if (pt.y() > unscale<double>(bb.min.y()) + y_size * 0.5)
+                    pt.y() += y_extend;
+            }
+        } else {
+            // Belt along X: extend X range
+            double x_size = unscale<double>(bb.max.x() - bb.min.x());
+            double x_extend = x_size * belt_extension;
+            for (auto& pt : origin_bed_shape) {
+                if (pt.x() > unscale<double>(bb.min.x()) + x_size * 0.5)
+                    pt.x() += x_extend;
+            }
+        }
+    }
+
     std::vector<Vec2d> new_bed_shape; // offset to correct origin
     for (auto point : origin_bed_shape) {
         Vec2d new_point(point.x() + model_offset_ptr->x(), point.y() + model_offset_ptr->y());

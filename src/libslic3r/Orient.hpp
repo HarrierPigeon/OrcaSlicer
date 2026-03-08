@@ -124,6 +124,10 @@ struct OrientParams {
     bool min_volume = false;
     Eigen::Vector3f fun_dir;
 
+    // Belt printer parameters
+    bool  belt_mode = false;
+    float belt_angle_deg = 45.f;   // Tilt angle in degrees
+    int   belt_direction = 0;      // 0 = Y, 1 = X
 
     /// Allow parallel execution.
     bool parallel = false;

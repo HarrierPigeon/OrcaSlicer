@@ -135,6 +135,14 @@
         {
             "name": "Creality Sermoon V1",
             "sub_path": "machine/Creality Sermoon V1.json"
+        },
+        {
+            "name": "Creality CR-30",
+            "sub_path": "machine/Creality CR-30.json"
+        },
+        {
+            "name": "NAK3D Baby Belt Pro",
+            "sub_path": "machine/NAK3D Baby Belt Pro.json"
         }
     ],
     "process_list": [
@@ -1114,7 +1122,7 @@
             "name": "0.36mm Draft @Creality K2 Plus 0.6 nozzle",
             "sub_path": "process/0.36mm Draft @Creality K2 Plus 0.6 nozzle.json"
         },
-       {
+        {
             "name": "0.36mm Draft @Creality K2 Pro 0.6 nozzle",
             "sub_path": "process/0.36mm Draft @Creality K2 Pro 0.6 nozzle.json"
         },
@@ -1301,6 +1309,14 @@
         {
             "name": "0.36mm Chunky @Creality Ender5Pro (2019) 1.0",
             "sub_path": "process/0.36mm Chunky @Creality Ender5Pro (2019) 1.0.json"
+        },
+        {
+            "name": "0.20mm Standard @Creality CR30 0.4",
+            "sub_path": "process/0.20mm Standard @Creality CR30 0.4.json"
+        },
+        {
+            "name": "0.20mm Standard @NAK3D BabyBeltPro 0.4",
+            "sub_path": "process/0.20mm Standard @NAK3D BabyBeltPro 0.4.json"
         }
     ],
     "filament_list": [
@@ -1913,6 +1929,14 @@
         {
             "name": "Creality Sermoon V1 0.4 nozzle",
             "sub_path": "machine/Creality Sermoon V1 0.4 nozzle.json"
+        },
+        {
+            "name": "Creality CR-30 0.4 nozzle",
+            "sub_path": "machine/Creality CR-30 0.4 nozzle.json"
+        },
+        {
+            "name": "NAK3D Baby Belt Pro 0.4 nozzle",
+            "sub_path": "machine/NAK3D Baby Belt Pro 0.4 nozzle.json"
         }
     ]
 }

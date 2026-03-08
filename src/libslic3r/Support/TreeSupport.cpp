@@ -795,12 +795,17 @@ void TreeSupport::detect_overhangs(bool check_support_necessity/* = false*/)
                 Layer* layer = m_object->get_layer(layer_nr);
 
                 if (layer->lower_layer == nullptr) {
-                    for (auto& slice : layer->lslices_extrudable) {
-                        auto bbox_size = get_extents(slice).size();
-                        if (!((bbox_size.x() > length_thresh_well_supported && bbox_size.y() > length_thresh_well_supported))
-                            && g_config_support_sharp_tails) {
-                            layer->sharp_tails.push_back(slice);
-                            layer->sharp_tails_height.push_back(layer->height);
+                    // In belt printer mode, layer 0 rests on the belt surface and is fully supported,
+                    // so skip sharp tail detection for layer 0.
+                    const bool belt_mode = m_object->print()->config().belt_printer.value;
+                    if (!belt_mode) {
+                        for (auto& slice : layer->lslices_extrudable) {
+                            auto bbox_size = get_extents(slice).size();
+                            if (!((bbox_size.x() > length_thresh_well_supported && bbox_size.y() > length_thresh_well_supported))
+                                && g_config_support_sharp_tails) {
+                                layer->sharp_tails.push_back(slice);
+                                layer->sharp_tails_height.push_back(layer->height);
+                            }
                         }
                     }
                     continue;

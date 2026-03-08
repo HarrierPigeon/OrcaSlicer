@@ -346,7 +346,8 @@ enum PrinterStructure {
     psCoreXY,
     psI3,
     psHbot,
-    psDelta
+    psDelta,
+    psBelt
 };
 
 // BBS
@@ -1578,6 +1579,7 @@ PRINT_CONFIG_CLASS_DERIVED_DEFINE(
     ((ConfigOptionBool,                belt_printer))
     ((ConfigOptionFloat,               belt_printer_angle))
     ((ConfigOptionEnum<BeltDirection>, belt_printer_direction))
+    ((ConfigOptionString,              belt_between_objects_gcode))
 
 )
 
