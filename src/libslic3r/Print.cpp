@@ -1213,10 +1213,8 @@ StringObjectException Print::validate(StringObjectException *warning, Polygons* 
 
     // Belt printer mode validation
     if (m_config.belt_printer.value) {
-        for (PrintObject *object : m_objects) {
-            if (object->config().spiral_mode)
-                return {L("Spiral vase mode is not compatible with belt printer mode.")};
-        }
+        if (m_config.spiral_mode)
+            return {L("Spiral vase mode is not compatible with belt printer mode.")};
         if (m_config.timelapse_type == TimelapseType::tlSmooth)
             return {L("Smooth timelapse is not compatible with belt printer mode.")};
     }
