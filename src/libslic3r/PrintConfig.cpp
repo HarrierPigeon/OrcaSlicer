@@ -5900,6 +5900,31 @@ void PrintConfigDef::init_fff_params()
     def->mode = comSimple;
     def->set_default_value(new ConfigOptionFloatOrPercent(50., true));
 
+    def = this->add("build_plate_tilt_angle", coFloat);
+    def->label = L("Build plate tilt angle");
+    def->category = L("Support");
+    def->tooltip = L("The angle at which the build plate is tilted relative to the ground. "
+                     "This changes the effective gravity direction and affects which overhangs need support. "
+                     "Overhangs facing the downhill direction will require more support while overhangs facing uphill may need less. "
+                     "Set to 0 for a standard horizontal build plate.");
+    def->sidetext = u8"\u00B0";
+    def->min = 0;
+    def->max = 45;
+    def->mode = comAdvanced;
+    def->set_default_value(new ConfigOptionFloat(0.));
+
+    def = this->add("build_plate_tilt_direction", coFloat);
+    def->label = L("Build plate tilt direction");
+    def->category = L("Support");
+    def->tooltip = L("The compass direction of the build plate tilt. "
+                     "0 degrees means the plate is tilted so that the positive X direction is downhill. "
+                     "90 degrees means the positive Y direction is downhill.");
+    def->sidetext = u8"\u00B0";
+    def->min = 0;
+    def->max = 360;
+    def->mode = comAdvanced;
+    def->set_default_value(new ConfigOptionFloat(0.));
+
     def = this->add("tree_support_branch_angle", coFloat);
     def->label = L("Tree support branch angle");
     def->category = L("Support");

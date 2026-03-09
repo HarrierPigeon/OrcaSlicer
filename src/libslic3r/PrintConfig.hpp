@@ -955,6 +955,9 @@ PRINT_CONFIG_CLASS_DEFINE(
     // Overhang angle threshold.
     ((ConfigOptionInt,                 support_threshold_angle))
     ((ConfigOptionFloatOrPercent,      support_threshold_overlap))
+    // Build plate tilt for off-axis gravity support generation.
+    ((ConfigOptionFloat,               build_plate_tilt_angle))
+    ((ConfigOptionFloat,               build_plate_tilt_direction))
     ((ConfigOptionFloat,               support_object_xy_distance))
     ((ConfigOptionFloat,               support_object_first_layer_gap))
     ((ConfigOptionBool,                support_ironing))

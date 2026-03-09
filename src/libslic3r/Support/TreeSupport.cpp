@@ -671,6 +671,10 @@ void TreeSupport::detect_overhangs(bool check_support_necessity/* = false*/)
     double thresh_angle = config.support_threshold_angle.value > EPSILON ? config.support_threshold_angle.value + 1 : 30;
     thresh_angle = std::min(thresh_angle, 89.); // should be smaller than 90
     const double threshold_rad = Geometry::deg2rad(thresh_angle);
+    // Build plate tilt: compute per-layer XY shift for tilted gravity direction
+    const double tilt_angle_rad = Geometry::deg2rad(config.build_plate_tilt_angle.value);
+    const double tilt_dir_rad   = Geometry::deg2rad(config.build_plate_tilt_direction.value);
+    const bool   has_tilt       = tilt_angle_rad > EPSILON;
     // FIXME this is a fudge constant!
     double support_tree_tip_diameter = 0.8;
     auto   enforcer_overhang_offset  = scaled<double>(support_tree_tip_diameter);
@@ -813,8 +817,19 @@ void TreeSupport::detect_overhangs(bool check_support_necessity/* = false*/)
                 ExPolygons& curr_polys = layer->lslices_extrudable;
                 ExPolygons& lower_polys = lower_layer->lslices_extrudable;
 
+                // Apply build plate tilt: shift lower layer polygons to simulate tilted gravity
+                ExPolygons shifted_lower;
+                if (has_tilt) {
+                    shifted_lower = lower_polys; // copy
+                    const double lh = lower_layer->height;
+                    Point tilt_shift(coord_t(scale_(lh * tan(tilt_angle_rad) * cos(tilt_dir_rad))),
+                                     coord_t(scale_(lh * tan(tilt_angle_rad) * sin(tilt_dir_rad))));
+                    translate(shifted_lower, tilt_shift);
+                }
+                const ExPolygons &effective_lower = has_tilt ? shifted_lower : lower_polys;
+
                 // normal overhang
-                ExPolygons lower_layer_offseted = offset_ex(lower_polys, support_offset_scaled, SUPPORT_SURFACES_OFFSET_PARAMETERS);
+                ExPolygons lower_layer_offseted = offset_ex(effective_lower, support_offset_scaled, SUPPORT_SURFACES_OFFSET_PARAMETERS);
                 overhangs_all_layers[layer_nr] = std::move(diff_ex(curr_polys, lower_layer_offseted));
 
                 double duration{ std::chrono::duration_cast<second_>(clock_::now() - t0).count() };
