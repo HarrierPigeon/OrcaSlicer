@@ -746,22 +746,21 @@ void Bed3D::render_tilt_plane(const Transform3d& view_matrix, const Transform3d&
     double tilt_x_rad = Geometry::deg2rad(tilt_x_deg);
     double tilt_y_rad = Geometry::deg2rad(tilt_y_deg);
 
-    // Plane size based on bed bounding box
-    const BoundingBoxf3& bb = m_build_volume.bounding_volume();
-    float half_x = float(bb.size().x()) * 0.6f;
-    float half_y = float(bb.size().y()) * 0.6f;
+    // Small reference plane (12.5mm half-size = 25mm total) sitting below the bed
+    constexpr float half_size = 12.5f;
+    constexpr float z_offset  = -13.5f; // shift down so the top edge clears the build plate
 
-    // Compute Z at each corner: Z = x * tan(tilt_y) + y * tan(tilt_x)
-    // tilt_y rotates around Y axis → Z changes with X
-    // tilt_x rotates around X axis → Z changes with Y
+    // Compute Z at each corner: Z = x * tan(tilt_y) + y * tan(tilt_x) + offset
     float tx = float(tan(tilt_y_rad));
     float ty = float(tan(tilt_x_rad));
+    float half_x = half_size;
+    float half_y = half_size;
 
     Vec3f corners[4] = {
-        Vec3f(-half_x, -half_y, -half_x * tx - half_y * ty),
-        Vec3f( half_x, -half_y,  half_x * tx - half_y * ty),
-        Vec3f( half_x,  half_y,  half_x * tx + half_y * ty),
-        Vec3f(-half_x,  half_y, -half_x * tx + half_y * ty),
+        Vec3f(-half_x, -half_y, z_offset + -half_x * tx - half_y * ty),
+        Vec3f( half_x, -half_y, z_offset +  half_x * tx - half_y * ty),
+        Vec3f( half_x,  half_y, z_offset +  half_x * tx + half_y * ty),
+        Vec3f(-half_x,  half_y, z_offset + -half_x * tx + half_y * ty),
     };
 
     m_tilt_plane.reset();
