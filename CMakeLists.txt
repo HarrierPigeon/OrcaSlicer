@@ -3,6 +3,12 @@ if(${CMAKE_VERSION} VERSION_GREATER_EQUAL "4.0")
 endif()
 
 cmake_minimum_required(VERSION 3.13)
+# use ccache if available
+find_program(CCACHE_PROGRAM ccache)
+if(CCACHE_PROGRAM)
+    set(CMAKE_C_COMPILER_LAUNCHER "${CCACHE_PROGRAM}")
+    set(CMAKE_CXX_COMPILER_LAUNCHER "${CCACHE_PROGRAM}")
+endif()
 
 # Verify that your CMake version is exactly 3.5 series or higher on windows
 if ( (MSVC OR WIN32) AND (${CMAKE_VERSION} VERSION_LESS "3.5") )
