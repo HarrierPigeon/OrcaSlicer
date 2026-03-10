@@ -1449,8 +1449,8 @@ static inline ExPolygons detect_overhangs(
             Polygons effective_lower = lower_layer_polygons;
             if (has_tilt) {
                 const double lh = lower_layer.height;
-                Point tilt_shift(coord_t(scale_(lh * tan(tilt_x_rad))),
-                                 coord_t(scale_(lh * tan(tilt_y_rad))));
+                Point tilt_shift(coord_t(scale_(lh * tan(tilt_y_rad))),
+                                 coord_t(scale_(lh * tan(tilt_x_rad))));
                 translate(effective_lower, tilt_shift);
             }
             if (lower_layer_offset == 0.f) {

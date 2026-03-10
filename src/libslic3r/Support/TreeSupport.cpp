@@ -822,8 +822,8 @@ void TreeSupport::detect_overhangs(bool check_support_necessity/* = false*/)
                 if (has_tilt) {
                     shifted_lower = lower_polys; // copy
                     const double lh = lower_layer->height;
-                    Point tilt_shift(coord_t(scale_(lh * tan(tilt_x_rad))),
-                                     coord_t(scale_(lh * tan(tilt_y_rad))));
+                    Point tilt_shift(coord_t(scale_(lh * tan(tilt_y_rad))),
+                                     coord_t(scale_(lh * tan(tilt_x_rad))));
                     translate(shifted_lower, tilt_shift);
                 }
                 const ExPolygons &effective_lower = has_tilt ? shifted_lower : lower_polys;

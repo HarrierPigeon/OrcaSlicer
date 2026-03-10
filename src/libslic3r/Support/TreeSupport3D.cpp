@@ -261,8 +261,8 @@ static std::vector<std::pair<TreeSupportSettings, std::vector<size_t>>> group_me
                 Polygons lower_src = to_polygons(lower_layer.lslices_extrudable);
                 if (has_tilt) {
                     const double lh = lower_layer.height;
-                    Point tilt_shift(coord_t(scale_(lh * tan(tilt_x_rad))),
-                                     coord_t(scale_(lh * tan(tilt_y_rad))));
+                    Point tilt_shift(coord_t(scale_(lh * tan(tilt_y_rad))),
+                                     coord_t(scale_(lh * tan(tilt_x_rad))));
                     translate(lower_src, tilt_shift);
                 }
                 Polygons lower_layer_offseted = offset(lower_src, lower_layer_offset);

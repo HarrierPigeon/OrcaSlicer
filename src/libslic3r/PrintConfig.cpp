@@ -5905,8 +5905,8 @@ void PrintConfigDef::init_fff_params()
     def->label = L("Build plate tilt X");
     def->category = L("Support");
     def->tooltip = L("Tilt angle of the build plate along the X axis. "
-                     "A positive value means gravity shifts in the +X direction, so overhangs on the -X side of objects will need more support. "
-                     "A negative value shifts gravity in the -X direction. Set to 0 for no X-axis tilt.");
+                     "A positive value tilts the plate so the +X side is higher, shifting gravity toward -X and increasing overhangs on the +X side. "
+                     "A negative value tilts the -X side higher. Set to 0 for no X-axis tilt.");
     def->sidetext = u8"\u00B0";
     def->min = -45;
     def->max = 45;
@@ -5917,8 +5917,8 @@ void PrintConfigDef::init_fff_params()
     def->label = L("Build plate tilt Y");
     def->category = L("Support");
     def->tooltip = L("Tilt angle of the build plate along the Y axis. "
-                     "A positive value means gravity shifts in the +Y direction, so overhangs on the -Y side of objects will need more support. "
-                     "A negative value shifts gravity in the -Y direction. Set to 0 for no Y-axis tilt.");
+                     "A positive value tilts the plate so the +Y side is higher, shifting gravity toward -Y and increasing overhangs on the +Y side. "
+                     "A negative value tilts the -Y side higher. Set to 0 for no Y-axis tilt.");
     def->sidetext = u8"\u00B0";
     def->min = -45;
     def->max = 45;
