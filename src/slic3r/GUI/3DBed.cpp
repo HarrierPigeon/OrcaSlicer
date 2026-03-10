@@ -394,6 +394,8 @@ void Bed3D::render_internal(GLCanvas3D& canvas, const Transform3d& view_matrix, 
     case Type::Custom: { render_custom(canvas, view_matrix, projection_matrix, bottom); break; }
     }
 
+    render_tilt_plane(view_matrix, projection_matrix);
+
     glsafe(::glDisable(GL_DEPTH_TEST));
 }
 
@@ -729,6 +731,71 @@ void Bed3D::render_custom(GLCanvas3D& canvas, const Transform3d& view_matrix, co
 
     /*if (show_texture)
         render_texture(bottom, canvas);*/
+}
+
+void Bed3D::render_tilt_plane(const Transform3d& view_matrix, const Transform3d& projection_matrix)
+{
+    const DynamicPrintConfig& cfg = wxGetApp().preset_bundle->prints.get_edited_preset().config;
+    double tilt_x_deg = cfg.opt_float("build_plate_tilt_x");
+    double tilt_y_deg = cfg.opt_float("build_plate_tilt_y");
+    if (tilt_x_deg == 0. && tilt_y_deg == 0.) {
+        m_tilt_plane.reset();
+        return;
+    }
+
+    double tilt_x_rad = Geometry::deg2rad(tilt_x_deg);
+    double tilt_y_rad = Geometry::deg2rad(tilt_y_deg);
+
+    // Plane size based on bed bounding box
+    const BoundingBoxf3& bb = m_build_volume.bounding_volume();
+    float half_x = float(bb.size().x()) * 0.6f;
+    float half_y = float(bb.size().y()) * 0.6f;
+
+    // Compute Z at each corner: Z = x * tan(tilt_y) + y * tan(tilt_x)
+    // tilt_y rotates around Y axis → Z changes with X
+    // tilt_x rotates around X axis → Z changes with Y
+    float tx = float(tan(tilt_y_rad));
+    float ty = float(tan(tilt_x_rad));
+
+    Vec3f corners[4] = {
+        Vec3f(-half_x, -half_y, -half_x * tx - half_y * ty),
+        Vec3f( half_x, -half_y,  half_x * tx - half_y * ty),
+        Vec3f( half_x,  half_y,  half_x * tx + half_y * ty),
+        Vec3f(-half_x,  half_y, -half_x * tx + half_y * ty),
+    };
+
+    m_tilt_plane.reset();
+    GLModel::Geometry init_data;
+    init_data.format = { GLModel::Geometry::EPrimitiveType::Triangles,
+                         GLModel::Geometry::EVertexLayout::P3 };
+    init_data.color  = { 0.45f, 0.55f, 0.85f, 0.35f };
+    init_data.reserve_vertices(4);
+    init_data.reserve_indices(6);
+    for (int i = 0; i < 4; ++i)
+        init_data.add_vertex(corners[i]);
+    init_data.add_triangle(0, 1, 2);
+    init_data.add_triangle(2, 3, 0);
+    m_tilt_plane.init_from(std::move(init_data));
+
+    GLShaderProgram* shader = wxGetApp().get_shader("flat");
+    if (shader != nullptr) {
+        shader->start_using();
+        shader->set_uniform("view_model_matrix", view_matrix);
+        shader->set_uniform("projection_matrix", projection_matrix);
+
+        glsafe(::glEnable(GL_BLEND));
+        glsafe(::glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA));
+        glsafe(::glDisable(GL_CULL_FACE));
+        glsafe(::glDepthMask(GL_FALSE));
+
+        m_tilt_plane.render();
+
+        glsafe(::glDepthMask(GL_TRUE));
+        glsafe(::glEnable(GL_CULL_FACE));
+        glsafe(::glDisable(GL_BLEND));
+
+        shader->stop_using();
+    }
 }
 
 void Bed3D::render_default(bool bottom, const Transform3d& view_matrix, const Transform3d& projection_matrix)
