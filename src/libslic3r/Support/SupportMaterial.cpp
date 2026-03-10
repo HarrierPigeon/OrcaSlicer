@@ -1393,9 +1393,9 @@ static inline ExPolygons detect_overhangs(
     const bool bridge_no_support = object_config.bridge_no_support.value;
     const coordf_t xy_expansion = scale_(object_config.support_expansion.value);
     // Build plate tilt: compute per-layer XY shift for tilted gravity direction
-    const double tilt_angle_rad = Geometry::deg2rad(object_config.build_plate_tilt_angle.value);
-    const double tilt_dir_rad   = Geometry::deg2rad(object_config.build_plate_tilt_direction.value);
-    const bool   has_tilt       = tilt_angle_rad > EPSILON;
+    const double tilt_x_rad = Geometry::deg2rad(object_config.build_plate_tilt_x.value);
+    const double tilt_y_rad = Geometry::deg2rad(object_config.build_plate_tilt_y.value);
+    const bool   has_tilt   = std::abs(tilt_x_rad) > EPSILON || std::abs(tilt_y_rad) > EPSILON;
     float lower_layer_offset = 0;
 
     if (layer_id == 0)
@@ -1449,8 +1449,8 @@ static inline ExPolygons detect_overhangs(
             Polygons effective_lower = lower_layer_polygons;
             if (has_tilt) {
                 const double lh = lower_layer.height;
-                Point tilt_shift(coord_t(scale_(lh * tan(tilt_angle_rad) * cos(tilt_dir_rad))),
-                                 coord_t(scale_(lh * tan(tilt_angle_rad) * sin(tilt_dir_rad))));
+                Point tilt_shift(coord_t(scale_(lh * tan(tilt_x_rad))),
+                                 coord_t(scale_(lh * tan(tilt_y_rad))));
                 translate(effective_lower, tilt_shift);
             }
             if (lower_layer_offset == 0.f) {
