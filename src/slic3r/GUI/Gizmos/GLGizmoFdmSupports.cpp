@@ -561,7 +561,7 @@ void GLGizmoFdmSupports::select_facets_by_angle(float threshold_deg, bool block)
     auto [tilt_x_deg, tilt_y_deg] = get_build_plate_tilt();
     double tilt_x_rad = tilt_x_deg * M_PI / 180.0;
     double tilt_y_rad = tilt_y_deg * M_PI / 180.0;
-    Vec3d gravity_dir = Vec3d(tan(tilt_y_rad), tan(tilt_x_rad), -1.0).normalized();
+    Vec3d gravity_dir = Vec3d(-tan(tilt_y_rad), -tan(tilt_x_rad), -1.0).normalized();
 
     int mesh_id = -1;
     for (const ModelVolume* mv : mo->volumes) {
