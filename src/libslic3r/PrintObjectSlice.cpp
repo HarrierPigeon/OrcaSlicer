@@ -141,10 +141,20 @@ static std::vector<VolumeSlices> slice_volumes_inner(
     params_base.extra_offset   = 0;
     params_base.trafo          = object_trafo;
     // Belt printer: rotate mesh by -belt_angle around X so tilted slicing planes become horizontal.
-    // This makes z' = -y*sin(a) + z*cos(a), so z'=const is a tilted plane in the original mesh.
+    // Then translate Z so the rotated mesh starts at Z=0 (rotation can push parts below Z=0).
     if (print_config.belt_printer.value) {
         double belt_angle_rad = Geometry::deg2rad(print_config.belt_printer_angle.value);
-        params_base.trafo = Eigen::AngleAxisd(-belt_angle_rad, Vec3d::UnitX()) * params_base.trafo;
+        double sin_a = std::sin(belt_angle_rad);
+        double cos_a = std::cos(belt_angle_rad);
+        // Compute the min Z of the rotated bounding box.
+        BoundingBoxf3 bbox;
+        for (const ModelVolume *mv : model_volumes)
+            if (model_volume_needs_slicing(*mv))
+                bbox.merge(mv->mesh().transformed_bounding_box(object_trafo * mv->get_matrix()));
+        double min_z_rotated = -bbox.max.y() * sin_a + bbox.min.z() * cos_a;
+        double z_offset = -min_z_rotated;
+        params_base.trafo = Geometry::translation_transform(Vec3d(0, 0, z_offset)) *
+                            Eigen::AngleAxisd(-belt_angle_rad, Vec3d::UnitX()) * params_base.trafo;
     }
     //BBS: 0.0025mm is safe enough to simplify the data to speed slicing up for high-resolution model.
     //Also has on influence on arc fitting which has default resolution 0.0125mm.
@@ -1145,6 +1155,23 @@ void PrintObject::slice_volumes()
     }
 
     std::vector<float>                   slice_zs      = zs_from_layers(m_layers);
+    // Belt printer: compute Z offset to keep rotated mesh above Z=0.
+    m_belt_z_offset = 0.;
+    if (print->config().belt_printer.value) {
+        double belt_angle_rad = Geometry::deg2rad(print->config().belt_printer_angle.value);
+        BoundingBoxf3 bbox;
+        Transform3d obj_trafo = this->trafo_centered();
+        for (const ModelVolume *mv : this->model_object()->volumes)
+            if (model_volume_needs_slicing(*mv))
+                bbox.merge(mv->mesh().transformed_bounding_box(obj_trafo * mv->get_matrix()));
+        // After rotation by -a around X, the min Z is at (max_y, min_z):
+        //   z' = -max_y * sin(a) + min_z * cos(a)
+        // We translate Z by the negative of that to bring min Z to 0.
+        double sin_a = std::sin(belt_angle_rad);
+        double cos_a = std::cos(belt_angle_rad);
+        double min_z_rotated = -bbox.max.y() * sin_a + bbox.min.z() * cos_a;
+        m_belt_z_offset = -min_z_rotated;  // positive value
+    }
     std::vector<VolumeSlices> objSliceByVolume;
     if (!slice_zs.empty()) {
         objSliceByVolume = slice_volumes_inner(

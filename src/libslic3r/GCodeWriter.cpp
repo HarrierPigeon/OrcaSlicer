@@ -31,14 +31,14 @@ Vec3d GCodeWriter::to_machine_coords(const Vec3d &pos) const
 {
     if (m_belt_angle_rad == 0.)
         return pos;
-    // Inverse rotation: convert from rotated slicing frame back to world coordinates.
-    // The slicing transform was AngleAxisd(-a, X), so the inverse is rotation by +a:
-    //   Y_world = Y_slice * cos(a) - Z_slice * sin(a)
-    //   Z_world = Y_slice * sin(a) + Z_slice * cos(a)
+    // Inverse of: translate(0,0,z_off) * rot(-a)
+    // = rot(+a) * translate(0,0,-z_off)
+    // First remove Z offset, then apply inverse rotation.
+    double z_adj = pos.z() - m_belt_z_offset;
     return Vec3d(
         pos.x(),
-        pos.y() * m_belt_cos - pos.z() * m_belt_sin,
-        pos.y() * m_belt_sin + pos.z() * m_belt_cos
+        pos.y() * m_belt_cos - z_adj * m_belt_sin,
+        pos.y() * m_belt_sin + z_adj * m_belt_cos
     );
 }
 
