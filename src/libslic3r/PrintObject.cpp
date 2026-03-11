@@ -3392,9 +3392,7 @@ void PrintObject::update_slicing_parameters()
     // Orca: updated function call for XYZ shrinkage compensation
     if (!m_slicing_params.valid) {
           coordf_t object_height = this->model_object()->max_z();
-          // Belt printer: with YZ shear, the slicing-frame Z extent is z / sin(a).
-          // Each layer is a flat horizontal cross-section; more layers are needed because
-          // the machine Z increment per layer is layer_height * sin(a).
+          // Belt printer: with YZ shear, z' = z / sin(a), so height = z_extent / sin(a).
           const PrintConfig &pcfg = this->print()->config();
           if (pcfg.belt_printer.value) {
               const BoundingBoxf3 &bbox = this->model_object()->raw_bounding_box();
@@ -3442,7 +3440,7 @@ SlicingParameters PrintObject::slicing_parameters(const DynamicPrintConfig &full
 
     if (object_max_z <= 0.f)
         object_max_z = (float)model_object.raw_bounding_box().size().z();
-    // Belt printer: with YZ shear, the slicing-frame Z extent is z / sin(a).
+    // Belt printer: with YZ shear, z' = z / sin(a), so height = z_extent / sin(a).
     if (print_config.belt_printer.value) {
         const BoundingBoxf3 &bbox = model_object.raw_bounding_box();
         double angle_rad = Geometry::deg2rad(print_config.belt_printer_angle.value);

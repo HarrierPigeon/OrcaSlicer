@@ -2208,9 +2208,10 @@ void GCodeViewer::render_toolpaths()
 {
     const Camera& camera = wxGetApp().plater()->get_camera();
     Matrix4f view = camera.get_view_matrix().matrix().cast<float>();
-    // Belt view: apply inverse shear so toolpaths render as they appear on the
-    // tilted belt (world/machine frame) instead of the slicing frame.
-    // Inverse shear: y += z·cos(a), z *= sin(a)
+    // Belt view: apply inverse shear so toolpaths (in slicing frame) render as they
+    // appear on the actual tilted belt surface. Inverse shear:
+    //   y_machine = y_slice + z_slice · cos(a)
+    //   z_machine = z_slice · sin(a)
     if (is_belt_view()) {
         float angle_rad = m_belt_angle_deg * float(M_PI) / 180.f;
         Eigen::Matrix4f inv_shear = Eigen::Matrix4f::Identity();

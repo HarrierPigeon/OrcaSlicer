@@ -29,11 +29,10 @@ void GCodeWriter::set_belt_angle(double angle_deg)
 
 Vec3d GCodeWriter::to_machine_coords(const Vec3d &pos) const
 {
-    if (m_belt_angle_rad == 0.)
-        return pos;
-    // Inverse shear: slicing frame → machine/world coordinates.
-    // y_machine = y_slice + z_slice · cos(a)
-    // z_machine = z_slice · sin(a)
+    if (m_belt_angle_rad == 0.) return pos;
+    // Inverse shear: slicing frame → machine coordinates
+    //   y_machine = y_slice + z_slice · cos(a)
+    //   z_machine = z_slice · sin(a)
     return Vec3d(
         pos.x(),
         pos.y() + pos.z() * m_belt_cos,

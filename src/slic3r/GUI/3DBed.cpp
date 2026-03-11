@@ -388,12 +388,13 @@ void Bed3D::render_internal(GLCanvas3D& canvas, const Transform3d& view_matrix, 
     m_model.set_color(m_is_dark ? DEFAULT_MODEL_COLOR_DARK : DEFAULT_MODEL_COLOR);
 
     // Belt printer: apply inverse shear to tilt the bed visualization to match belt surface.
+    //   y_machine = y + z·cos(a),  z_machine = z·sin(a)
     Transform3d belt_view_matrix = view_matrix;
     if (m_is_belt_printer && m_belt_angle > 0.f) {
         double angle_rad = Geometry::deg2rad(static_cast<double>(m_belt_angle));
         Transform3d inv_shear = Transform3d::Identity();
-        inv_shear(1, 2) = std::cos(angle_rad);   // y += z·cos(a)
-        inv_shear(2, 2) = std::sin(angle_rad);   // z *= sin(a)
+        inv_shear(1, 2) = std::cos(angle_rad);
+        inv_shear(2, 2) = std::sin(angle_rad);
         belt_view_matrix = view_matrix * inv_shear;
     }
 
@@ -842,10 +843,13 @@ void Bed3D::render_slicing_plane(const Transform3d& view_matrix, const Transform
 
     shader->start_using();
 
-    // Show a horizontal plane at Z=30mm representing a slicing plane.
-    // With shear, slicing planes ARE horizontal — this helps verify the shear is working.
-    // The plane is rendered flat (no rotation) at a fixed height.
-    Transform3d model_matrix = Geometry::translation_transform(Vec3d(0., 0., 30.));
+    // Show a tilted plane representing the slicing direction.
+    // The slicing plane is rotated by belt_angle about X from horizontal.
+    // Raise it slightly so it's visible above the bed surface.
+    double angle_rad = Geometry::deg2rad(static_cast<double>(m_belt_angle));
+    Transform3d model_matrix = Transform3d::Identity();
+    model_matrix.translate(Vec3d(0., 0., 30.));
+    model_matrix.rotate(Eigen::AngleAxisd(angle_rad, Vec3d::UnitX()));
 
     shader->set_uniform("view_model_matrix", view_matrix * model_matrix);
     shader->set_uniform("projection_matrix", projection_matrix);
