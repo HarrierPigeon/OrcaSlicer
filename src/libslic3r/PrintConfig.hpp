@@ -1705,6 +1705,9 @@ PRINT_CONFIG_CLASS_DERIVED_DEFINE(
     PrintConfig,
     (MachineEnvelopeConfig, GCodeConfig),
 
+    // Build plate tilt for off-axis gravity support generation (printer-level setting).
+    ((ConfigOptionFloat,               build_plate_tilt_x))
+    ((ConfigOptionFloat,               build_plate_tilt_y))
     //BBS
     ((ConfigOptionInts,               additional_cooling_fan_speed))
     ((ConfigOptionInts,               close_additional_fan_first_x_layers))
