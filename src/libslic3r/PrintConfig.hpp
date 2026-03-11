@@ -1406,6 +1406,10 @@ PRINT_CONFIG_CLASS_DERIVED_DEFINE(
     // Build plate tilt for off-axis gravity support generation (printer-level setting).
     ((ConfigOptionFloat,               build_plate_tilt_x))
     ((ConfigOptionFloat,               build_plate_tilt_y))
+    // Belt printer settings (printer-level).
+    ((ConfigOptionBool,                belt_printer))
+    ((ConfigOptionFloat,               belt_printer_angle))
+    ((ConfigOptionBool,                belt_printer_infinite_y))
     //BBS
     ((ConfigOptionInts,               additional_cooling_fan_speed))
     ((ConfigOptionBool,               reduce_crossing_wall))

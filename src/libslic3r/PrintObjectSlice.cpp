@@ -8,6 +8,7 @@
 #include "Layer.hpp"
 #include "MultiMaterialSegmentation.hpp"
 #include "Print.hpp"
+#include "Geometry.hpp"
 //BBS
 #include "ShortestPath.hpp"
 #include "libslic3r/Feature/Interlocking/InterlockingGenerator.hpp"
@@ -139,6 +140,11 @@ static std::vector<VolumeSlices> slice_volumes_inner(
     params_base.closing_radius = print_object_config.slice_closing_radius.value;
     params_base.extra_offset   = 0;
     params_base.trafo          = object_trafo;
+    // Belt printer: prepend rotation by -belt_angle around X axis so tilted slicing planes become horizontal.
+    if (print_config.belt_printer.value) {
+        double belt_angle_rad = Geometry::deg2rad(print_config.belt_printer_angle.value);
+        params_base.trafo = Eigen::AngleAxisd(-belt_angle_rad, Vec3d::UnitX()) * params_base.trafo;
+    }
     //BBS: 0.0025mm is safe enough to simplify the data to speed slicing up for high-resolution model.
     //Also has on influence on arc fitting which has default resolution 0.0125mm.
     params_base.resolution = print_config.resolution <= 0.001 ? 0.0f : 0.0025;

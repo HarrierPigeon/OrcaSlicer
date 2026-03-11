@@ -176,6 +176,26 @@ BuildVolume::BuildVolume(const std::vector<Vec2d> &printable_area, const double 
     BOOST_LOG_TRIVIAL(debug) << "BuildVolume printable_area clasified as: " << this->type_name();
 }
 
+void BuildVolume::set_belt_printer(bool enabled, double angle_deg, bool infinite_y)
+{
+    m_is_belt_printer = enabled;
+    m_belt_angle = angle_deg;
+    m_belt_infinite_y = infinite_y;
+
+    if (enabled) {
+        if (infinite_y) {
+            // Extend the Y bound to a very large value for infinite belt.
+            m_bboxf.max.y() = 100000.;
+        }
+        // Adjust max print height to diagonal reach: printable_height / sin(belt_angle).
+        if (angle_deg > 0. && angle_deg < 90.) {
+            double sin_a = std::sin(angle_deg * M_PI / 180.0);
+            if (sin_a > 0.)
+                m_bboxf.max.z() = m_max_print_height / sin_a;
+        }
+    }
+}
+
 #if 0
 // Tests intersections of projected triangles, not just their vertices against a bounding box.
 // This test also correctly evaluates collision of a non-convex object with the bounding box.
@@ -384,6 +404,11 @@ BuildVolume::ObjectState BuildVolume::object_state(const indexed_triangle_set& i
             build_volume.max.z() = std::numeric_limits<double>::max();
         if (ignore_bottom)
             build_volume.min.z() = -std::numeric_limits<double>::max();
+        // Belt printer: extend Y bounds for infinite Y.
+        if (m_is_belt_printer && m_belt_infinite_y) {
+            build_volume.min.y() = -std::numeric_limits<double>::max();
+            build_volume.max.y() = std::numeric_limits<double>::max();
+        }
         BoundingBox3Base<Vec3f> build_volumef(build_volume.min.cast<float>(), build_volume.max.cast<float>());
         // The following test correctly interprets intersection of a non-convex object with a rectangular build volume.
         //return rectangle_test(its, trafo, to_2d(build_volume.min), to_2d(build_volume.max), build_volume.max.z());

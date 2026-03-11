@@ -10968,6 +10968,20 @@ void Plater::priv::set_bed_shape(const Pointfs       &shape,
     Vec2d shape_position = partplate_list.get_current_shape_position();
     bool new_shape = bed.set_shape(shape, printable_height, extruder_areas, extruder_heights, custom_model, force_as_custom, shape_position);
 
+    // Belt printer: configure build volume and bed rendering for belt mode.
+    {
+        const auto *belt_opt = config->option<ConfigOptionBool>("belt_printer");
+        bool is_belt = belt_opt && belt_opt->value;
+        if (is_belt) {
+            double belt_angle = config->opt_float("belt_printer_angle");
+            bool infinite_y = config->opt_bool("belt_printer_infinite_y");
+            bed.build_volume().set_belt_printer(true, belt_angle, infinite_y);
+            bed.set_belt_printer(true, static_cast<float>(belt_angle));
+        } else {
+            bed.set_belt_printer(false, 0.f);
+        }
+    }
+
     float prev_height_lid, prev_height_rod;
     partplate_list.get_height_limits(prev_height_lid, prev_height_rod);
     double height_to_lid = config->opt_float("extruder_clearance_height_to_lid");

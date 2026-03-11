@@ -387,11 +387,18 @@ void Bed3D::render_internal(GLCanvas3D& canvas, const Transform3d& view_matrix, 
 
     m_model.set_color(m_is_dark ? DEFAULT_MODEL_COLOR_DARK : DEFAULT_MODEL_COLOR);
 
+    // Belt printer: apply tilt rotation to the view matrix for bed rendering.
+    Transform3d belt_view_matrix = view_matrix;
+    if (m_is_belt_printer && m_belt_angle > 0.f) {
+        double angle_rad = Geometry::deg2rad(static_cast<double>(m_belt_angle));
+        belt_view_matrix = view_matrix * Eigen::AngleAxisd(angle_rad, Vec3d::UnitX());
+    }
+
     switch (m_type)
     {
-    case Type::System: { render_system(canvas, view_matrix, projection_matrix, bottom); break; }
+    case Type::System: { render_system(canvas, belt_view_matrix, projection_matrix, bottom); break; }
     default:
-    case Type::Custom: { render_custom(canvas, view_matrix, projection_matrix, bottom); break; }
+    case Type::Custom: { render_custom(canvas, belt_view_matrix, projection_matrix, bottom); break; }
     }
 
     render_gravity_arrow(view_matrix, projection_matrix);
@@ -738,6 +745,10 @@ void Bed3D::render_gravity_arrow(const Transform3d& view_matrix, const Transform
     const DynamicPrintConfig& cfg = wxGetApp().preset_bundle->printers.get_edited_preset().config;
     double tilt_x_deg = cfg.opt_float("build_plate_tilt_x");
     double tilt_y_deg = cfg.opt_float("build_plate_tilt_y");
+    // Belt printer: auto-derive gravity direction from belt angle if belt mode is active.
+    if (m_is_belt_printer && m_belt_angle > 0.f) {
+        tilt_x_deg = m_belt_angle;
+    }
     if (tilt_x_deg == 0. && tilt_y_deg == 0.) {
         m_gravity_arrow.reset();
         return;

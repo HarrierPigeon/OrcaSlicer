@@ -125,6 +125,12 @@ public:
     void set_is_first_layer(bool bval) { m_is_first_layer = bval; }
     GCodeFlavor get_gcode_flavor() const { return config.gcode_flavor; }
 
+    // Belt printer: set the belt angle and precompute sin/cos for coordinate transformation.
+    void set_belt_angle(double angle_deg);
+    bool is_belt_printer() const { return m_belt_angle_rad != 0.; }
+    // Transform a point from the rotated (slicing) frame to machine coordinates.
+    Vec3d to_machine_coords(const Vec3d &pos) const;
+
     // Returns whether this flavor supports separate print and travel acceleration.
     static bool supports_separate_travel_acceleration(GCodeFlavor flavor);
   private:
@@ -177,6 +183,11 @@ public:
 
     //SoftFever
     bool            m_is_bbl_printers = false;
+
+    // Belt printer coordinate transformation
+    double          m_belt_angle_rad = 0.;
+    double          m_belt_cos = 1.0;
+    double          m_belt_sin = 0.0;
     double          m_current_speed;
     bool            m_is_first_layer = true;
 

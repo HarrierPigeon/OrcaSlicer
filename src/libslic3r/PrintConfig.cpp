@@ -2,6 +2,7 @@
 #include "PrintConfigConstants.hpp"
 #include "ClipperUtils.hpp"
 #include "Config.hpp"
+#include "Geometry.hpp"
 #include "MaterialType.hpp"
 #include "I18N.hpp"
 #include "format.hpp"
@@ -5906,10 +5907,11 @@ void PrintConfigDef::init_fff_params()
     def->category = L("Support");
     def->tooltip = L("Tilt angle of the build plate along the X axis. "
                      "A positive value tilts the plate so the +X side is higher, shifting gravity toward -X and increasing overhangs on the +X side. "
-                     "A negative value tilts the -X side higher. Set to 0 for no X-axis tilt.");
+                     "A negative value tilts the -X side higher. Set to 0 for no X-axis tilt. "
+                     "In belt printer mode, this is automatically synced to the belt angle.");
     def->sidetext = u8"\u00B0";
-    def->min = -45;
-    def->max = 45;
+    def->min = -90;
+    def->max = 90;
     def->mode = comAdvanced;
     def->set_default_value(new ConfigOptionFloat(0.));
 
@@ -5920,10 +5922,40 @@ void PrintConfigDef::init_fff_params()
                      "A positive value tilts the plate so the +Y side is higher, shifting gravity toward -Y and increasing overhangs on the +Y side. "
                      "A negative value tilts the -Y side higher. Set to 0 for no Y-axis tilt.");
     def->sidetext = u8"\u00B0";
-    def->min = -45;
-    def->max = 45;
+    def->min = -90;
+    def->max = 90;
     def->mode = comAdvanced;
     def->set_default_value(new ConfigOptionFloat(0.));
+
+    def = this->add("belt_printer", coBool);
+    def->label = L("Belt printer");
+    def->category = L("Printable space");
+    def->tooltip = L("Enable belt printer mode. Belt printers use a conveyor belt as the build surface, "
+                     "tilted at an angle (typically 45 degrees). The slicer will rotate the slicing plane "
+                     "and transform G-code coordinates for the tilted build surface.");
+    def->mode = comAdvanced;
+    def->set_default_value(new ConfigOptionBool(false));
+
+    def = this->add("belt_printer_angle", coFloat);
+    def->label = L("Belt angle");
+    def->category = L("Printable space");
+    def->tooltip = L("The tilt angle of the belt surface in degrees. "
+                     "Most belt printers use a 45-degree angle. "
+                     "This controls the rotation applied to the slicing plane and G-code coordinates.");
+    def->sidetext = u8"\u00B0";
+    def->min = 0;
+    def->max = 90;
+    def->mode = comAdvanced;
+    def->set_default_value(new ConfigOptionFloat(45.));
+
+    def = this->add("belt_printer_infinite_y", coBool);
+    def->label = L("Infinite Y axis");
+    def->category = L("Printable space");
+    def->tooltip = L("Enable infinite Y axis for belt printers. "
+                     "When enabled, the Y axis build volume limit is effectively removed, "
+                     "allowing objects of any length to be printed along the belt direction.");
+    def->mode = comAdvanced;
+    def->set_default_value(new ConfigOptionBool(true));
 
     def = this->add("tree_support_branch_angle", coFloat);
     def->label = L("Tree support branch angle");
@@ -10806,10 +10838,16 @@ Polygons get_bed_excluded_area(const PrintConfig& cfg)
 {
     const Pointfs exclude_area_points = cfg.bed_exclude_area.values;
 
+    // Belt printer: project exclusion zone points from belt surface to machine-frame XY.
+    // On the belt surface, Z=0, so machine_Y = belt_Y * cos(angle).
+    const bool is_belt = cfg.belt_printer.value;
+    const double belt_cos = is_belt ? std::cos(Geometry::deg2rad(cfg.belt_printer_angle.value)) : 1.0;
+
     Polygon exclude_poly;
     for (int i = 0; i < exclude_area_points.size(); i++) {
         auto pt = exclude_area_points[i];
-        exclude_poly.points.emplace_back(scale_(pt.x()), scale_(pt.y()));
+        double y = is_belt ? pt.y() * belt_cos : pt.y();
+        exclude_poly.points.emplace_back(scale_(pt.x()), scale_(y));
     }
 
     exclude_poly.make_counter_clockwise();

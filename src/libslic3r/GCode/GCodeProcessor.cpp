@@ -2597,6 +2597,23 @@ void GCodeProcessor::finalize(bool post_process)
         }
     }
 
+    // Belt printer: apply forward rotation to convert machine coordinates back to
+    // visualization coordinates for the G-code preview.
+    if (m_result.belt_printer_angle != 0.f) {
+        const float angle_rad = m_result.belt_printer_angle * float(M_PI) / 180.f;
+        const float cos_a = std::cos(angle_rad);
+        const float sin_a = std::sin(angle_rad);
+        for (GCodeProcessorResult::MoveVertex& move : m_result.moves) {
+            // Machine coords -> visualization coords (forward rotation)
+            // vis_Y =  machine_Y * cos(a) + machine_Z * sin(a)
+            // vis_Z = -machine_Y * sin(a) + machine_Z * cos(a)
+            float y = move.position.y();
+            float z = move.position.z();
+            move.position.y() =  y * cos_a + z * sin_a;
+            move.position.z() = -y * sin_a + z * cos_a;
+        }
+    }
+
     calculate_time(m_result);
 
     // process the time blocks
@@ -3041,6 +3058,14 @@ void GCodeProcessor::process_tags(const std::string_view comment, bool producers
     // ; Z_HEIGHT:
     if (boost::starts_with(comment, " Z_HEIGHT:")) {
         m_print_z = get_z_height(comment);
+        return;
+    }
+
+    // Belt printer angle detection from G-code header comment.
+    if (boost::starts_with(comment, " belt_printer_angle = ")) {
+        try {
+            m_result.belt_printer_angle = std::stof(std::string(comment.substr(22)));
+        } catch (...) {}
         return;
     }
 

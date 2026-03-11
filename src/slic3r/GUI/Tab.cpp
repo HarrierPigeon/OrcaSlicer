@@ -4366,6 +4366,9 @@ void TabPrinter::build_fff()
         optgroup->append_single_option_line("printable_height", "printer_basic_information_printable_space#printable-height");
         optgroup->append_single_option_line("build_plate_tilt_x");
         optgroup->append_single_option_line("build_plate_tilt_y");
+        optgroup->append_single_option_line("belt_printer");
+        optgroup->append_single_option_line("belt_printer_angle");
+        optgroup->append_single_option_line("belt_printer_infinite_y");
         optgroup->append_single_option_line("support_multi_bed_types","printer_basic_information_printable_space#support-multi-bed-types");
         optgroup->append_single_option_line("best_object_pos", "printer_basic_information_printable_space#best-object-position");
         // todo: for multi_extruder test
@@ -5228,6 +5231,11 @@ void TabPrinter::toggle_options()
 
         auto gcf = m_config->option<ConfigOptionEnum<GCodeFlavor>>("gcode_flavor")->value;
         toggle_line("enable_power_loss_recovery", is_BBL_printer || gcf == gcfMarlinFirmware);
+
+        // Belt printer: show belt-specific settings only when belt_printer is enabled.
+        bool is_belt = m_config->opt_bool("belt_printer");
+        toggle_line("belt_printer_angle", is_belt);
+        toggle_line("belt_printer_infinite_y", is_belt);
     }
     
 
@@ -5395,6 +5403,14 @@ void TabPrinter::update_fff()
     if (m_use_silent_mode != m_config->opt_bool("silent_mode"))	{
         m_rebuild_kinematics_page = true;
         m_use_silent_mode = m_config->opt_bool("silent_mode");
+    }
+
+    // Belt printer: auto-sync build_plate_tilt_x to belt_printer_angle when belt mode is active.
+    if (m_config->opt_bool("belt_printer")) {
+        double belt_angle = m_config->opt_float("belt_printer_angle");
+        if (m_config->opt_float("build_plate_tilt_x") != belt_angle) {
+            m_config->set_key_value("build_plate_tilt_x", new ConfigOptionFloat(belt_angle));
+        }
     }
 
     toggle_options();

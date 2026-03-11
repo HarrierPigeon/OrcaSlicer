@@ -120,6 +120,9 @@ private:
     std::vector<std::vector<Vec2d>> m_extruder_shapes;
     std::vector<double> m_extruder_heights;
     bool m_is_dark = false;
+    // Belt printer state for rendering.
+    bool  m_is_belt_printer = false;
+    float m_belt_angle = 0.f;
 
 public:
     Bed3D() = default;
@@ -139,6 +142,12 @@ public:
 
     // Build volume geometry for various collision detection tasks.
     const BuildVolume& build_volume() const { return m_build_volume; }
+    BuildVolume& build_volume() { return m_build_volume; }
+
+    // Belt printer bed settings.
+    void set_belt_printer(bool enabled, float angle_deg) { m_is_belt_printer = enabled; m_belt_angle = angle_deg; }
+    bool is_belt_printer() const { return m_is_belt_printer; }
+    float belt_angle() const { return m_belt_angle; }
 
     // Was the model provided, or was it generated procedurally?
     Type get_type() const { return m_type; }

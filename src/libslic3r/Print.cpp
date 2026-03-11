@@ -564,6 +564,9 @@ std::vector<ObjectID> Print::print_object_ids() const
 
 bool Print::has_infinite_skirt() const
 {
+    // Belt printer: no skirt support.
+    if (m_config.belt_printer.value)
+        return false;
     // Orca: unclear why (m_config.ooze_prevention && this->extruders().size() > 1) logic is here, removed.
     // return (m_config.draft_shield == dsEnabled && m_config.skirt_loops > 0) || (m_config.ooze_prevention && this->extruders().size() > 1);
 
@@ -572,6 +575,9 @@ bool Print::has_infinite_skirt() const
 
 bool Print::has_skirt() const
 {
+    // Belt printer: no skirt support.
+    if (m_config.belt_printer.value)
+        return false;
     return (m_config.skirt_height > 0);
 }
 
@@ -1192,6 +1198,16 @@ StringObjectException Print::validate(StringObjectException *warning, Polygons* 
 
     if (extruders.empty())
         return { L("No extrusions under current settings.") };
+
+    // Belt printer validation: incompatible features.
+    if (m_config.belt_printer.value) {
+        for (const PrintObject *object : m_objects) {
+            if (object->config().raft_layers > 0)
+                return { L("Raft is not compatible with belt printer mode.") };
+        }
+        if (m_config.draft_shield != dsDisabled)
+            return { L("Draft shield is not compatible with belt printer mode.") };
+    }
 
     if (nozzles < 2 && extruders.size() > 1) {
         auto ret = check_multi_filament_valid(*this);
@@ -2490,6 +2506,10 @@ std::string Print::export_gcode(const std::string& path_template, GCodeProcessor
 
 void Print::_make_skirt()
 {
+    // Belt printer: skirt is not compatible.
+    if (m_config.belt_printer.value)
+        return;
+
     // First off we need to decide how tall the skirt must be.
     // The skirt_height option from config is expressed in layers, but our
     // object might have different layer heights, so we need to find the print_z
