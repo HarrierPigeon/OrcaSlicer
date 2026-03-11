@@ -2597,16 +2597,15 @@ void GCodeProcessor::finalize(bool post_process)
         }
     }
 
-    // Belt printer: apply forward rotation to convert machine coordinates back to
-    // visualization coordinates for the G-code preview.
+    // Belt printer: apply forward rotation to convert world coordinates (from G-code)
+    // back to the rotated slicing frame for visualization.
+    // The G-code contains world coords (inverse rotation was applied during G-code gen).
+    // To visualize in the slicing frame, apply the forward rotation: AngleAxisd(-a, X).
     if (m_result.belt_printer_angle != 0.f) {
         const float angle_rad = m_result.belt_printer_angle * float(M_PI) / 180.f;
         const float cos_a = std::cos(angle_rad);
         const float sin_a = std::sin(angle_rad);
         for (GCodeProcessorResult::MoveVertex& move : m_result.moves) {
-            // Machine coords -> visualization coords (forward rotation)
-            // vis_Y =  machine_Y * cos(a) + machine_Z * sin(a)
-            // vis_Z = -machine_Y * sin(a) + machine_Z * cos(a)
             float y = move.position.y();
             float z = move.position.z();
             move.position.y() =  y * cos_a + z * sin_a;

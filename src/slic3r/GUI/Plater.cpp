@@ -10977,8 +10977,12 @@ void Plater::priv::set_bed_shape(const Pointfs       &shape,
             bool infinite_y = config->opt_bool("belt_printer_infinite_y");
             bed.build_volume().set_belt_printer(true, belt_angle, infinite_y);
             bed.set_belt_printer(true, static_cast<float>(belt_angle));
+            if (preview)
+                preview->get_canvas3d()->get_gcode_viewer().set_belt_printer(true, static_cast<float>(belt_angle));
         } else {
             bed.set_belt_printer(false, 0.f);
+            if (preview)
+                preview->get_canvas3d()->get_gcode_viewer().set_belt_printer(false, 0.f);
         }
     }
 

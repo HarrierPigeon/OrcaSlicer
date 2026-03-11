@@ -3392,16 +3392,13 @@ void PrintObject::update_slicing_parameters()
     // Orca: updated function call for XYZ shrinkage compensation
     if (!m_slicing_params.valid) {
           coordf_t object_height = this->model_object()->max_z();
-          // Belt printer: compute the Z extent of the rotated bounding box.
-          // After rotating by -belt_angle around X, the new Z extent is:
+          // Belt printer: after rotating by -belt_angle around X, the new Z extent is:
           //   new_Z = Y_extent * sin(angle) + Z_extent * cos(angle)
           const PrintConfig &pcfg = this->print()->config();
           if (pcfg.belt_printer.value) {
               const BoundingBoxf3 &bbox = this->model_object()->raw_bounding_box();
               double angle_rad = Geometry::deg2rad(pcfg.belt_printer_angle.value);
-              double y_extent = bbox.size().y();
-              double z_extent = bbox.size().z();
-              object_height = y_extent * std::sin(angle_rad) + z_extent * std::cos(angle_rad);
+              object_height = bbox.size().y() * std::sin(angle_rad) + bbox.size().z() * std::cos(angle_rad);
           }
           m_slicing_params = SlicingParameters::create_from_config(pcfg, m_config, object_height,
                                                                    this->object_extruders(), this->print()->shrinkage_compensation());
@@ -3444,7 +3441,8 @@ SlicingParameters PrintObject::slicing_parameters(const DynamicPrintConfig &full
 
     if (object_max_z <= 0.f)
         object_max_z = (float)model_object.raw_bounding_box().size().z();
-    // Belt printer: adjust object height to account for the rotated bounding box.
+    // Belt printer: after rotating by -belt_angle around X, the new Z extent is:
+    //   new_Z = Y_extent * sin(angle) + Z_extent * cos(angle)
     if (print_config.belt_printer.value) {
         const BoundingBoxf3 &bbox = model_object.raw_bounding_box();
         double angle_rad = Geometry::deg2rad(print_config.belt_printer_angle.value);

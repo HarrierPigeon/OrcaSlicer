@@ -140,7 +140,8 @@ static std::vector<VolumeSlices> slice_volumes_inner(
     params_base.closing_radius = print_object_config.slice_closing_radius.value;
     params_base.extra_offset   = 0;
     params_base.trafo          = object_trafo;
-    // Belt printer: prepend rotation by -belt_angle around X axis so tilted slicing planes become horizontal.
+    // Belt printer: rotate mesh by -belt_angle around X so tilted slicing planes become horizontal.
+    // This makes z' = -y*sin(a) + z*cos(a), so z'=const is a tilted plane in the original mesh.
     if (print_config.belt_printer.value) {
         double belt_angle_rad = Geometry::deg2rad(print_config.belt_printer_angle.value);
         params_base.trafo = Eigen::AngleAxisd(-belt_angle_rad, Vec3d::UnitX()) * params_base.trafo;

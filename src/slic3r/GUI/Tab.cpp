@@ -5406,10 +5406,19 @@ void TabPrinter::update_fff()
     }
 
     // Belt printer: auto-sync build_plate_tilt_x to belt_printer_angle when belt mode is active.
+    // When belt mode is off, reset build_plate_tilt_x to 0 if it was set by belt mode.
     if (m_config->opt_bool("belt_printer")) {
         double belt_angle = m_config->opt_float("belt_printer_angle");
         if (m_config->opt_float("build_plate_tilt_x") != belt_angle) {
             m_config->set_key_value("build_plate_tilt_x", new ConfigOptionFloat(belt_angle));
+        }
+    } else {
+        // Only reset if build_plate_tilt_x matches a typical belt angle (was set by auto-sync).
+        // Avoid clobbering a manually-set tilt value for non-belt tilted printers.
+        double current_tilt = m_config->opt_float("build_plate_tilt_x");
+        double belt_angle = m_config->opt_float("belt_printer_angle");
+        if (current_tilt != 0. && std::abs(current_tilt - belt_angle) < 0.01) {
+            m_config->set_key_value("build_plate_tilt_x", new ConfigOptionFloat(0.));
         }
     }
 

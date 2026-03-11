@@ -237,6 +237,9 @@ private:
 mutable bool m_no_render_path { false };
     bool m_is_dark = false;
 
+    bool  m_belt_view_enabled = false;
+    float m_belt_angle_deg = 0.f;
+
     libvgcode::Viewer m_viewer;
     bool m_loaded_as_preview{ false };
 
@@ -335,6 +338,9 @@ public:
     float get_legend_height() { return m_legend_height; }
 
     void export_toolpaths_to_obj(const char* filename) const;
+
+    void set_belt_printer(bool enabled, float angle_deg) { m_belt_view_enabled = enabled; m_belt_angle_deg = angle_deg; }
+    bool is_belt_view() const { return m_belt_view_enabled && m_belt_angle_deg > 0.f; }
 
     size_t get_extruders_count() { return m_extruders_count; }
     void push_combo_style();
