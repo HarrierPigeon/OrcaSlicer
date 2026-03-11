@@ -672,8 +672,9 @@ void TreeSupport::detect_overhangs(bool check_support_necessity/* = false*/)
     thresh_angle = std::min(thresh_angle, 89.); // should be smaller than 90
     const double threshold_rad = Geometry::deg2rad(thresh_angle);
     // Build plate tilt: compute per-layer XY shift for tilted gravity direction
-    const double tilt_x_rad = Geometry::deg2rad(config.build_plate_tilt_x.value);
-    const double tilt_y_rad = Geometry::deg2rad(config.build_plate_tilt_y.value);
+    const PrintConfig& print_cfg = m_object->print()->config();
+    const double tilt_x_rad = Geometry::deg2rad(print_cfg.build_plate_tilt_x.value);
+    const double tilt_y_rad = Geometry::deg2rad(print_cfg.build_plate_tilt_y.value);
     const bool   has_tilt   = std::abs(tilt_x_rad) > EPSILON || std::abs(tilt_y_rad) > EPSILON;
     // FIXME this is a fudge constant!
     double support_tree_tip_diameter = 0.8;

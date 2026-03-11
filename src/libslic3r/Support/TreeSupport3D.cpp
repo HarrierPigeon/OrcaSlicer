@@ -209,8 +209,8 @@ static std::vector<std::pair<TreeSupportSettings, std::vector<size_t>>> group_me
     // +1 makes the threshold inclusive
     double                   tan_threshold          = support_threshold_auto ? 0. : tan(M_PI * double(support_threshold + 1) / 180.);
     // Build plate tilt: compute per-layer XY shift for tilted gravity direction
-    const double             tilt_x_rad             = Geometry::deg2rad(config.build_plate_tilt_x.value);
-    const double             tilt_y_rad             = Geometry::deg2rad(config.build_plate_tilt_y.value);
+    const double             tilt_x_rad             = Geometry::deg2rad(print_config.build_plate_tilt_x.value);
+    const double             tilt_y_rad             = Geometry::deg2rad(print_config.build_plate_tilt_y.value);
     const bool               has_tilt               = std::abs(tilt_x_rad) > EPSILON || std::abs(tilt_y_rad) > EPSILON;
     //FIXME this is a fudge constant!
     auto                     enforcer_overhang_offset = scaled<double>(config.tree_support_tip_diameter.value);

@@ -735,7 +735,7 @@ void Bed3D::render_custom(GLCanvas3D& canvas, const Transform3d& view_matrix, co
 
 void Bed3D::render_gravity_arrow(const Transform3d& view_matrix, const Transform3d& projection_matrix)
 {
-    const DynamicPrintConfig& cfg = wxGetApp().preset_bundle->prints.get_edited_preset().config;
+    const DynamicPrintConfig& cfg = wxGetApp().preset_bundle->printers.get_edited_preset().config;
     double tilt_x_deg = cfg.opt_float("build_plate_tilt_x");
     double tilt_y_deg = cfg.opt_float("build_plate_tilt_y");
     if (tilt_x_deg == 0. && tilt_y_deg == 0.) {

@@ -1084,9 +1084,9 @@ void GLVolumeCollection::render(GLVolumeCollection::ERenderType       type,
         // Compute up direction accounting for build plate tilt
         Vec3f up_direction = Vec3f::UnitZ();
         {
-            const DynamicPrintConfig& glb_cfg = GUI::wxGetApp().preset_bundle->prints.get_edited_preset().config;
-            double tilt_x_deg = glb_cfg.opt_float("build_plate_tilt_x");
-            double tilt_y_deg = glb_cfg.opt_float("build_plate_tilt_y");
+            const DynamicPrintConfig& prt_cfg = GUI::wxGetApp().preset_bundle->printers.get_edited_preset().config;
+            double tilt_x_deg = prt_cfg.opt_float("build_plate_tilt_x");
+            double tilt_y_deg = prt_cfg.opt_float("build_plate_tilt_y");
             if (tilt_x_deg != 0. || tilt_y_deg != 0.) {
                 double tilt_x_rad = Geometry::deg2rad(tilt_x_deg);
                 double tilt_y_rad = Geometry::deg2rad(tilt_y_deg);

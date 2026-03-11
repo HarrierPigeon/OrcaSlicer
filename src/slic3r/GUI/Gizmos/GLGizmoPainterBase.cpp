@@ -75,9 +75,9 @@ GLGizmoPainterBase::ClippingPlaneDataWrapper GLGizmoPainterBase::get_clipping_pl
 
 Vec3f GLGizmoPainterBase::get_tilt_up_direction() const
 {
-    const DynamicPrintConfig& glb_cfg = wxGetApp().preset_bundle->prints.get_edited_preset().config;
-    double tilt_x_deg = glb_cfg.opt_float("build_plate_tilt_x");
-    double tilt_y_deg = glb_cfg.opt_float("build_plate_tilt_y");
+    const DynamicPrintConfig& cfg = wxGetApp().preset_bundle->printers.get_edited_preset().config;
+    double tilt_x_deg = cfg.opt_float("build_plate_tilt_x");
+    double tilt_y_deg = cfg.opt_float("build_plate_tilt_y");
     if (tilt_x_deg == 0. && tilt_y_deg == 0.)
         return Vec3f::UnitZ();
     double tilt_x_rad = Geometry::deg2rad(tilt_x_deg);

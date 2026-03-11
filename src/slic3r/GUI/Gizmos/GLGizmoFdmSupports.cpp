@@ -539,14 +539,9 @@ int GLGizmoFdmSupports::get_selection_support_threshold_angle()
 
 std::pair<double, double> GLGizmoFdmSupports::get_build_plate_tilt()
 {
-    auto sel_info = m_c->selection_info();
-    if (sel_info == nullptr)
-        return {0., 0.};
-
-    const DynamicPrintConfig& obj_cfg = sel_info->model_object()->config.get();
-    const DynamicPrintConfig& glb_cfg = wxGetApp().preset_bundle->prints.get_edited_preset().config;
-    double tilt_x = obj_cfg.option("build_plate_tilt_x") ? obj_cfg.opt_float("build_plate_tilt_x") : glb_cfg.opt_float("build_plate_tilt_x");
-    double tilt_y = obj_cfg.option("build_plate_tilt_y") ? obj_cfg.opt_float("build_plate_tilt_y") : glb_cfg.opt_float("build_plate_tilt_y");
+    const DynamicPrintConfig& cfg = wxGetApp().preset_bundle->printers.get_edited_preset().config;
+    double tilt_x = cfg.opt_float("build_plate_tilt_x");
+    double tilt_y = cfg.opt_float("build_plate_tilt_y");
     return {tilt_x, tilt_y};
 }
 
