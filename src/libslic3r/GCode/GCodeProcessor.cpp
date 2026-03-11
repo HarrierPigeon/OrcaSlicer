@@ -2597,19 +2597,18 @@ void GCodeProcessor::finalize(bool post_process)
         }
     }
 
-    // Belt printer: apply forward transform (translate(0,0,z_off) * rot(-a)) to convert
-    // world coordinates (from G-code) back to the slicing frame for visualization.
+    // Belt printer: apply forward shear to convert machine/world coordinates (from G-code)
+    // back to the slicing frame for visualization.
+    // Forward shear: y_slice = y_machine - z_machine·cos(a)/sin(a), z_slice = z_machine/sin(a)
     if (m_result.belt_printer_angle != 0.f) {
         const float angle_rad = m_result.belt_printer_angle * float(M_PI) / 180.f;
         const float cos_a = std::cos(angle_rad);
         const float sin_a = std::sin(angle_rad);
-        const float z_off = m_result.belt_z_offset;
         for (GCodeProcessorResult::MoveVertex& move : m_result.moves) {
             float y = move.position.y();
             float z = move.position.z();
-            // Forward rotation: rot(-a)
-            move.position.y() =  y * cos_a + z * sin_a;
-            move.position.z() = -y * sin_a + z * cos_a + z_off;
+            move.position.y() = y - z * cos_a / sin_a;
+            move.position.z() = z / sin_a;
         }
     }
 
@@ -3064,12 +3063,6 @@ void GCodeProcessor::process_tags(const std::string_view comment, bool producers
     if (boost::starts_with(comment, " belt_printer_angle = ")) {
         try {
             m_result.belt_printer_angle = std::stof(std::string(comment.substr(22)));
-        } catch (...) {}
-        return;
-    }
-    if (boost::starts_with(comment, " belt_z_offset = ")) {
-        try {
-            m_result.belt_z_offset = std::stof(std::string(comment.substr(17)));
         } catch (...) {}
         return;
     }

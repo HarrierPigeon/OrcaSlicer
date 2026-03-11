@@ -2208,16 +2208,15 @@ void GCodeViewer::render_toolpaths()
 {
     const Camera& camera = wxGetApp().plater()->get_camera();
     Matrix4f view = camera.get_view_matrix().matrix().cast<float>();
-    // Belt view: apply inverse rotation (+a around X) so toolpaths render
-    // as they appear on the tilted belt (world frame) instead of the slicing frame.
+    // Belt view: apply inverse shear so toolpaths render as they appear on the
+    // tilted belt (world/machine frame) instead of the slicing frame.
+    // Inverse shear: y += z·cos(a), z *= sin(a)
     if (is_belt_view()) {
         float angle_rad = m_belt_angle_deg * float(M_PI) / 180.f;
-        Eigen::Matrix4f inv_rot = Eigen::Matrix4f::Identity();
-        float cos_a = std::cos(angle_rad);
-        float sin_a = std::sin(angle_rad);
-        inv_rot(1, 1) =  cos_a;  inv_rot(1, 2) = -sin_a;
-        inv_rot(2, 1) =  sin_a;  inv_rot(2, 2) =  cos_a;
-        view = view * inv_rot;
+        Eigen::Matrix4f inv_shear = Eigen::Matrix4f::Identity();
+        inv_shear(1, 2) = std::cos(angle_rad);   // y += z·cos(a)
+        inv_shear(2, 2) = std::sin(angle_rad);   // z *= sin(a)
+        view = view * inv_shear;
     }
     const libvgcode::Mat4x4 converted_view_matrix = libvgcode::convert(view);
     const libvgcode::Mat4x4 converted_projetion_matrix = libvgcode::convert(static_cast<Matrix4f>(camera.get_projection_matrix().matrix().cast<float>()));

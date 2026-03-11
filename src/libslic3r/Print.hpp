@@ -328,7 +328,6 @@ public:
         { Transform3d t = this->trafo(); t.pretranslate(Vec3d(- unscale<double>(m_center_offset.x()), - unscale<double>(m_center_offset.y()), 0)); return t; }
     const PrintInstances&        instances() const      { return m_instances; }
     PrintInstances &instances() { return m_instances; }
-    double                       belt_z_offset() const  { return m_belt_z_offset; }
 
     // Whoever will get a non-const pointer to PrintObject will be able to modify its layers.
     LayerPtrs&                   layers()               { return m_layers; }
@@ -554,8 +553,6 @@ private:
     PrintObjectRegions                     *m_shared_regions { nullptr };
 
     SlicingParameters                       m_slicing_params;
-    // Belt printer: Z translation applied after rotation to keep mesh above Z=0.
-    double                                  m_belt_z_offset = 0.;
     LayerPtrs                               m_layers;
     SupportLayerPtrs                        m_support_layers;
     // BBS
