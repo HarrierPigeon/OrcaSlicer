@@ -5901,6 +5901,30 @@ void PrintConfigDef::init_fff_params()
     def->mode = comSimple;
     def->set_default_value(new ConfigOptionFloatOrPercent(50., true));
 
+    def = this->add("build_plate_tilt_x", coFloat);
+    def->label = L("Build plate tilt X");
+    def->category = L("Support");
+    def->tooltip = L("Tilt angle of the build plate along the X axis. "
+                     "A positive value tilts the plate so the +X side is higher, shifting gravity toward -X and increasing overhangs on the +X side. "
+                     "A negative value tilts the -X side higher. Set to 0 for no X-axis tilt.");
+    def->sidetext = u8"\u00B0";
+    def->min = -45;
+    def->max = 45;
+    def->mode = comAdvanced;
+    def->set_default_value(new ConfigOptionFloat(0.));
+
+    def = this->add("build_plate_tilt_y", coFloat);
+    def->label = L("Build plate tilt Y");
+    def->category = L("Support");
+    def->tooltip = L("Tilt angle of the build plate along the Y axis. "
+                     "A positive value tilts the plate so the +Y side is higher, shifting gravity toward -Y and increasing overhangs on the +Y side. "
+                     "A negative value tilts the -Y side higher. Set to 0 for no Y-axis tilt.");
+    def->sidetext = u8"\u00B0";
+    def->min = -45;
+    def->max = 45;
+    def->mode = comAdvanced;
+    def->set_default_value(new ConfigOptionFloat(0.));
+
     def = this->add("tree_support_branch_angle", coFloat);
     def->label = L("Tree support branch angle");
     def->category = L("Support");

@@ -394,6 +394,8 @@ void Bed3D::render_internal(GLCanvas3D& canvas, const Transform3d& view_matrix, 
     case Type::Custom: { render_custom(canvas, view_matrix, projection_matrix, bottom); break; }
     }
 
+    render_gravity_arrow(view_matrix, projection_matrix);
+
     glsafe(::glDisable(GL_DEPTH_TEST));
 }
 
@@ -729,6 +731,63 @@ void Bed3D::render_custom(GLCanvas3D& canvas, const Transform3d& view_matrix, co
 
     /*if (show_texture)
         render_texture(bottom, canvas);*/
+}
+
+void Bed3D::render_gravity_arrow(const Transform3d& view_matrix, const Transform3d& projection_matrix)
+{
+    const DynamicPrintConfig& cfg = wxGetApp().preset_bundle->printers.get_edited_preset().config;
+    double tilt_x_deg = cfg.opt_float("build_plate_tilt_x");
+    double tilt_y_deg = cfg.opt_float("build_plate_tilt_y");
+    if (tilt_x_deg == 0. && tilt_y_deg == 0.) {
+        m_gravity_arrow.reset();
+        return;
+    }
+
+    // Gravity direction (matching the slicer's tilt convention)
+    double tilt_x_rad = Geometry::deg2rad(tilt_x_deg);
+    double tilt_y_rad = Geometry::deg2rad(tilt_y_deg);
+    Vec3d gravity_dir = Vec3d(-tan(tilt_y_rad), -tan(tilt_x_rad), -1.0).normalized();
+
+    // Build the arrow model (same dimensions as the axis arrows)
+    if (!m_gravity_arrow.is_initialized()) {
+        const float stem_length = Axes::DefaultStemLength;
+        const float tip_radius  = Axes::DefaultTipRadius;
+        const float tip_length  = Axes::DefaultTipLength;
+        const float stem_radius = stem_length / 75.f; // same ratio as axis cylinders
+        m_gravity_arrow.init_from(stilized_arrow(16, tip_radius, tip_length, stem_radius, stem_length));
+    }
+
+    // The arrow model points along +Z by default. Compute rotation to align with gravity_dir.
+    // Rotation axis = cross(+Z, gravity_dir), angle = acos(dot(+Z, gravity_dir))
+    Vec3d from = Vec3d::UnitZ();
+    Vec3d to   = gravity_dir;
+    double dot  = from.dot(to);
+    Transform3d rot = Transform3d::Identity();
+    if (dot < -0.9999) {
+        // Nearly opposite — rotate 180° around X
+        rot = Eigen::AngleAxisd(M_PI, Vec3d::UnitX()) * rot;
+    } else if (dot < 0.9999) {
+        Vec3d axis  = from.cross(to).normalized();
+        double angle = std::acos(std::clamp(dot, -1.0, 1.0));
+        rot = Eigen::AngleAxisd(angle, axis) * rot;
+    }
+
+    GLShaderProgram* shader = wxGetApp().get_shader("flat");
+    if (shader == nullptr)
+        return;
+
+    glsafe(::glEnable(GL_DEPTH_TEST));
+    shader->start_using();
+
+    const Camera& camera = wxGetApp().plater()->get_camera();
+    Transform3d model_matrix = rot;
+    shader->set_uniform("view_model_matrix", camera.get_view_matrix() * model_matrix);
+    shader->set_uniform("projection_matrix", camera.get_projection_matrix());
+
+    m_gravity_arrow.set_color({ 1.0f, 0.85f, 0.0f, 1.0f }); // yellow
+    m_gravity_arrow.render();
+
+    shader->stop_using();
 }
 
 void Bed3D::render_default(bool bottom, const Transform3d& view_matrix, const Transform3d& projection_matrix)

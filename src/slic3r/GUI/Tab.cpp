@@ -4364,6 +4364,8 @@ void TabPrinter::build_fff()
         optgroup->append_single_option_line(option, "printer_basic_information_printable_space#excluded-bed-area");
         // optgroup->append_single_option_line("printable_area");
         optgroup->append_single_option_line("printable_height", "printer_basic_information_printable_space#printable-height");
+        optgroup->append_single_option_line("build_plate_tilt_x");
+        optgroup->append_single_option_line("build_plate_tilt_y");
         optgroup->append_single_option_line("support_multi_bed_types","printer_basic_information_printable_space#support-multi-bed-types");
         optgroup->append_single_option_line("best_object_pos", "printer_basic_information_printable_space#best-object-position");
         // todo: for multi_extruder test
