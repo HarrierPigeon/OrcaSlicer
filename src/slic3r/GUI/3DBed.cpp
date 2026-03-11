@@ -387,14 +387,18 @@ void Bed3D::render_internal(GLCanvas3D& canvas, const Transform3d& view_matrix, 
 
     m_model.set_color(m_is_dark ? DEFAULT_MODEL_COLOR_DARK : DEFAULT_MODEL_COLOR);
 
+    // Belt printer: bed view transform placeholder (to be implemented in next cycle).
+    Transform3d belt_view_matrix = view_matrix;
+
     switch (m_type)
     {
-    case Type::System: { render_system(canvas, view_matrix, projection_matrix, bottom); break; }
+    case Type::System: { render_system(canvas, belt_view_matrix, projection_matrix, bottom); break; }
     default:
-    case Type::Custom: { render_custom(canvas, view_matrix, projection_matrix, bottom); break; }
+    case Type::Custom: { render_custom(canvas, belt_view_matrix, projection_matrix, bottom); break; }
     }
 
     render_gravity_arrow(view_matrix, projection_matrix);
+    render_slicing_plane(view_matrix, projection_matrix);
 
     glsafe(::glDisable(GL_DEPTH_TEST));
 }
@@ -738,6 +742,10 @@ void Bed3D::render_gravity_arrow(const Transform3d& view_matrix, const Transform
     const DynamicPrintConfig& cfg = wxGetApp().preset_bundle->printers.get_edited_preset().config;
     double tilt_x_deg = cfg.opt_float("build_plate_tilt_x");
     double tilt_y_deg = cfg.opt_float("build_plate_tilt_y");
+    // Belt printer: auto-derive gravity direction from belt angle if belt mode is active.
+    if (m_is_belt_printer && m_belt_angle > 0.f) {
+        tilt_x_deg = m_belt_angle;
+    }
     if (tilt_x_deg == 0. && tilt_y_deg == 0.) {
         m_gravity_arrow.reset();
         return;
@@ -787,6 +795,61 @@ void Bed3D::render_gravity_arrow(const Transform3d& view_matrix, const Transform
     m_gravity_arrow.set_color({ 1.0f, 0.85f, 0.0f, 1.0f }); // yellow
     m_gravity_arrow.render();
 
+    shader->stop_using();
+}
+
+void Bed3D::render_slicing_plane(const Transform3d& view_matrix, const Transform3d& projection_matrix)
+{
+    if (!m_is_belt_printer || m_belt_angle <= 0.f)
+        return;
+
+    // Build a quad in the XZ plane (world frame) representing the belt slicing plane.
+    // The plane is tilted at belt_angle from horizontal, with normal (0, -sin(a), cos(a)).
+    // We render it as a semi-transparent quad centered on the build plate.
+    if (!m_slicing_plane.is_initialized()) {
+        const float half_size = 120.f;  // mm, large enough to be visible
+        GLModel::Geometry init_data;
+        init_data.format = { GLModel::Geometry::EPrimitiveType::Triangles, GLModel::Geometry::EVertexLayout::P3N3 };
+        init_data.reserve_vertices(4);
+        init_data.reserve_indices(2);  // 2 triangles
+
+        // Quad corners in local frame (XY plane, will be rotated to match slicing plane)
+        Vec3f n = Vec3f::UnitZ();
+        init_data.add_vertex(Vec3f(-half_size, -half_size, 0.f), n);
+        init_data.add_vertex(Vec3f( half_size, -half_size, 0.f), n);
+        init_data.add_vertex(Vec3f( half_size,  half_size, 0.f), n);
+        init_data.add_vertex(Vec3f(-half_size,  half_size, 0.f), n);
+        init_data.add_triangle(0, 1, 2);
+        init_data.add_triangle(0, 2, 3);
+
+        m_slicing_plane.init_from(std::move(init_data));
+    }
+
+    GLShaderProgram* shader = wxGetApp().get_shader("flat");
+    if (shader == nullptr)
+        return;
+
+    glsafe(::glEnable(GL_DEPTH_TEST));
+    glsafe(::glEnable(GL_BLEND));
+    glsafe(::glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA));
+
+    shader->start_using();
+
+    // Show a tilted plane representing the slicing direction.
+    // The slicing plane is rotated by belt_angle about X from horizontal.
+    // Raise it slightly so it's visible above the bed surface.
+    double angle_rad = Geometry::deg2rad(static_cast<double>(m_belt_angle));
+    Transform3d model_matrix = Transform3d::Identity();
+    model_matrix.translate(Vec3d(0., 0., 30.));
+    model_matrix.rotate(Eigen::AngleAxisd(angle_rad, Vec3d::UnitX()));
+
+    shader->set_uniform("view_model_matrix", view_matrix * model_matrix);
+    shader->set_uniform("projection_matrix", projection_matrix);
+
+    m_slicing_plane.set_color({ 0.2f, 0.6f, 1.0f, 0.3f });  // semi-transparent blue
+    m_slicing_plane.render();
+
+    glsafe(::glDisable(GL_BLEND));
     shader->stop_using();
 }
 
