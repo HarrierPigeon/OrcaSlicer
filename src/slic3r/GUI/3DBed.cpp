@@ -387,16 +387,8 @@ void Bed3D::render_internal(GLCanvas3D& canvas, const Transform3d& view_matrix, 
 
     m_model.set_color(m_is_dark ? DEFAULT_MODEL_COLOR_DARK : DEFAULT_MODEL_COLOR);
 
-    // Belt printer: apply inverse shear to tilt the bed visualization to match belt surface.
-    //   y_machine = y + z·cos(a),  z_machine = z·sin(a)
+    // Belt printer: bed view transform placeholder (to be implemented in next cycle).
     Transform3d belt_view_matrix = view_matrix;
-    if (m_is_belt_printer && m_belt_angle > 0.f) {
-        double angle_rad = Geometry::deg2rad(static_cast<double>(m_belt_angle));
-        Transform3d inv_shear = Transform3d::Identity();
-        inv_shear(1, 2) = std::cos(angle_rad);
-        inv_shear(2, 2) = std::sin(angle_rad);
-        belt_view_matrix = view_matrix * inv_shear;
-    }
 
     switch (m_type)
     {

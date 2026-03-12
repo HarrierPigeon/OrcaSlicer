@@ -140,21 +140,7 @@ static std::vector<VolumeSlices> slice_volumes_inner(
     params_base.closing_radius = print_object_config.slice_closing_radius.value;
     params_base.extra_offset   = 0;
     params_base.trafo          = object_trafo;
-    // Belt printer: apply YZ shear so that horizontal slicing planes correspond to
-    // tilted planes through the original mesh (matching the tilted belt surface).
-    // Shear preserves each layer's XY cross-section (circles stay circles).
-    //   y' = y - z·cos(a)/sin(a)
-    //   z' = z / sin(a)
-    if (print_config.belt_printer.value) {
-        double belt_angle_rad = Geometry::deg2rad(print_config.belt_printer_angle.value);
-        double sin_a = std::sin(belt_angle_rad);
-        double cos_a = std::cos(belt_angle_rad);
-        // YZ shear: maps tilted slicing planes to horizontal
-        Transform3d shear = Transform3d::Identity();
-        shear(1, 2) = -cos_a / sin_a;  // -cot(a)
-        shear(2, 2) =  1.0 / sin_a;
-        params_base.trafo = shear * params_base.trafo;
-    }
+    // Belt printer: mesh transform placeholder (to be implemented in next cycle).
     //BBS: 0.0025mm is safe enough to simplify the data to speed slicing up for high-resolution model.
     //Also has on influence on arc fitting which has default resolution 0.0125mm.
     params_base.resolution = print_config.resolution <= 0.001 ? 0.0f : 0.0025;

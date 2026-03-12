@@ -2597,20 +2597,7 @@ void GCodeProcessor::finalize(bool post_process)
         }
     }
 
-    // Belt printer: G-code coordinates are in machine frame (inverse shear of slicing frame).
-    // Transform back to slicing frame for visualization (forward shear).
-    if (m_result.belt_printer_angle > 0.f) {
-        double angle_rad = m_result.belt_printer_angle * M_PI / 180.0;
-        float sin_a = static_cast<float>(std::sin(angle_rad));
-        float cos_a = static_cast<float>(std::cos(angle_rad));
-        for (GCodeProcessorResult::MoveVertex& move : m_result.moves) {
-            float y = move.position.y();
-            float z = move.position.z();
-            // Forward shear: machine coords → slicing frame
-            move.position.y() = y - z * cos_a / sin_a;
-            move.position.z() = z / sin_a;
-        }
-    }
+    // Belt printer: preview coordinate transform placeholder (to be implemented in next cycle).
 
     calculate_time(m_result);
 
