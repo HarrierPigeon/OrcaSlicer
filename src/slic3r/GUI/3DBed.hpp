@@ -111,6 +111,7 @@ private:
     GLModel m_model;
     Vec3d m_model_offset{ Vec3d::Zero() };
     GLModel m_gravity_arrow;
+    GLModel m_slicing_arrow;  // Pink arrow showing the effective slicing direction
     GLModel m_slicing_plane;  // Debug: shows the intended slicing plane direction
     Axes m_axes;
 
@@ -189,6 +190,7 @@ private:
     void render_custom(GLCanvas3D& canvas, const Transform3d& view_matrix, const Transform3d& projection_matrix, bool bottom);
     void render_default(bool bottom, const Transform3d& view_matrix, const Transform3d& projection_matrix);
     void render_gravity_arrow(const Transform3d& view_matrix, const Transform3d& projection_matrix);
+    void render_slicing_arrow(const Transform3d& view_matrix, const Transform3d& projection_matrix);
     void render_slicing_plane(const Transform3d& view_matrix, const Transform3d& projection_matrix);
 
     // BBS: remove the bed picking logic

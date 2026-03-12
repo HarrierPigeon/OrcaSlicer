@@ -3699,8 +3699,6 @@ void GCodeProcessor::finalize(bool post_process)
         }
     }
 
-    // Belt printer: preview coordinate transform placeholder (to be implemented in next cycle).
-
     // Orca: final pass -- also drains any filament-change delay still buffered because
     // calculate_time early-returns with fewer than two queued blocks (see calculate_time).
     calculate_time(m_result, 0, 0.0f, EMoveType::Noop, /*is_final=*/true);
@@ -4160,6 +4158,13 @@ void GCodeProcessor::process_tags(const std::string_view comment, bool producers
     if (boost::starts_with(comment, " belt_printer_angle = ")) {
         try {
             m_result.belt_printer_angle = std::stof(std::string(comment.substr(22)));
+        } catch (...) {}
+        return;
+    }
+    // Belt printer Z-shift for raw G-code toggle in preview.
+    if (boost::starts_with(comment, " belt_z_shift = ")) {
+        try {
+            m_result.belt_z_shift = std::stof(std::string(comment.substr(16)));
         } catch (...) {}
         return;
     }
