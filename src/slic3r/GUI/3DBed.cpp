@@ -398,6 +398,7 @@ void Bed3D::render_internal(GLCanvas3D& canvas, const Transform3d& view_matrix, 
     }
 
     render_gravity_arrow(view_matrix, projection_matrix);
+    render_slicing_arrow(view_matrix, projection_matrix);
     render_slicing_plane(view_matrix, projection_matrix);
 
     glsafe(::glDisable(GL_DEPTH_TEST));
@@ -800,6 +801,56 @@ void Bed3D::render_gravity_arrow(const Transform3d& view_matrix, const Transform
 
     m_gravity_arrow.set_color({ 1.0f, 0.85f, 0.0f, 1.0f }); // yellow
     m_gravity_arrow.render();
+
+    shader->stop_using();
+}
+
+void Bed3D::render_slicing_arrow(const Transform3d& view_matrix, const Transform3d& projection_matrix)
+{
+    if (!m_is_belt_printer || m_belt_angle <= 0.f)
+        return;
+
+    // Build the arrow model: shorter and wider than the gravity arrow.
+    if (!m_slicing_arrow.is_initialized()) {
+        const float stem_length = 15.0f;   // shorter than gravity arrow (25)
+        const float stem_radius = 1.0f;    // wider than gravity arrow (~0.33)
+        const float tip_radius  = 3.0f;    // wider tip
+        const float tip_length  = 5.0f;
+        m_slicing_arrow.init_from(stilized_arrow(16, tip_radius, tip_length, stem_radius, stem_length));
+    }
+
+    // The slicing direction: layers stack along the gantry normal.
+    // With mesh rotation R(-alpha, X), the slicing Z-axis in the original frame
+    // points in direction R(+alpha, X) * (0, 0, 1) = (0, -sin(alpha), cos(alpha)).
+    double angle_rad = Geometry::deg2rad(static_cast<double>(m_belt_angle));
+    Vec3d slice_dir = Vec3d(0., -std::sin(angle_rad), std::cos(angle_rad)).normalized();
+
+    // Compute rotation to align +Z (arrow default) with slice_dir.
+    Vec3d from = Vec3d::UnitZ();
+    double dot = from.dot(slice_dir);
+    Transform3d rot = Transform3d::Identity();
+    if (dot < -0.9999) {
+        rot = Eigen::AngleAxisd(M_PI, Vec3d::UnitX()) * rot;
+    } else if (dot < 0.9999) {
+        Vec3d axis  = from.cross(slice_dir).normalized();
+        double angle = std::acos(std::clamp(dot, -1.0, 1.0));
+        rot = Eigen::AngleAxisd(angle, axis) * rot;
+    }
+
+    GLShaderProgram* shader = wxGetApp().get_shader("flat");
+    if (shader == nullptr)
+        return;
+
+    glsafe(::glEnable(GL_DEPTH_TEST));
+    shader->start_using();
+
+    const Camera& camera = wxGetApp().plater()->get_camera();
+    Transform3d model_matrix = rot;
+    shader->set_uniform("view_model_matrix", camera.get_view_matrix() * model_matrix);
+    shader->set_uniform("projection_matrix", camera.get_projection_matrix());
+
+    m_slicing_arrow.set_color({ 1.0f, 0.2f, 0.6f, 1.0f }); // pink
+    m_slicing_arrow.render();
 
     shader->stop_using();
 }
