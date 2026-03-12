@@ -29,10 +29,20 @@ void GCodeWriter::set_belt_angle(double angle_deg)
 
 Vec3d GCodeWriter::to_machine_coords(const Vec3d &pos) const
 {
-    // Belt printer: the slicing frame (after mesh rotation) IS the machine frame.
-    // The firmware operates in gantry coordinates where Z+ is away from the belt surface.
-    // No additional coordinate transform needed.
-    return pos;
+    if (!is_belt_printer())
+        return pos;
+
+    // Undo the slicing transform to recover machine-frame coordinates.
+    // Slicing applied: T(0,0,-min_z_rot) * R(-alpha, X) * original_pos
+    // Inverse:         R(+alpha, X) * T(0,0,+min_z_rot) * slicing_pos
+    //
+    // First undo the Z-shift, then apply R(+alpha, X).
+    double sz = pos.z() + m_belt_z_shift;   // undo T(0,0,-min_z_rot)
+    return Vec3d(
+        pos.x(),
+        pos.y() * m_belt_cos - sz * m_belt_sin,   // R(+alpha, X)
+        pos.y() * m_belt_sin + sz * m_belt_cos
+    );
 }
 
 bool GCodeWriter::supports_separate_travel_acceleration(GCodeFlavor flavor)

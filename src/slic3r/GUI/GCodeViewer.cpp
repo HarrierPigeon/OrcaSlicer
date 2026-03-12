@@ -1270,6 +1270,7 @@ void GCodeViewer::load_as_gcode(const GCodeProcessorResult& gcode_result, const 
 
     m_max_print_height = gcode_result.printable_height;
     m_z_offset = gcode_result.z_offset;
+    m_belt_z_shift = gcode_result.belt_z_shift;
 
     // load_toolpaths(gcode_result, build_volume, exclude_bounding_box);
     

@@ -239,6 +239,7 @@ mutable bool m_no_render_path { false };
 
     bool  m_belt_view_enabled = false;
     float m_belt_angle_deg = 0.f;
+    float m_belt_z_shift = 0.f;
     bool  m_belt_show_raw = false;  // Toggle: show raw slicing-frame G-code (rotated part)
 
     libvgcode::Viewer m_viewer;

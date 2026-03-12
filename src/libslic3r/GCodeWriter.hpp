@@ -127,8 +127,10 @@ public:
 
     // Belt printer: set the belt angle and precompute sin/cos for coordinate transformation.
     void set_belt_angle(double angle_deg);
+    void set_belt_z_shift(double z_shift) { m_belt_z_shift = z_shift; }
+    double belt_z_shift() const { return m_belt_z_shift; }
     bool is_belt_printer() const { return m_belt_angle_rad != 0.; }
-    // Transform a point from the slicing frame to machine/world coordinates (inverse shear).
+    // Transform a point from the slicing frame to machine/world coordinates (inverse rotation).
     Vec3d to_machine_coords(const Vec3d &pos) const;
 
     // Returns whether this flavor supports separate print and travel acceleration.
@@ -184,10 +186,11 @@ public:
     //SoftFever
     bool            m_is_bbl_printers = false;
 
-    // Belt printer coordinate transformation (YZ shear)
+    // Belt printer coordinate transformation (inverse of slicing rotation)
     double          m_belt_angle_rad = 0.;
     double          m_belt_cos = 1.0;
     double          m_belt_sin = 0.0;
+    double          m_belt_z_shift = 0.;  // Z-shift applied during slicing (min_z_rotated, typically negative)
     double          m_current_speed;
     bool            m_is_first_layer = true;
 

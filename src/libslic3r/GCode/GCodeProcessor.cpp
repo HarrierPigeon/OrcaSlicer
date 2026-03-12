@@ -3054,6 +3054,13 @@ void GCodeProcessor::process_tags(const std::string_view comment, bool producers
         } catch (...) {}
         return;
     }
+    // Belt printer Z-shift for raw G-code toggle in preview.
+    if (boost::starts_with(comment, " belt_z_shift = ")) {
+        try {
+            m_result.belt_z_shift = std::stof(std::string(comment.substr(16)));
+        } catch (...) {}
+        return;
+    }
 
     // wipe start tag
     if (boost::starts_with(comment, reserved_tag(ETags::Wipe_Start))) {
