@@ -1078,13 +1078,27 @@ void GLVolumeCollection::render(GLVolumeCollection::ERenderType       type,
         
         bool  enable_support;
         int   support_threshold_angle = get_selection_support_threshold_angle(enable_support);
-    
+
         float normal_z  = -::cos(Geometry::deg2rad((float) support_threshold_angle));
-  
+
+        // Compute up direction accounting for build plate tilt
+        Vec3f up_direction = Vec3f::UnitZ();
+        {
+            const DynamicPrintConfig& prt_cfg = GUI::wxGetApp().preset_bundle->printers.get_edited_preset().config;
+            double tilt_x_deg = prt_cfg.opt_float("build_plate_tilt_x");
+            double tilt_y_deg = prt_cfg.opt_float("build_plate_tilt_y");
+            if (tilt_x_deg != 0. || tilt_y_deg != 0.) {
+                double tilt_x_rad = Geometry::deg2rad(tilt_x_deg);
+                double tilt_y_rad = Geometry::deg2rad(tilt_y_deg);
+                up_direction = Vec3f(float(tan(tilt_y_rad)), float(tan(tilt_x_rad)), 1.f).normalized();
+            }
+        }
+
         shader->set_uniform("volume_world_matrix", volume.first->world_matrix());
         shader->set_uniform("slope.actived", m_slope.isGlobalActive && !volume.first->is_modifier && !volume.first->is_wipe_tower);
         shader->set_uniform("slope.volume_world_normal_matrix", static_cast<Matrix3f>(volume.first->world_matrix().matrix().block(0, 0, 3, 3).inverse().transpose().cast<float>()));
         shader->set_uniform("slope.normal_z", normal_z);
+        shader->set_uniform("slope.up_direction", up_direction);
 
 #if ENABLE_ENVIRONMENT_MAP
         unsigned int environment_texture_id = GUI::wxGetApp().plater()->get_environment_texture_id();
