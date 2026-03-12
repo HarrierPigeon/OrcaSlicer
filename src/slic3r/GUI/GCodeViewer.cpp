@@ -4405,6 +4405,14 @@ void GCodeViewer::render_legend(float &legend_height, int canvas_width, int canv
     if (m_nozzle_nums > 1 && (m_viewer.get_view_type() == libvgcode::EViewType::Summary || m_viewer.get_view_type() == libvgcode::EViewType::ColorPrint)) // ORCA show only on summary and filament tab
         render_legend_color_arr_recommen(window_padding);
 
+    // Belt printer: toggle for viewing raw slicing-frame G-code
+    if (m_belt_view_enabled) {
+        ImGui::Spacing();
+        ImGui::Dummy({ window_padding, 0 });
+        ImGui::SameLine();
+        ImGui::Checkbox("Show raw G-code (slicing frame)", &m_belt_show_raw);
+    }
+
     legend_height = ImGui::GetCurrentWindow()->Size.y;
     imgui.end();
     ImGui::PopStyleColor(7);

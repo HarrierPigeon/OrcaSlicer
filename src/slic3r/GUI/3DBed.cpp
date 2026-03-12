@@ -841,7 +841,8 @@ void Bed3D::render_slicing_arrow(const Transform3d& view_matrix, const Transform
     if (shader == nullptr)
         return;
 
-    glsafe(::glEnable(GL_DEPTH_TEST));
+    // Disable depth test so the arrow is always visible (not occluded by the tilted bed).
+    glsafe(::glDisable(GL_DEPTH_TEST));
     shader->start_using();
 
     const Camera& camera = wxGetApp().plater()->get_camera();
@@ -853,6 +854,7 @@ void Bed3D::render_slicing_arrow(const Transform3d& view_matrix, const Transform
     m_slicing_arrow.render();
 
     shader->stop_using();
+    glsafe(::glEnable(GL_DEPTH_TEST));
 }
 
 void Bed3D::render_slicing_plane(const Transform3d& view_matrix, const Transform3d& projection_matrix)
