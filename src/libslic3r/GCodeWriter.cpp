@@ -31,11 +31,12 @@ Vec3d GCodeWriter::to_machine_coords(const Vec3d &pos) const
 {
     if (!is_belt_printer())
         return pos;
-    // R(+alpha, X): rotate from slicing frame (Z = belt-normal) to machine frame (Z = vertical up)
+    // R(-alpha, X): transform from belt frame to machine frame.
+    // Z+ = away from belt surface (always positive for points above the belt).
     return Vec3d(
         pos.x(),
-        pos.y() * m_belt_cos + pos.z() * m_belt_sin,
-       -pos.y() * m_belt_sin + pos.z() * m_belt_cos
+        pos.y() * m_belt_cos - pos.z() * m_belt_sin,
+        pos.y() * m_belt_sin + pos.z() * m_belt_cos
     );
 }
 
