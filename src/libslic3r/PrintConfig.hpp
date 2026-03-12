@@ -1235,6 +1235,7 @@ PRINT_CONFIG_CLASS_DEFINE(
 
     // Axis remapping for G-code output
     ((ConfigOptionEnum<AxisRemap>,      axis_remap))
+    ((ConfigOptionBool,                 axis_remap_gcode_viewer))
 
     //resonance avoidance ported from qidi slicer
     ((ConfigOptionBool,                 resonance_avoidance))

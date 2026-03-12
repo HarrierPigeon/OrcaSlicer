@@ -779,6 +779,11 @@ class Print;
         float m_travel_dist; // mm
         float m_fan_speed; // percentage
         float m_z_offset; // mm
+
+        // Axis remapping for G-code viewer
+        AxisRemap m_axis_remap{ AxisRemap::arXYZ };
+        bool m_axis_remap_viewer{ false };
+
 // ORCA: Add Pressure Advance visualization support
         float m_pressure_advance;
         ExtrusionRole m_extrusion_role;

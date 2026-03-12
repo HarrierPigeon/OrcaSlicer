@@ -4109,6 +4109,13 @@ void PrintConfigDef::init_fff_params()
     def->mode = comAdvanced;
     def->set_default_value(new ConfigOptionEnum<AxisRemap>(AxisRemap::arXYZ));
 
+    def = this->add("axis_remap_gcode_viewer", coBool);
+    def->label = L("Remap axes in G-code viewer");
+    def->tooltip = L("When enabled, the G-code preview applies the inverse axis remapping "
+                      "so the toolpath is displayed in the original model orientation.");
+    def->mode = comAdvanced;
+    def->set_default_value(new ConfigOptionBool(false));
+
     def = this->add("machine_pause_gcode", coString);
     def->label = L("Pause G-code");
     def->tooltip = L("This G-code will be used as a code for the pause print. Users can insert pause G-code in the G-code viewer.");

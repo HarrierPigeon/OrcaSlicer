@@ -1931,6 +1931,9 @@ void GCodeProcessor::apply_config(const PrintConfig& config)
 
     m_flavor = config.gcode_flavor;
 
+    m_axis_remap = config.axis_remap.value;
+    m_axis_remap_viewer = config.axis_remap_gcode_viewer.value;
+
     m_single_extruder_multi_material = config.single_extruder_multi_material;
 
     size_t filament_count = config.filament_diameter.values.size();
@@ -2090,6 +2093,11 @@ void GCodeProcessor::apply_config(const DynamicPrintConfig& config)
     const ConfigOptionEnum<GCodeFlavor>* gcode_flavor = config.option<ConfigOptionEnum<GCodeFlavor>>("gcode_flavor");
     if (gcode_flavor != nullptr)
         m_flavor = gcode_flavor->value;
+
+    if (const auto* axis_remap_opt = config.option<ConfigOptionEnum<AxisRemap>>("axis_remap"))
+        m_axis_remap = axis_remap_opt->value;
+    if (const auto* axis_remap_viewer_opt = config.option<ConfigOptionBool>("axis_remap_gcode_viewer"))
+        m_axis_remap_viewer = axis_remap_viewer_opt->value;
 
     const ConfigOptionPoints* printable_area = config.option<ConfigOptionPoints>("printable_area");
     if (printable_area != nullptr)
@@ -5476,14 +5484,28 @@ void GCodeProcessor::store_move_vertex(EMoveType type, EMovePathType path_type, 
         m_line_id + 1 :
         ((type == EMoveType::Seam) ? m_last_line_id : m_line_id);
 
+    // Compute position, optionally applying inverse axis remap for viewer
+    float pos_arr[3] = {
+        float(m_end_position[X] + m_x_offset),
+        float(m_end_position[Y] + m_y_offset),
+        float(m_processing_start_custom_gcode ? m_first_layer_height : m_end_position[Z] - m_z_offset)
+    };
+    if (m_axis_remap_viewer && m_axis_remap != AxisRemap::arXYZ) {
+        auto remap = AxisRemapHelper::from_enum(m_axis_remap);
+        int inv[3];
+        remap.get_inverse_indices(inv);
+        float tmp[3] = { pos_arr[inv[0]], pos_arr[inv[1]], pos_arr[inv[2]] };
+        pos_arr[0] = tmp[0]; pos_arr[1] = tmp[1]; pos_arr[2] = tmp[2];
+    }
+    Vec3f move_position = Vec3f(pos_arr[0], pos_arr[1], pos_arr[2]) + m_extruder_offsets[filament_id];
+
     m_result.moves.push_back({
         m_last_line_id,
         type,
         m_extrusion_role,
         static_cast<unsigned char>(filament_id),
         m_cp_color.current,
-        //BBS: add plate's offset to the rendering vertices
-        Vec3f(m_end_position[X] + m_x_offset, m_end_position[Y] + m_y_offset, m_processing_start_custom_gcode ? m_first_layer_height : m_end_position[Z]- m_z_offset) + m_extruder_offsets[filament_id],
+        move_position,
         static_cast<float>(m_end_position[E] - m_start_position[E]),
         m_feedrate,
         0.0f, // actual feedrate

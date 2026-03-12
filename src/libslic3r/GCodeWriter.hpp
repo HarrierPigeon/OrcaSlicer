@@ -23,6 +23,21 @@ struct AxisRemapHelper {
         return !is_identity() && !(output_letter[0]!='Z' && output_letter[1]!='Z' && output_letter[2]=='Z');
     }
 
+    // Returns the inverse permutation indices: out[i] = which parsed axis index
+    // contains the value for slicer axis i. Use to un-swap viewer positions.
+    void get_inverse_indices(int out[3]) const {
+        // output_letter[slicer_axis] = gcode_letter
+        // The viewer parses gcode_letter into index: X→0, Y→1, Z→2
+        // We need: for each slicer axis i, which parsed index holds its value?
+        for (int i = 0; i < 3; ++i) {
+            // output_letter[i] tells us which G-code axis slicer axis i was written to
+            // That G-code axis gets parsed into index (letter - 'X') by the viewer...
+            // but actually X=0,Y=1,Z=2 maps directly
+            int parsed_idx = (output_letter[i] == 'X') ? 0 : (output_letter[i] == 'Y') ? 1 : 2;
+            out[i] = parsed_idx;
+        }
+    }
+
     static AxisRemapHelper from_enum(AxisRemap remap) {
         switch (remap) {
         default:

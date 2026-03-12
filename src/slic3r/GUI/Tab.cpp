@@ -4733,6 +4733,7 @@ PageShp TabPrinter::build_kinematics_page()
     auto optgroup = page->new_optgroup(L("Advanced"), "param_advanced");
     optgroup->append_single_option_line("emit_machine_limits_to_gcode", "printer_motion_ability#emit-limits-to-g-code");
     optgroup->append_single_option_line("axis_remap", "printer_motion_ability#axis-remapping");
+    optgroup->append_single_option_line("axis_remap_gcode_viewer", "printer_motion_ability#axis-remapping");
 
     // resonance avoidance ported over from qidi slicer
     optgroup = page->new_optgroup(L("Resonance Avoidance"), "param_resonance_avoidance");
@@ -5371,6 +5372,9 @@ void TabPrinter::toggle_options()
         bool resonance_avoidance = m_config->opt_bool("resonance_avoidance");
         toggle_option("min_resonance_avoidance_speed", resonance_avoidance);
         toggle_option("max_resonance_avoidance_speed", resonance_avoidance);
+
+        bool has_axis_remap = m_config->opt_enum<AxisRemap>("axis_remap") != AxisRemap::arXYZ;
+        toggle_option("axis_remap_gcode_viewer", has_axis_remap);
     }
 }
 
