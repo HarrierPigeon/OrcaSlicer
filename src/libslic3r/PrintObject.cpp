@@ -3392,7 +3392,11 @@ void PrintObject::update_slicing_parameters()
     // Orca: updated function call for XYZ shrinkage compensation
     if (!m_slicing_params.valid) {
           coordf_t object_height = this->model_object()->max_z();
-          // Belt printer: height adjustment placeholder (to be implemented in next cycle).
+          if (this->print()->config().belt_printer.value) {
+              double angle_rad = Geometry::deg2rad(this->print()->config().belt_printer_angle.value);
+              BoundingBoxf3 bb = this->model_object()->raw_bounding_box();
+              object_height = bb.size().y() * std::sin(angle_rad) + bb.size().z() * std::cos(angle_rad);
+          }
           m_slicing_params = SlicingParameters::create_from_config(this->print()->config(), m_config, object_height,
                                                                    this->object_extruders(), this->print()->shrinkage_compensation());
       }
@@ -3432,9 +3436,14 @@ SlicingParameters PrintObject::slicing_parameters(const DynamicPrintConfig &full
     sort_remove_duplicates(object_extruders);
     //FIXME add painting extruders
 
-    if (object_max_z <= 0.f)
-        object_max_z = (float)model_object.raw_bounding_box().size().z();
-    // Belt printer: height adjustment placeholder (to be implemented in next cycle).
+    if (object_max_z <= 0.f) {
+        BoundingBoxf3 bb = model_object.raw_bounding_box();
+        object_max_z = (float)bb.size().z();
+        if (print_config.belt_printer.value) {
+            double angle_rad = Geometry::deg2rad(print_config.belt_printer_angle.value);
+            object_max_z = (float)(bb.size().y() * std::sin(angle_rad) + bb.size().z() * std::cos(angle_rad));
+        }
+    }
     return SlicingParameters::create_from_config(print_config, object_config, object_max_z, object_extruders, object_shrinkage_compensation);
 }
 

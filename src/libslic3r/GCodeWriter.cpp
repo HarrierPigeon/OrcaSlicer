@@ -29,8 +29,14 @@ void GCodeWriter::set_belt_angle(double angle_deg)
 
 Vec3d GCodeWriter::to_machine_coords(const Vec3d &pos) const
 {
-    // Belt printer: coordinate transform placeholder (to be implemented in next cycle).
-    return pos;
+    if (!is_belt_printer())
+        return pos;
+    // R(+alpha, X): rotate from slicing frame (Z = belt-normal) to machine frame (Z = vertical up)
+    return Vec3d(
+        pos.x(),
+        pos.y() * m_belt_cos + pos.z() * m_belt_sin,
+       -pos.y() * m_belt_sin + pos.z() * m_belt_cos
+    );
 }
 
 bool GCodeWriter::supports_separate_travel_acceleration(GCodeFlavor flavor)
