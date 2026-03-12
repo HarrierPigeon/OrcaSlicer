@@ -2597,9 +2597,6 @@ void GCodeProcessor::finalize(bool post_process)
         }
     }
 
-    // Belt printer: G-code preview displays machine-frame coordinates as-is.
-    // The tilted bed visualization in 3DBed provides the belt angle context.
-
     calculate_time(m_result);
 
     // process the time blocks
