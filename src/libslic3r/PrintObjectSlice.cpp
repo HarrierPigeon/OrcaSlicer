@@ -140,24 +140,9 @@ static std::vector<VolumeSlices> slice_volumes_inner(
     params_base.closing_radius = print_object_config.slice_closing_radius.value;
     params_base.extra_offset   = 0;
     params_base.trafo          = object_trafo;
-    if (print_config.belt_printer.value) {
-        double angle_rad = Geometry::deg2rad(print_config.belt_printer_angle.value);
-        // Rotate mesh by -alpha about X so horizontal slice planes = belt-parallel planes
-        Transform3d belt_rotation = Transform3d::Identity();
-        belt_rotation.rotate(Eigen::AngleAxisd(-angle_rad, Vec3d::UnitX()));
-        params_base.trafo = belt_rotation * params_base.trafo;
-        // Compute Z-shift: find min-Z of all rotated meshes so geometry starts at Z=0.
-        // FLAG: revisit this approach if multi-volume objects cause issues.
-        double min_z_rotated = std::numeric_limits<double>::max();
-        for (const ModelVolume *mv : model_volumes) {
-            if (!model_volume_needs_slicing(*mv)) continue;
-            BoundingBoxf3 bb = mv->mesh().bounding_box();
-            bb = bb.transformed(params_base.trafo * mv->get_matrix());
-            min_z_rotated = std::min(min_z_rotated, bb.min.z());
-        }
-        if (min_z_rotated != std::numeric_limits<double>::max() && std::abs(min_z_rotated) > EPSILON)
-            params_base.trafo = Eigen::Translation3d(0, 0, -min_z_rotated) * params_base.trafo;
-    }
+    // Belt printer: no mesh rotation. The belt surface IS the build plate (Z=0).
+    // Objects sit on the belt, layers are horizontal in the belt frame.
+    // The G-code coordinate transform (to_machine_coords) handles the tilt.
     //BBS: 0.0025mm is safe enough to simplify the data to speed slicing up for high-resolution model.
     //Also has on influence on arc fitting which has default resolution 0.0125mm.
     params_base.resolution = print_config.resolution <= 0.001 ? 0.0f : 0.0025;

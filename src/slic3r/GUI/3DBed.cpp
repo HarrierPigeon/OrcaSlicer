@@ -700,9 +700,10 @@ void Bed3D::render_model(const Transform3d& view_matrix, const Transform3d& proj
             shader->set_uniform("emission_factor", 0.0f);
             Transform3d model_matrix = Geometry::assemble_transform(m_model_offset);
             // Belt printer: rotate the bed model about X so the belt tilt is visible.
+            // Negative angle: belt surface tilts downward away from the nozzle.
             if (m_is_belt_printer && m_belt_angle > 0.f) {
                 double angle_rad = Geometry::deg2rad(static_cast<double>(m_belt_angle));
-                model_matrix = Eigen::AngleAxisd(angle_rad, Vec3d::UnitX()) * model_matrix;
+                model_matrix = Eigen::AngleAxisd(-angle_rad, Vec3d::UnitX()) * model_matrix;
             }
             shader->set_uniform("volume_world_matrix",  model_matrix);
             shader->set_uniform("view_model_matrix", view_matrix * model_matrix);
@@ -873,7 +874,7 @@ void Bed3D::render_default(bool bottom, const Transform3d& view_matrix, const Tr
         if (m_is_belt_printer && m_belt_angle > 0.f) {
             double angle_rad = Geometry::deg2rad(static_cast<double>(m_belt_angle));
             Transform3d belt_rotation = Transform3d::Identity();
-            belt_rotation.rotate(Eigen::AngleAxisd(angle_rad, Vec3d::UnitX()));
+            belt_rotation.rotate(Eigen::AngleAxisd(-angle_rad, Vec3d::UnitX()));
             view_model_matrix = view_matrix * belt_rotation;
         }
         shader->set_uniform("view_model_matrix", view_model_matrix);
