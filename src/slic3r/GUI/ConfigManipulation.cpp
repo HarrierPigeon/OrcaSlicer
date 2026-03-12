@@ -9,6 +9,7 @@
 #include "libslic3r/MaterialType.hpp"
 #include "MsgDialog.hpp"
 #include "libslic3r/PrintConfig.hpp"
+#include "libslic3r/GCodeWriter.hpp"
 #include "Plater.hpp"
 
 #include <wx/msgdlg.h>
@@ -577,10 +578,17 @@ void ConfigManipulation::toggle_print_fff_options(DynamicPrintConfig *config, co
 
     bool have_volumetric_extrusion_rate_slope = config->option<ConfigOptionFloat>("max_volumetric_extrusion_rate_slope")->value > 0;
     float have_volumetric_extrusion_rate_slope_segment_length = config->option<ConfigOptionFloat>("max_volumetric_extrusion_rate_slope_segment_length")->value;
-    toggle_field("enable_arc_fitting", !have_volumetric_extrusion_rate_slope);
+
+    // Check if axis remap involves Z — if so, disable arc fitting
+    bool axis_remap_involves_z = false;
+    if (const auto *remap_opt = preset_bundle->printers.get_edited_preset().config.option<ConfigOptionEnum<AxisRemap>>("axis_remap"))
+        axis_remap_involves_z = AxisRemapHelper::from_enum(remap_opt->value).involves_z();
+
+    bool disable_arc_fitting = have_volumetric_extrusion_rate_slope || axis_remap_involves_z;
+    toggle_field("enable_arc_fitting", !disable_arc_fitting);
     toggle_line("max_volumetric_extrusion_rate_slope_segment_length", have_volumetric_extrusion_rate_slope);
     toggle_line("extrusion_rate_smoothing_external_perimeter_only", have_volumetric_extrusion_rate_slope);
-    if(have_volumetric_extrusion_rate_slope) config->set_key_value("enable_arc_fitting", new ConfigOptionBool(false));
+    if(disable_arc_fitting) config->set_key_value("enable_arc_fitting", new ConfigOptionBool(false));
     if(have_volumetric_extrusion_rate_slope_segment_length < 0.5) {
         DynamicPrintConfig new_conf = *config;
         new_conf.set_key_value("max_volumetric_extrusion_rate_slope_segment_length", new ConfigOptionFloat(1));

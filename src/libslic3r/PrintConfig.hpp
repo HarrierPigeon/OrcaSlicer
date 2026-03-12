@@ -345,6 +345,15 @@ enum PrinterStructure {
     psDelta
 };
 
+enum class AxisRemap : int {
+    arXYZ = 0,  // X→X, Y→Y, Z→Z (identity/default)
+    arYXZ,      // swap X and Y
+    arXZY,      // swap Y and Z
+    arZYX,      // swap X and Z
+    arYZX,      // cycle X→Y→Z→X
+    arZXY,      // cycle X→Z→Y→X
+};
+
 // BBS
 enum ZHopType {
     zhtAuto = 0,
@@ -1223,6 +1232,9 @@ PRINT_CONFIG_CLASS_DEFINE(
     ((ConfigOptionFloats,               machine_min_travel_rate))
     // M205 S... [mm/sec]
     ((ConfigOptionFloats,               machine_min_extruding_rate))
+
+    // Axis remapping for G-code output
+    ((ConfigOptionEnum<AxisRemap>,      axis_remap))
 
     //resonance avoidance ported from qidi slicer
     ((ConfigOptionBool,                 resonance_avoidance))

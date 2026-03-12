@@ -3815,15 +3815,35 @@ void GCode::print_machine_envelope(GCodeOutputStream &file, Print &print)
     if ((flavor == gcfMarlinLegacy || flavor == gcfMarlinFirmware || flavor == gcfRepRapFirmware) &&
         print.config().emit_machine_limits_to_gcode.value == true) {
         int factor = flavor == gcfRepRapFirmware ? 60 : 1; // RRF M203 and M566 are in mm/min
-        file.write_format("M201 X%d Y%d Z%d E%d\n",
+
+        // Get axis remap to permute per-axis values
+        auto remap = AxisRemapHelper::from_enum(print.config().axis_remap.value);
+        // Build arrays in slicer order (X=0, Y=1, Z=2), then output using remapped letters
+        int accel[3] = {
             int(print.config().machine_max_acceleration_x.values.front() + 0.5),
             int(print.config().machine_max_acceleration_y.values.front() + 0.5),
-            int(print.config().machine_max_acceleration_z.values.front() + 0.5),
-            int(print.config().machine_max_acceleration_e.values.front() + 0.5));
-        file.write_format("M203 X%d Y%d Z%d E%d\n",
+            int(print.config().machine_max_acceleration_z.values.front() + 0.5)
+        };
+        int speed[3] = {
             int(print.config().machine_max_speed_x.values.front() * factor + 0.5),
             int(print.config().machine_max_speed_y.values.front() * factor + 0.5),
-            int(print.config().machine_max_speed_z.values.front() * factor + 0.5),
+            int(print.config().machine_max_speed_z.values.front() * factor + 0.5)
+        };
+        double jerk[3] = {
+            print.config().machine_max_jerk_x.values.front() * factor,
+            print.config().machine_max_jerk_y.values.front() * factor,
+            print.config().machine_max_jerk_z.values.front() * factor
+        };
+
+        file.write_format("M201 %c%d %c%d %c%d E%d\n",
+            remap.output_letter[0], accel[0],
+            remap.output_letter[1], accel[1],
+            remap.output_letter[2], accel[2],
+            int(print.config().machine_max_acceleration_e.values.front() + 0.5));
+        file.write_format("M203 %c%d %c%d %c%d E%d\n",
+            remap.output_letter[0], speed[0],
+            remap.output_letter[1], speed[1],
+            remap.output_letter[2], speed[2],
             int(print.config().machine_max_speed_e.values.front() * factor + 0.5));
 
         // Now M204 - acceleration. This one is quite hairy thanks to how Marlin guys care about
@@ -3849,12 +3869,14 @@ void GCode::print_machine_envelope(GCodeOutputStream &file, Print &print)
                 travel_acc);
 
         assert(is_decimal_separator_point());
-        file.write_format(flavor == gcfRepRapFirmware
-            ? "M566 X%.2lf Y%.2lf Z%.2lf E%.2lf ; sets the jerk limits, mm/min\n"
-            : "M205 X%.2lf Y%.2lf Z%.2lf E%.2lf ; sets the jerk limits, mm/sec\n",
-            print.config().machine_max_jerk_x.values.front() * factor,
-            print.config().machine_max_jerk_y.values.front() * factor,
-            print.config().machine_max_jerk_z.values.front() * factor,
+        char jerk_fmt[256];
+        snprintf(jerk_fmt, sizeof(jerk_fmt),
+            flavor == gcfRepRapFirmware
+                ? "M566 %c%%.2lf %c%%.2lf %c%%.2lf E%%.2lf ; sets the jerk limits, mm/min\n"
+                : "M205 %c%%.2lf %c%%.2lf %c%%.2lf E%%.2lf ; sets the jerk limits, mm/sec\n",
+            remap.output_letter[0], remap.output_letter[1], remap.output_letter[2]);
+        file.write_format(jerk_fmt,
+            jerk[0], jerk[1], jerk[2],
             print.config().machine_max_jerk_e.values.front() * factor);
 
         // New Marlin uses M205 J[mm] for junction deviation (only apply if it is > 0)

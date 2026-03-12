@@ -43,6 +43,7 @@ void GCodeWriter::apply_print_config(const PrintConfig &print_config)
     m_max_jerk_z = print_config.machine_max_jerk_z.values.front();
     m_max_jerk_e = print_config.machine_max_jerk_e.values.front();
     m_resolution = print_config.resolution.value;
+    m_axis_remap = AxisRemapHelper::from_enum(print_config.axis_remap.value);
 }
 
 void GCodeWriter::set_extruders(std::vector<unsigned int> extruder_ids)
@@ -547,7 +548,7 @@ std::string GCodeWriter::travel_to_xy(const Vec2d &point, const std::string &com
     Vec2d point_on_plate = { point(0) - m_x_offset, point(1) - m_y_offset };
 
     GCodeG1Formatter w;
-    w.emit_xy(point_on_plate);
+    w.emit_xy(point_on_plate, m_axis_remap.output_letter[0], m_axis_remap.output_letter[1]);
     auto speed = m_is_first_layer
         ? this->config.get_abs_value("initial_layer_travel_speed") : this->config.travel_speed.value;
     w.emit_f(speed * 60.0);
@@ -676,7 +677,7 @@ std::string GCodeWriter::travel_to_xyz(const Vec3d &point, const std::string &co
                 Vec2d temp = delta_no_z.normalized() * delta(2) / tan(this->filament()->travel_slope());
                 Vec3d slope_top_point = Vec3d(temp(0), temp(1), delta(2)) + source;
                 GCodeG1Formatter w0;
-                w0.emit_xyz(slope_top_point);
+                w0.emit_xyz(slope_top_point, m_axis_remap.output_letter[0], m_axis_remap.output_letter[1], m_axis_remap.output_letter[2]);
                 w0.emit_f(travel_speed * 60.0);
                 //BBS
                 w0.emit_comment(GCodeWriter::full_gcode_comment, comment);
@@ -691,13 +692,13 @@ std::string GCodeWriter::travel_to_xyz(const Vec3d &point, const std::string &co
         {
             GCodeG1Formatter w0;
             if (this->is_current_position_clear()) {
-                w0.emit_xyz(target);
+                w0.emit_xyz(target, m_axis_remap.output_letter[0], m_axis_remap.output_letter[1], m_axis_remap.output_letter[2]);
                 w0.emit_f(travel_speed * 60.0);
                 w0.emit_comment(GCodeWriter::full_gcode_comment, comment);
                 xy_z_move = w0.string();
             }
             else {
-                w0.emit_xy(Vec2d(target.x(), target.y()));
+                w0.emit_xy(Vec2d(target.x(), target.y()), m_axis_remap.output_letter[0], m_axis_remap.output_letter[1]);
                 w0.emit_f(travel_speed * 60.0);
                 w0.emit_comment(GCodeWriter::full_gcode_comment, comment);
                 xy_z_move = w0.string() + _travel_to_z(target.z(), comment);
@@ -731,13 +732,13 @@ std::string GCodeWriter::travel_to_xyz(const Vec3d &point, const std::string &co
     if (!this->is_current_position_clear())
     {
         //force to move xy first then z after filament change
-        w.emit_xy(Vec2d(point_on_plate.x(), point_on_plate.y()));
+        w.emit_xy(Vec2d(point_on_plate.x(), point_on_plate.y()), m_axis_remap.output_letter[0], m_axis_remap.output_letter[1]);
         w.emit_f(this->config.travel_speed.value * 60.0);
         w.emit_comment(GCodeWriter::full_gcode_comment, comment);
         out_string = w.string() + _travel_to_z(point_on_plate.z(), comment);
     } else {
         GCodeG1Formatter w;
-        w.emit_xyz(point_on_plate);
+        w.emit_xyz(point_on_plate, m_axis_remap.output_letter[0], m_axis_remap.output_letter[1], m_axis_remap.output_letter[2]);
         w.emit_f(this->config.travel_speed.value * 60.0);
         w.emit_comment(GCodeWriter::full_gcode_comment, comment);
         out_string = w.string();
@@ -778,7 +779,7 @@ std::string GCodeWriter::_travel_to_z(double z, const std::string &comment)
     }
 
     GCodeG1Formatter w;
-    w.emit_z(z);
+    w.emit_z(z, m_axis_remap.output_letter[2]);
     w.emit_f(speed * 60.0);
     //BBS
     w.emit_comment(GCodeWriter::full_gcode_comment, comment);
@@ -830,17 +831,17 @@ std::string GCodeWriter::_spiral_travel_to_z(double z, const Vec2d &ij_offset, c
             double y = cy + radius * std::sin(a);       // point on circle
             double zz = z_start + (z - z_start) * t;    // interpolated Z height
 
-            oss << "G1 X" << x << " Y" << y << " Z" << zz << "\n";
+            oss << "G1 " << m_axis_remap.output_letter[0] << x << " " << m_axis_remap.output_letter[1] << y << " " << m_axis_remap.output_letter[2] << zz << "\n";
         }
 
-        oss << "G1 X" << px << " Y" << py << " Z" << z << "\n";  // final point to ensure exactness
+        oss << "G1 " << m_axis_remap.output_letter[0] << px << " " << m_axis_remap.output_letter[1] << py << " " << m_axis_remap.output_letter[2] << z << "\n";  // final point to ensure exactness
         output = oss.str();
     } else { // Orca: if arc fitting is enabled emit a G2/G3 command for the spiral lift
         output = std::string("G17") + (full_gcode_comment ? " ; XY plane for arc\n" : "\n");
 
         GCodeG2G3Formatter w(true);
-        w.emit_z(z);
-        w.emit_ij(ij_offset);
+        w.emit_z(z, m_axis_remap.output_letter[2]);
+        w.emit_ij(ij_offset, m_axis_remap.output_ij_letter[0], m_axis_remap.output_ij_letter[1]);
         w.emit_string(" P1 ");
         w.emit_f(speed * 60.0);
         w.emit_comment(GCodeWriter::full_gcode_comment, comment);
@@ -883,7 +884,7 @@ std::string GCodeWriter::extrude_to_xy(const Vec2d &point, double dE, const std:
     Vec2d point_on_plate = { point(0) - m_x_offset, point(1) - m_y_offset };
 
     GCodeG1Formatter w;
-    w.emit_xy(point_on_plate);
+    w.emit_xy(point_on_plate, m_axis_remap.output_letter[0], m_axis_remap.output_letter[1]);
     if (!force_no_extrusion)
         w.emit_e(filament()->E());
     //BBS
@@ -904,8 +905,8 @@ std::string GCodeWriter::extrude_arc_to_xy(const Vec2d& point, const Vec2d& cent
     Vec2d point_on_plate = { point(0) - m_x_offset, point(1) - m_y_offset };
 
     GCodeG2G3Formatter w(is_ccw);
-    w.emit_xy(point_on_plate);
-    w.emit_ij(center_offset);
+    w.emit_xy(point_on_plate, m_axis_remap.output_letter[0], m_axis_remap.output_letter[1]);
+    w.emit_ij(center_offset, m_axis_remap.output_ij_letter[0], m_axis_remap.output_ij_letter[1]);
     if (!force_no_extrusion)
         w.emit_e(filament()->E());
     //BBS
@@ -924,7 +925,7 @@ std::string GCodeWriter::extrude_to_xyz(const Vec3d &point, double dE, const std
     Vec3d point_on_plate = { point(0) - m_x_offset, point(1) - m_y_offset, point(2) };
 
     GCodeG1Formatter w;
-    w.emit_xyz(point_on_plate);
+    w.emit_xyz(point_on_plate, m_axis_remap.output_letter[0], m_axis_remap.output_letter[1], m_axis_remap.output_letter[2]);
     if (!force_no_extrusion)
         w.emit_e(filament()->E());
     //BBS

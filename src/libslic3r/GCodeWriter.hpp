@@ -11,6 +11,31 @@
 
 namespace Slic3r {
 
+struct AxisRemapHelper {
+    // For slicer axis i, output_letter[i] is the G-code axis letter
+    // and output_ij_letter[i] is the arc offset letter (I/J/K)
+    char output_letter[3];    // indexed by slicer axis (0=X,1=Y,2=Z)
+    char output_ij_letter[3]; // indexed by slicer axis
+
+    bool is_identity() const { return output_letter[0]=='X' && output_letter[1]=='Y' && output_letter[2]=='Z'; }
+    bool involves_z() const {
+        // Z is involved if any of X/Y maps to Z or Z maps to X/Y
+        return !is_identity() && !(output_letter[0]!='Z' && output_letter[1]!='Z' && output_letter[2]=='Z');
+    }
+
+    static AxisRemapHelper from_enum(AxisRemap remap) {
+        switch (remap) {
+        default:
+        case AxisRemap::arXYZ: return {{'X','Y','Z'}, {'I','J','K'}};
+        case AxisRemap::arYXZ: return {{'Y','X','Z'}, {'J','I','K'}};
+        case AxisRemap::arXZY: return {{'X','Z','Y'}, {'I','K','J'}};
+        case AxisRemap::arZYX: return {{'Z','Y','X'}, {'K','J','I'}};
+        case AxisRemap::arYZX: return {{'Y','Z','X'}, {'J','K','I'}};
+        case AxisRemap::arZXY: return {{'Z','X','Y'}, {'K','I','J'}};
+        }
+    }
+};
+
 class GCodeWriter {
 public:
     GCodeConfig config;
@@ -175,6 +200,8 @@ public:
     std::string m_gcode_label_objects_start;
     std::string m_gcode_label_objects_end;
 
+    AxisRemapHelper m_axis_remap = AxisRemapHelper::from_enum(AxisRemap::arXYZ);
+
     //SoftFever
     bool            m_is_bbl_printers = false;
     double          m_current_speed;
@@ -228,19 +255,19 @@ public:
 
     void emit_axis(const char axis, const double v, size_t digits);
 
-    void emit_xy(const Vec2d &point) {
-        this->emit_axis('X', point.x(), XYZF_EXPORT_DIGITS);
-        this->emit_axis('Y', point.y(), XYZF_EXPORT_DIGITS);
+    void emit_xy(const Vec2d &point, char x_axis = 'X', char y_axis = 'Y') {
+        this->emit_axis(x_axis, point.x(), XYZF_EXPORT_DIGITS);
+        this->emit_axis(y_axis, point.y(), XYZF_EXPORT_DIGITS);
     }
 
-    void emit_xyz(const Vec3d &point) {
-        this->emit_axis('X', point.x(), XYZF_EXPORT_DIGITS);
-        this->emit_axis('Y', point.y(), XYZF_EXPORT_DIGITS);
-        this->emit_z(point.z());
+    void emit_xyz(const Vec3d &point, char x_axis = 'X', char y_axis = 'Y', char z_axis = 'Z') {
+        this->emit_axis(x_axis, point.x(), XYZF_EXPORT_DIGITS);
+        this->emit_axis(y_axis, point.y(), XYZF_EXPORT_DIGITS);
+        this->emit_z(point.z(), z_axis);
     }
 
-    void emit_z(const double z) {
-        this->emit_axis('Z', z, XYZF_EXPORT_DIGITS);
+    void emit_z(const double z, char z_axis = 'Z') {
+        this->emit_axis(z_axis, z, XYZF_EXPORT_DIGITS);
     }
 
     void emit_e(double v) {
@@ -251,9 +278,9 @@ public:
         this->emit_axis('F', speed, XYZF_EXPORT_DIGITS);
     }
     //BBS
-    void emit_ij(const Vec2d &point) {
-        this->emit_axis('I', point.x(), XYZF_EXPORT_DIGITS);
-        this->emit_axis('J', point.y(), XYZF_EXPORT_DIGITS);
+    void emit_ij(const Vec2d &point, char i_axis = 'I', char j_axis = 'J') {
+        this->emit_axis(i_axis, point.x(), XYZF_EXPORT_DIGITS);
+        this->emit_axis(j_axis, point.y(), XYZF_EXPORT_DIGITS);
     }
 
     void emit_string(const std::string &s) {

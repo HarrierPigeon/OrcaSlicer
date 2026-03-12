@@ -473,6 +473,16 @@ static t_config_enum_values s_keys_map_PrinterStructure {
 };
 CONFIG_OPTION_ENUM_DEFINE_STATIC_MAPS(PrinterStructure)
 
+static t_config_enum_values s_keys_map_AxisRemap {
+    {"xyz", int(AxisRemap::arXYZ)},
+    {"yxz", int(AxisRemap::arYXZ)},
+    {"xzy", int(AxisRemap::arXZY)},
+    {"zyx", int(AxisRemap::arZYX)},
+    {"yzx", int(AxisRemap::arYZX)},
+    {"zxy", int(AxisRemap::arZXY)},
+};
+CONFIG_OPTION_ENUM_DEFINE_STATIC_MAPS(AxisRemap)
+
 static t_config_enum_values s_keys_map_PerimeterGeneratorType{
     { "classic", int(PerimeterGeneratorType::Classic) },
     { "arachne", int(PerimeterGeneratorType::Arachne) }
@@ -4085,6 +4095,19 @@ void PrintConfigDef::init_fff_params()
                        "set to Klipper.");
     def->mode = comAdvanced;
     def->set_default_value(new ConfigOptionBool(true));
+
+    def = this->add("axis_remap", coEnum);
+    def->label = L("Axis remapping");
+    def->tooltip = L("Remap the output G-code axes. This permutes which firmware axis receives each coordinate.\n"
+                      "For example, 'Y X Z' swaps the X and Y axes.\n\n"
+                      "Note: Start/end G-code is NOT automatically remapped - you must write it for the remapped axes.\n"
+                      "Arc fitting is automatically disabled for remaps involving the Z axis.");
+    def->enum_keys_map = &ConfigOptionEnum<AxisRemap>::get_enum_values();
+    def->enum_values = {"xyz","yxz","xzy","zyx","yzx","zxy"};
+    def->enum_labels = {"X Y Z (default)","Y X Z (swap X/Y)","X Z Y (swap Y/Z)",
+                         "Z Y X (swap X/Z)","Y Z X (cycle)","Z X Y (cycle)"};
+    def->mode = comAdvanced;
+    def->set_default_value(new ConfigOptionEnum<AxisRemap>(AxisRemap::arXYZ));
 
     def = this->add("machine_pause_gcode", coString);
     def->label = L("Pause G-code");
