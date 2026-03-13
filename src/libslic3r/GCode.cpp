@@ -2916,28 +2916,16 @@ void GCode::_do_export(Print& print, GCodeOutputStream &file, ThumbnailsGenerato
     
     m_writer.set_is_bbl_machine(is_bbl_printers);
 
-    // Belt printer: initialize coordinate transformation on the writer.
+    // Belt printer: initialize coordinate transformation and axis remap on the writer.
     if (print.config().belt_printer.value) {
         m_writer.set_belt_angle(print.config().belt_printer_angle.value);
-        // Compute the Z-shift that was applied during slicing (same logic as PrintObjectSlice.cpp).
-        // This is needed by to_machine_coords() to undo the slicing transform.
-        // For multiple objects, use the minimum min_z_rotated across all objects.
-        double angle_rad = Geometry::deg2rad(print.config().belt_printer_angle.value);
-        Transform3d belt_rotation = Transform3d::Identity();
-        belt_rotation.rotate(Eigen::AngleAxisd(-angle_rad, Vec3d::UnitX()));
-        double global_min_z = std::numeric_limits<double>::max();
-        for (const PrintObject *obj : print.objects()) {
-            Transform3d obj_trafo = belt_rotation * obj->trafo_centered();
-            for (const ModelVolume *mv : obj->model_object()->volumes) {
-                if (! mv->is_model_part() && ! mv->is_modifier())
-                    continue;
-                BoundingBoxf3 bb = mv->mesh().bounding_box();
-                bb = bb.transformed(obj_trafo * mv->get_matrix());
-                global_min_z = std::min(global_min_z, bb.min.z());
-            }
-        }
-        if (global_min_z != std::numeric_limits<double>::max() && std::abs(global_min_z) > EPSILON)
-            m_writer.set_belt_z_shift(global_min_z);  // typically negative
+        m_writer.set_axis_remap(
+            int(print.config().belt_gcode_remap_x.value),
+            int(print.config().belt_gcode_remap_y.value),
+            int(print.config().belt_gcode_remap_z.value));
+        // Build volume extents for Rev remap mode.
+        BoundingBoxf bbox_bed(print.config().printable_area.values);
+        m_writer.set_build_volume_max(Vec3d(bbox_bed.max.x(), bbox_bed.max.y(), print.config().printable_height.value));
     }
 
     // How many times will be change_layer() called?
@@ -3035,7 +3023,6 @@ void GCode::_do_export(Print& print, GCodeOutputStream &file, ThumbnailsGenerato
         // Belt printer: embed angle in header for G-code processor detection.
         if (print.config().belt_printer.value) {
             file.write_format("; belt_printer_angle = %.1f\n", print.config().belt_printer_angle.value);
-            file.write_format("; belt_z_shift = %.4f\n", m_writer.belt_z_shift());
         }
         if (is_bbl_printers)
             file.write_format(";%s\n", GCodeProcessor::reserved_tag(GCodeProcessor::ETags::Estimated_Printing_Time_Placeholder).c_str());

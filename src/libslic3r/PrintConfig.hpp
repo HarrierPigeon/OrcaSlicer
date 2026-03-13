@@ -229,6 +229,38 @@ enum class SlicingMode
     CloseHoles,
 };
 
+enum class BeltShearMode
+{
+    None,       // No shear on this axis
+    PosCot,     // += cot(α)
+    NegCot,     // -= cot(α)
+    PosTan,     // += tan(α)
+    NegTan,     // -= tan(α)
+};
+
+enum class BeltScaleMode
+{
+    None,       // No scaling (factor = 1)
+    InvSin,     // 1/sin(α)
+    InvCos,     // 1/cos(α)
+    Sin,        // sin(α)
+    Cos,        // cos(α)
+};
+
+enum class BeltAxis
+{
+    X = 0,
+    Y = 1,
+    Z = 2,
+};
+
+enum class BeltRemapAxis
+{
+    PosX = 0, PosY = 1, PosZ = 2,
+    NegX = 3, NegY = 4, NegZ = 5,
+    RevX = 6, RevY = 7, RevZ = 8,  // Reversed: max - pos
+};
+
 enum SupportMaterialPattern {
     smpDefault,
     smpRectilinear, smpRectilinearGrid, smpHoneycomb,
@@ -647,6 +679,10 @@ CONFIG_OPTION_ENUM_DECLARE_STATIC_MAPS(NoiseType)
 CONFIG_OPTION_ENUM_DECLARE_STATIC_MAPS(InfillPattern)
 CONFIG_OPTION_ENUM_DECLARE_STATIC_MAPS(IroningType)
 CONFIG_OPTION_ENUM_DECLARE_STATIC_MAPS(SlicingMode)
+CONFIG_OPTION_ENUM_DECLARE_STATIC_MAPS(BeltShearMode)
+CONFIG_OPTION_ENUM_DECLARE_STATIC_MAPS(BeltScaleMode)
+CONFIG_OPTION_ENUM_DECLARE_STATIC_MAPS(BeltAxis)
+CONFIG_OPTION_ENUM_DECLARE_STATIC_MAPS(BeltRemapAxis)
 CONFIG_OPTION_ENUM_DECLARE_STATIC_MAPS(SupportMaterialPattern)
 CONFIG_OPTION_ENUM_DECLARE_STATIC_MAPS(SupportMaterialStyle)
 CONFIG_OPTION_ENUM_DECLARE_STATIC_MAPS(SupportMaterialInterfacePattern)
@@ -1712,6 +1748,24 @@ PRINT_CONFIG_CLASS_DERIVED_DEFINE(
     ((ConfigOptionBool,                belt_printer))
     ((ConfigOptionFloat,               belt_printer_angle))
     ((ConfigOptionBool,                belt_printer_infinite_y))
+    ((ConfigOptionEnum<BeltShearMode>,  belt_shear_x))
+    ((ConfigOptionFloat,                belt_shear_x_angle))
+    ((ConfigOptionEnum<BeltAxis>,       belt_shear_x_from))
+    ((ConfigOptionEnum<BeltShearMode>,  belt_shear_y))
+    ((ConfigOptionFloat,                belt_shear_y_angle))
+    ((ConfigOptionEnum<BeltAxis>,       belt_shear_y_from))
+    ((ConfigOptionEnum<BeltShearMode>,  belt_shear_z))
+    ((ConfigOptionFloat,                belt_shear_z_angle))
+    ((ConfigOptionEnum<BeltAxis>,       belt_shear_z_from))
+    ((ConfigOptionEnum<BeltScaleMode>,  belt_scale_x))
+    ((ConfigOptionFloat,                belt_scale_x_angle))
+    ((ConfigOptionEnum<BeltScaleMode>,  belt_scale_y))
+    ((ConfigOptionFloat,                belt_scale_y_angle))
+    ((ConfigOptionEnum<BeltScaleMode>,  belt_scale_z))
+    ((ConfigOptionFloat,                belt_scale_z_angle))
+    ((ConfigOptionEnum<BeltRemapAxis>,  belt_gcode_remap_x))
+    ((ConfigOptionEnum<BeltRemapAxis>,  belt_gcode_remap_y))
+    ((ConfigOptionEnum<BeltRemapAxis>,  belt_gcode_remap_z))
     //BBS
     ((ConfigOptionInts,               additional_cooling_fan_speed))
     ((ConfigOptionInts,               close_additional_fan_first_x_layers))

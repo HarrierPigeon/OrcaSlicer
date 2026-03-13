@@ -27,26 +27,32 @@ bool GCodeWriter::full_gcode_comment = true;
 void GCodeWriter::set_belt_angle(double angle_deg)
 {
     m_belt_angle_rad = Geometry::deg2rad(angle_deg);
-    m_belt_cos = std::cos(m_belt_angle_rad);
-    m_belt_sin = std::sin(m_belt_angle_rad);
+}
+
+void GCodeWriter::set_axis_remap(int rx, int ry, int rz)
+{
+    m_remap_x = rx;
+    m_remap_y = ry;
+    m_remap_z = rz;
+}
+
+void GCodeWriter::set_build_volume_max(const Vec3d &max)
+{
+    m_build_vol_max = max;
 }
 
 Vec3d GCodeWriter::to_machine_coords(const Vec3d &pos) const
 {
     if (!is_belt_printer())
         return pos;
-
-    // Undo the slicing transform to recover machine-frame coordinates.
-    // Slicing applied: T(0,0,-min_z_rot) * R(-alpha, X) * original_pos
-    // Inverse:         R(+alpha, X) * T(0,0,+min_z_rot) * slicing_pos
-    //
-    // First undo the Z-shift, then apply R(+alpha, X).
-    double sz = pos.z() + m_belt_z_shift;   // undo T(0,0,-min_z_rot)
-    return Vec3d(
-        pos.x(),
-        pos.y() * m_belt_cos - sz * m_belt_sin,   // R(+alpha, X)
-        pos.y() * m_belt_sin + sz * m_belt_cos
-    );
+    // BeltRemapAxis: 0-2 = +X/+Y/+Z, 3-5 = -X/-Y/-Z, 6-8 = Rev X/Y/Z
+    auto remap = [this, &pos](int r) -> double {
+        int axis = r % 3;
+        if (r < 3) return pos[axis];
+        if (r < 6) return -pos[axis];
+        return m_build_vol_max[axis] - pos[axis];
+    };
+    return { remap(m_remap_x), remap(m_remap_y), remap(m_remap_z) };
 }
 
 bool GCodeWriter::supports_separate_travel_acceleration(GCodeFlavor flavor)

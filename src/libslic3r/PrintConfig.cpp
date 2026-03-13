@@ -346,6 +346,44 @@ static t_config_enum_values s_keys_map_SlicingMode {
 };
 CONFIG_OPTION_ENUM_DEFINE_STATIC_MAPS(SlicingMode)
 
+static t_config_enum_values s_keys_map_BeltShearMode {
+    { "none",      int(BeltShearMode::None) },
+    { "pos_cot",   int(BeltShearMode::PosCot) },
+    { "neg_cot",   int(BeltShearMode::NegCot) },
+    { "pos_tan",   int(BeltShearMode::PosTan) },
+    { "neg_tan",   int(BeltShearMode::NegTan) },
+};
+CONFIG_OPTION_ENUM_DEFINE_STATIC_MAPS(BeltShearMode)
+
+static t_config_enum_values s_keys_map_BeltAxis {
+    { "x", int(BeltAxis::X) },
+    { "y", int(BeltAxis::Y) },
+    { "z", int(BeltAxis::Z) },
+};
+CONFIG_OPTION_ENUM_DEFINE_STATIC_MAPS(BeltAxis)
+
+static t_config_enum_values s_keys_map_BeltScaleMode {
+    { "none",      int(BeltScaleMode::None) },
+    { "inv_sin",   int(BeltScaleMode::InvSin) },
+    { "inv_cos",   int(BeltScaleMode::InvCos) },
+    { "sin",       int(BeltScaleMode::Sin) },
+    { "cos",       int(BeltScaleMode::Cos) },
+};
+CONFIG_OPTION_ENUM_DEFINE_STATIC_MAPS(BeltScaleMode)
+
+static t_config_enum_values s_keys_map_BeltRemapAxis {
+    { "pos_x", int(BeltRemapAxis::PosX) },
+    { "pos_y", int(BeltRemapAxis::PosY) },
+    { "pos_z", int(BeltRemapAxis::PosZ) },
+    { "neg_x", int(BeltRemapAxis::NegX) },
+    { "neg_y", int(BeltRemapAxis::NegY) },
+    { "neg_z", int(BeltRemapAxis::NegZ) },
+    { "rev_x", int(BeltRemapAxis::RevX) },
+    { "rev_y", int(BeltRemapAxis::RevY) },
+    { "rev_z", int(BeltRemapAxis::RevZ) },
+};
+CONFIG_OPTION_ENUM_DEFINE_STATIC_MAPS(BeltRemapAxis)
+
 static t_config_enum_values s_keys_map_SupportMaterialPattern {
     { "rectilinear",        smpRectilinear },
     { "rectilinear-grid",   smpRectilinearGrid },
@@ -7057,6 +7095,103 @@ void PrintConfigDef::init_fff_params()
                      "allowing objects of any length to be printed along the belt direction.");
     def->mode = comAdvanced;
     def->set_default_value(new ConfigOptionBool(true));
+
+    // Per-axis shear controls for belt printer
+    auto add_belt_shear_mode = [this](const char *key, const char *label, BeltShearMode default_mode) {
+        auto def = this->add(key, coEnum);
+        def->label = L(label);
+        def->category = L("Printable space");
+        def->tooltip = L("Shear function applied to this axis in belt printer mode.");
+        def->enum_keys_map = &ConfigOptionEnum<BeltShearMode>::get_enum_values();
+        def->enum_values  = {"none", "pos_cot", "neg_cot", "pos_tan", "neg_tan"};
+        def->enum_labels  = {L("None"), L("+cot(α)"), L("-cot(α)"), L("+tan(α)"), L("-tan(α)")};
+        def->mode = comAdvanced;
+        def->set_default_value(new ConfigOptionEnum<BeltShearMode>(default_mode));
+    };
+    auto add_belt_shear_angle = [this](const char *key, const char *label) {
+        auto def = this->add(key, coFloat);
+        def->label = L(label);
+        def->category = L("Printable space");
+        def->tooltip = L("Angle (degrees) for the shear function on this axis.");
+        def->sidetext = L("°");
+        def->min = 0.1;
+        def->max = 89.9;
+        def->mode = comAdvanced;
+        def->set_default_value(new ConfigOptionFloat(45));
+    };
+    auto add_belt_axis_enum = [this](const char *key, const char *label, const char *tooltip, BeltAxis default_axis) {
+        auto def = this->add(key, coEnum);
+        def->label = L(label);
+        def->category = L("Printable space");
+        def->tooltip = L(tooltip);
+        def->enum_keys_map = &ConfigOptionEnum<BeltAxis>::get_enum_values();
+        def->enum_values  = {"x", "y", "z"};
+        def->enum_labels  = {L("X"), L("Y"), L("Z")};
+        def->mode = comAdvanced;
+        def->set_default_value(new ConfigOptionEnum<BeltAxis>(default_axis));
+    };
+
+    add_belt_shear_mode("belt_shear_x", "Function", BeltShearMode::None);
+    add_belt_shear_angle("belt_shear_x_angle", "Angle");
+    add_belt_axis_enum("belt_shear_x_from", "From", "Source axis for X shear.", BeltAxis::Z);
+
+    add_belt_shear_mode("belt_shear_y", "Function", BeltShearMode::PosCot);
+    add_belt_shear_angle("belt_shear_y_angle", "Angle");
+    add_belt_axis_enum("belt_shear_y_from", "From", "Source axis for Y shear.", BeltAxis::Z);
+
+    add_belt_shear_mode("belt_shear_z", "Function", BeltShearMode::None);
+    add_belt_shear_angle("belt_shear_z_angle", "Angle");
+    add_belt_axis_enum("belt_shear_z_from", "From", "Source axis for Z shear.", BeltAxis::Y);
+
+    // Per-axis scale controls for belt printer
+    auto add_belt_scale_mode = [this](const char *key, const char *label, BeltScaleMode default_mode) {
+        auto def = this->add(key, coEnum);
+        def->label = L(label);
+        def->category = L("Printable space");
+        def->tooltip = L("Scale factor applied to this axis in belt printer mode.");
+        def->enum_keys_map = &ConfigOptionEnum<BeltScaleMode>::get_enum_values();
+        def->enum_values  = {"none", "inv_sin", "inv_cos", "sin", "cos"};
+        def->enum_labels  = {L("None"), L("1/sin(α)"), L("1/cos(α)"), L("sin(α)"), L("cos(α)")};
+        def->mode = comAdvanced;
+        def->set_default_value(new ConfigOptionEnum<BeltScaleMode>(default_mode));
+    };
+    auto add_belt_scale_angle = [this](const char *key, const char *label) {
+        auto def = this->add(key, coFloat);
+        def->label = L(label);
+        def->category = L("Printable space");
+        def->tooltip = L("Angle (degrees) for the scale function on this axis.");
+        def->sidetext = L("°");
+        def->min = 0.1;
+        def->max = 89.9;
+        def->mode = comAdvanced;
+        def->set_default_value(new ConfigOptionFloat(45));
+    };
+
+    add_belt_scale_mode("belt_scale_x", "Function", BeltScaleMode::None);
+    add_belt_scale_angle("belt_scale_x_angle", "Angle");
+
+    add_belt_scale_mode("belt_scale_y", "Function", BeltScaleMode::None);
+    add_belt_scale_angle("belt_scale_y_angle", "Angle");
+
+    add_belt_scale_mode("belt_scale_z", "Function", BeltScaleMode::None);
+    add_belt_scale_angle("belt_scale_z_angle", "Angle");
+
+    // G-code axis remap with sign
+    auto add_belt_remap = [this](const char *key, const char *label, const char *tooltip, BeltRemapAxis default_axis) {
+        auto def = this->add(key, coEnum);
+        def->label = L(label);
+        def->category = L("Printable space");
+        def->tooltip = L(tooltip);
+        def->enum_keys_map = &ConfigOptionEnum<BeltRemapAxis>::get_enum_values();
+        def->enum_values  = {"pos_x", "pos_y", "pos_z", "neg_x", "neg_y", "neg_z", "rev_x", "rev_y", "rev_z"};
+        def->enum_labels  = {L("+X"), L("+Y"), L("+Z"), L("-X"), L("-Y"), L("-Z"), L("Rev X"), L("Rev Y"), L("Rev Z")};
+        def->mode = comAdvanced;
+        def->set_default_value(new ConfigOptionEnum<BeltRemapAxis>(default_axis));
+    };
+
+    add_belt_remap("belt_gcode_remap_x", "X", "Which slicing axis maps to machine X in G-code output.", BeltRemapAxis::PosX);
+    add_belt_remap("belt_gcode_remap_y", "Y", "Which slicing axis maps to machine Y in G-code output.", BeltRemapAxis::PosY);
+    add_belt_remap("belt_gcode_remap_z", "Z", "Which slicing axis maps to machine Z in G-code output.", BeltRemapAxis::PosZ);
 
     def = this->add("tree_support_branch_angle", coFloat);
     def->label = L("Tree support branch angle");

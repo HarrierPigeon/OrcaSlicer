@@ -3908,14 +3908,55 @@ void PrintObject::update_slicing_parameters()
     // Orca: updated function call for XYZ shrinkage compensation
     if (!m_slicing_params.valid) {
           coordf_t object_height = this->model_object()->max_z();
-          if (this->print()->config().belt_printer.value) {
-              // After mesh rotation R(-alpha, X), effective height in the slicing
-              // direction is y_extent*sin(a) + z_extent*cos(a).
-              double angle_rad = Geometry::deg2rad(this->print()->config().belt_printer_angle.value);
-              BoundingBoxf3 bb = this->model_object()->raw_bounding_box();
-              object_height = bb.size().y() * std::sin(angle_rad) + bb.size().z() * std::cos(angle_rad);
+          // Belt shear/scale may change the effective Z height.
+          const auto &pcfg = this->print()->config();
+          if (pcfg.belt_printer.value) {
+              bool has_z_shear = pcfg.belt_shear_z.value != BeltShearMode::None;
+              bool has_z_scale = pcfg.belt_scale_z.value != BeltScaleMode::None;
+              if (has_z_shear || has_z_scale) {
+                  auto compute_shear_factor = [](BeltShearMode mode, double angle_deg) -> double {
+                      double angle_rad = Geometry::deg2rad(angle_deg);
+                      double sin_a = std::sin(angle_rad), cos_a = std::cos(angle_rad);
+                      switch (mode) {
+                      case BeltShearMode::PosCot: return (sin_a > EPSILON) ?  cos_a / sin_a : 0.;
+                      case BeltShearMode::NegCot: return (sin_a > EPSILON) ? -cos_a / sin_a : 0.;
+                      case BeltShearMode::PosTan: return (cos_a > EPSILON) ?  sin_a / cos_a : 0.;
+                      case BeltShearMode::NegTan: return (cos_a > EPSILON) ? -sin_a / cos_a : 0.;
+                      default: return 0.;
+                      }
+                  };
+                  auto compute_scale_factor = [](BeltScaleMode mode, double angle_deg) -> double {
+                      if (mode == BeltScaleMode::None) return 1.;
+                      double angle_rad = Geometry::deg2rad(angle_deg);
+                      double sin_a = std::sin(angle_rad), cos_a = std::cos(angle_rad);
+                      switch (mode) {
+                      case BeltScaleMode::InvSin: return (sin_a > EPSILON) ? 1. / sin_a : 1.;
+                      case BeltScaleMode::InvCos: return (cos_a > EPSILON) ? 1. / cos_a : 1.;
+                      case BeltScaleMode::Sin:    return sin_a;
+                      case BeltScaleMode::Cos:    return cos_a;
+                      default: return 1.;
+                      }
+                  };
+                  double shear_factor = has_z_shear ? compute_shear_factor(pcfg.belt_shear_z.value, pcfg.belt_shear_z_angle.value) : 0.;
+                  double scale_z = compute_scale_factor(pcfg.belt_scale_z.value, pcfg.belt_scale_z_angle.value);
+                  if (has_z_shear && std::abs(shear_factor) > EPSILON) {
+                      int from = int(pcfg.belt_shear_z_from.value);
+                      BoundingBoxf3 bb = this->model_object()->raw_bounding_box();
+                      double min_rz = std::numeric_limits<double>::max();
+                      double max_rz = std::numeric_limits<double>::lowest();
+                      for (double vz : {bb.min.z(), bb.max.z()})
+                          for (double vs : {bb.min(from), bb.max(from)}) {
+                              double new_z = scale_z * (vz + shear_factor * vs);
+                              min_rz = std::min(min_rz, new_z);
+                              max_rz = std::max(max_rz, new_z);
+                          }
+                      object_height = max_rz - min_rz;
+                  } else {
+                      object_height *= scale_z;
+                  }
+              }
           }
-          m_slicing_params = SlicingParameters::create_from_config(this->print()->config(), m_config, object_height,
+          m_slicing_params = SlicingParameters::create_from_config(pcfg, m_config, object_height,
                                                                    this->object_extruders(), this->print()->shrinkage_compensation());
       }
 }
@@ -3960,9 +4001,51 @@ SlicingParameters PrintObject::slicing_parameters(const DynamicPrintConfig &full
     if (object_max_z <= 0.f) {
         BoundingBoxf3 bb = model_object.raw_bounding_box();
         object_max_z = (float)bb.size().z();
+        // Belt shear/scale may change the effective Z height.
         if (print_config.belt_printer.value) {
-            double angle_rad = Geometry::deg2rad(print_config.belt_printer_angle.value);
-            object_max_z = (float)(bb.size().y() * std::sin(angle_rad) + bb.size().z() * std::cos(angle_rad));
+            bool has_z_shear = print_config.belt_shear_z.value != BeltShearMode::None;
+            bool has_z_scale = print_config.belt_scale_z.value != BeltScaleMode::None;
+            if (has_z_shear || has_z_scale) {
+                auto compute_shear_factor = [](BeltShearMode mode, double angle_deg) -> double {
+                    double angle_rad = Geometry::deg2rad(angle_deg);
+                    double sin_a = std::sin(angle_rad), cos_a = std::cos(angle_rad);
+                    switch (mode) {
+                    case BeltShearMode::PosCot: return (sin_a > EPSILON) ?  cos_a / sin_a : 0.;
+                    case BeltShearMode::NegCot: return (sin_a > EPSILON) ? -cos_a / sin_a : 0.;
+                    case BeltShearMode::PosTan: return (cos_a > EPSILON) ?  sin_a / cos_a : 0.;
+                    case BeltShearMode::NegTan: return (cos_a > EPSILON) ? -sin_a / cos_a : 0.;
+                    default: return 0.;
+                    }
+                };
+                auto compute_scale_factor = [](BeltScaleMode mode, double angle_deg) -> double {
+                    if (mode == BeltScaleMode::None) return 1.;
+                    double angle_rad = Geometry::deg2rad(angle_deg);
+                    double sin_a = std::sin(angle_rad), cos_a = std::cos(angle_rad);
+                    switch (mode) {
+                    case BeltScaleMode::InvSin: return (sin_a > EPSILON) ? 1. / sin_a : 1.;
+                    case BeltScaleMode::InvCos: return (cos_a > EPSILON) ? 1. / cos_a : 1.;
+                    case BeltScaleMode::Sin:    return sin_a;
+                    case BeltScaleMode::Cos:    return cos_a;
+                    default: return 1.;
+                    }
+                };
+                double shear_factor = has_z_shear ? compute_shear_factor(print_config.belt_shear_z.value, print_config.belt_shear_z_angle.value) : 0.;
+                double scale_z = compute_scale_factor(print_config.belt_scale_z.value, print_config.belt_scale_z_angle.value);
+                if (has_z_shear && std::abs(shear_factor) > EPSILON) {
+                    int from = int(print_config.belt_shear_z_from.value);
+                    double min_rz = std::numeric_limits<double>::max();
+                    double max_rz = std::numeric_limits<double>::lowest();
+                    for (double vz : {bb.min.z(), bb.max.z()})
+                        for (double vs : {bb.min(from), bb.max(from)}) {
+                            double new_z = scale_z * (vz + shear_factor * vs);
+                            min_rz = std::min(min_rz, new_z);
+                            max_rz = std::max(max_rz, new_z);
+                        }
+                    object_max_z = (float)(max_rz - min_rz);
+                } else {
+                    object_max_z *= (float)scale_z;
+                }
+            }
         }
     }
     return SlicingParameters::create_from_config(print_config, object_config, object_max_z, object_extruders, object_shrinkage_compensation);
