@@ -14,6 +14,7 @@
 #include "GCode/WipeTower.hpp"
 #include "ShortestPath.hpp"
 #include "Print.hpp"
+#include "SlicingDirections.hpp"
 #include "Utils.hpp"
 #include "ClipperUtils.hpp"
 #include "libslic3r.h"
@@ -2410,7 +2411,21 @@ void GCode::_do_export(Print& print, GCodeOutputStream &file, ThumbnailsGenerato
     m_is_role_based_fan_on.fill(false);
 
     m_fan_mover.release();
-    
+
+    // Initialize slicing direction for inverse-rotating G-code coordinates.
+    m_slicing_dirs = SlicingDirections::from_config(print.config());
+    if (m_slicing_dirs.has_custom_slicing() && !print.objects().empty()) {
+        // Compute z_min from the first object's bounding box (all objects share the
+        // same slicing direction, so the z_shift only varies by object geometry).
+        const PrintObject* po = print.objects().front();
+        BoundingBoxf3 obj_bbox = po->model_object()->raw_bounding_box()
+                                    .transformed(po->trafo_centered());
+        auto [z_min, z_max] = m_slicing_dirs.rotated_z_range(obj_bbox);
+        m_slice_z_shift = z_min;
+    } else {
+        m_slice_z_shift = 0.0;
+    }
+
     m_writer.set_is_bbl_machine(is_bbl_printers);
 
     // How many times will be change_layer() called?
@@ -7767,18 +7782,25 @@ std::string GCode::set_object_info(Print *print) {
 Vec2d GCode::point_to_gcode(const Point &point) const
 {
     Vec2d extruder_offset = EXTRUDER_CONFIG(extruder_offset);
-    return unscale(point) + m_origin - extruder_offset;
+    Vec2d p = unscale(point);
+    // Inverse-rotate from the slicing frame back to the original model frame
+    // so that non-default slicing directions produce skewed G-code output.
+    if (m_slicing_dirs.has_custom_slicing() && m_layer != nullptr)
+        p = m_slicing_dirs.inverse_rotate_point(p, m_layer->print_z, m_slice_z_shift);
+    return p + m_origin - extruder_offset;
 }
 
-// convert a model-space scaled point into G-code coordinates
+// convert G-code coordinates back to model-space scaled point
 Point GCode::gcode_to_point(const Vec2d &point) const
 {
     Vec2d pt = point - m_origin;
     if (const Extruder *extruder = m_writer.filament(); extruder)
         // This function may be called at the very start from toolchange G-code when the extruder is not assigned yet.
         pt += m_config.extruder_offset.get_at(extruder->extruder_id());
+    // Forward-rotate from original frame back to slicing frame (inverse of point_to_gcode)
+    if (m_slicing_dirs.has_custom_slicing() && m_layer != nullptr)
+        pt = m_slicing_dirs.forward_rotate_point(pt, m_layer->print_z, m_slice_z_shift);
     return scaled<coord_t>(pt);
-        
 }
 
 Vec2d GCode::point_to_gcode_quantized(const Point& point) const

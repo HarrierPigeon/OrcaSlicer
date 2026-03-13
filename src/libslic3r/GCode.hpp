@@ -8,6 +8,7 @@
 #include "Point.hpp"
 #include "PlaceholderParser.hpp"
 #include "PrintConfig.hpp"
+#include "SlicingDirections.hpp"
 #include "GCode/AvoidCrossingPerimeters.hpp"
 #include "GCode/CoolingBuffer.hpp"
 #include "GCode/FanMover.hpp"
@@ -493,6 +494,9 @@ private:
        This affects the input arguments supplied to the extrude*() and travel_to()
        methods. */
     Vec2d                               m_origin;
+    // Slicing direction state for inverse-rotating G-code coordinates.
+    SlicingDirections                   m_slicing_dirs;
+    double                              m_slice_z_shift{ 0.0 }; // z_min from trafo_for_slicing
     FullPrintConfig                     m_config;
     DynamicConfig                       m_calib_config;
     // scaled G-code resolution

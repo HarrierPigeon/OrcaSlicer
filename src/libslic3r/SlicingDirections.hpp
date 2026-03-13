@@ -68,6 +68,29 @@ struct SlicingDirections {
         return t * trafo_slice_align;
     }
 
+    // Inverse-rotate a 2D contour point from the rotated slicing frame back to the
+    // original model frame.  layer_z is the G-code layer height; z_shift is the
+    // z_min offset from trafo_for_slicing (so that layer_z + z_shift gives the
+    // pre-shift rotated Z).  Returns the original-frame XY.
+    Vec2d inverse_rotate_point(const Vec2d& point, double layer_z, double z_shift) const {
+        if (!has_custom_slicing()) return point;
+        Vec3d rotated(point.x(), point.y(), layer_z + z_shift);
+        Vec3d original = q_slice_to_z.inverse() * rotated;
+        return Vec2d(original.x(), original.y());
+    }
+
+    // Forward-rotate a 2D point from the original model frame back to the rotated
+    // slicing frame.  Inverse of inverse_rotate_point().
+    Vec2d forward_rotate_point(const Vec2d& point, double layer_z, double z_shift) const {
+        if (!has_custom_slicing()) return point;
+        double z_rotated = layer_z + z_shift;
+        // Solve for original-frame Z from: R * (px, py, pz) has Z component = z_rotated
+        Eigen::Matrix3d R = q_slice_to_z.toRotationMatrix();
+        double pz = (z_rotated - R(2,0) * point.x() - R(2,1) * point.y()) / R(2,2);
+        Vec3d rotated = R * Vec3d(point.x(), point.y(), pz);
+        return Vec2d(rotated.x(), rotated.y());
+    }
+
     static SlicingDirections from_config(const PrintConfig& cfg) {
         return build(cfg.slicing_direction.value,
                      cfg.gravity_direction.value,
