@@ -4369,18 +4369,35 @@ void TabPrinter::build_fff()
         optgroup->append_single_option_line("belt_printer");
         optgroup->append_single_option_line("belt_printer_angle");
         optgroup->append_single_option_line("belt_printer_infinite_y");
-        optgroup->append_single_option_line("belt_shear_x");
-        optgroup->append_single_option_line("belt_shear_x_angle");
-        optgroup->append_single_option_line("belt_shear_x_from");
-        optgroup->append_single_option_line("belt_shear_y");
-        optgroup->append_single_option_line("belt_shear_y_angle");
-        optgroup->append_single_option_line("belt_shear_y_from");
-        optgroup->append_single_option_line("belt_shear_z");
-        optgroup->append_single_option_line("belt_shear_z_angle");
-        optgroup->append_single_option_line("belt_shear_z_from");
-        optgroup->append_single_option_line("belt_gcode_remap_x");
-        optgroup->append_single_option_line("belt_gcode_remap_y");
-        optgroup->append_single_option_line("belt_gcode_remap_z");
+        // Per-axis shear: group mode + angle + source on one row per axis
+        {
+            Line line = { L("Shear X"), L("Shear applied to the X axis before slicing") };
+            line.append_option(optgroup->get_option("belt_shear_x"));
+            line.append_option(optgroup->get_option("belt_shear_x_angle"));
+            line.append_option(optgroup->get_option("belt_shear_x_from"));
+            optgroup->append_line(line);
+        }
+        {
+            Line line = { L("Shear Y"), L("Shear applied to the Y axis before slicing") };
+            line.append_option(optgroup->get_option("belt_shear_y"));
+            line.append_option(optgroup->get_option("belt_shear_y_angle"));
+            line.append_option(optgroup->get_option("belt_shear_y_from"));
+            optgroup->append_line(line);
+        }
+        {
+            Line line = { L("Shear Z"), L("Shear applied to the Z axis before slicing") };
+            line.append_option(optgroup->get_option("belt_shear_z"));
+            line.append_option(optgroup->get_option("belt_shear_z_angle"));
+            line.append_option(optgroup->get_option("belt_shear_z_from"));
+            optgroup->append_line(line);
+        }
+        {
+            Line line = { L("G-code axis remap"), L("Remap slicing-frame axes to machine axes in G-code output") };
+            line.append_option(optgroup->get_option("belt_gcode_remap_x"));
+            line.append_option(optgroup->get_option("belt_gcode_remap_y"));
+            line.append_option(optgroup->get_option("belt_gcode_remap_z"));
+            optgroup->append_line(line);
+        }
         optgroup->append_single_option_line("support_multi_bed_types","printer_basic_information_printable_space#support-multi-bed-types");
         optgroup->append_single_option_line("best_object_pos", "printer_basic_information_printable_space#best-object-position");
         // todo: for multi_extruder test
@@ -5248,10 +5265,7 @@ void TabPrinter::toggle_options()
         bool is_belt = m_config->opt_bool("belt_printer");
         toggle_line("belt_printer_angle", is_belt);
         toggle_line("belt_printer_infinite_y", is_belt);
-        for (auto el : {"belt_shear_x", "belt_shear_x_angle", "belt_shear_x_from",
-                        "belt_shear_y", "belt_shear_y_angle", "belt_shear_y_from",
-                        "belt_shear_z", "belt_shear_z_angle", "belt_shear_z_from",
-                        "belt_gcode_remap_x", "belt_gcode_remap_y", "belt_gcode_remap_z"})
+        for (auto el : {"belt_shear_x", "belt_shear_y", "belt_shear_z", "belt_gcode_remap_x"})
             toggle_line(el, is_belt);
     }
     

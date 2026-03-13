@@ -6008,21 +6008,21 @@ void PrintConfigDef::init_fff_params()
         def->set_default_value(new ConfigOptionEnum<BeltAxis>(default_axis));
     };
 
-    add_belt_shear_mode("belt_shear_x", "Shear X", BeltShearMode::None);
-    add_belt_shear_angle("belt_shear_x_angle", "Shear X angle");
-    add_belt_axis_enum("belt_shear_x_from", "Shear X source", "Source axis for X shear.", BeltAxis::Z);
+    add_belt_shear_mode("belt_shear_x", "Function", BeltShearMode::None);
+    add_belt_shear_angle("belt_shear_x_angle", "Angle");
+    add_belt_axis_enum("belt_shear_x_from", "From", "Source axis for X shear.", BeltAxis::Z);
 
-    add_belt_shear_mode("belt_shear_y", "Shear Y", BeltShearMode::PosCot);
-    add_belt_shear_angle("belt_shear_y_angle", "Shear Y angle");
-    add_belt_axis_enum("belt_shear_y_from", "Shear Y source", "Source axis for Y shear.", BeltAxis::Z);
+    add_belt_shear_mode("belt_shear_y", "Function", BeltShearMode::PosCot);
+    add_belt_shear_angle("belt_shear_y_angle", "Angle");
+    add_belt_axis_enum("belt_shear_y_from", "From", "Source axis for Y shear.", BeltAxis::Z);
 
-    add_belt_shear_mode("belt_shear_z", "Shear Z", BeltShearMode::None);
-    add_belt_shear_angle("belt_shear_z_angle", "Shear Z angle");
-    add_belt_axis_enum("belt_shear_z_from", "Shear Z source", "Source axis for Z shear.", BeltAxis::Y);
+    add_belt_shear_mode("belt_shear_z", "Function", BeltShearMode::None);
+    add_belt_shear_angle("belt_shear_z_angle", "Angle");
+    add_belt_axis_enum("belt_shear_z_from", "From", "Source axis for Z shear.", BeltAxis::Y);
 
-    add_belt_axis_enum("belt_gcode_remap_x", "G-code remap X", "Which slicing axis maps to machine X in G-code output.", BeltAxis::X);
-    add_belt_axis_enum("belt_gcode_remap_y", "G-code remap Y", "Which slicing axis maps to machine Y in G-code output.", BeltAxis::Y);
-    add_belt_axis_enum("belt_gcode_remap_z", "G-code remap Z", "Which slicing axis maps to machine Z in G-code output.", BeltAxis::Z);
+    add_belt_axis_enum("belt_gcode_remap_x", "X", "Which slicing axis maps to machine X in G-code output.", BeltAxis::X);
+    add_belt_axis_enum("belt_gcode_remap_y", "Y", "Which slicing axis maps to machine Y in G-code output.", BeltAxis::Y);
+    add_belt_axis_enum("belt_gcode_remap_z", "Z", "Which slicing axis maps to machine Z in G-code output.", BeltAxis::Z);
 
     def = this->add("tree_support_branch_angle", coFloat);
     def->label = L("Tree support branch angle");
