@@ -4369,8 +4369,18 @@ void TabPrinter::build_fff()
         optgroup->append_single_option_line("belt_printer");
         optgroup->append_single_option_line("belt_printer_angle");
         optgroup->append_single_option_line("belt_printer_infinite_y");
-        optgroup->append_single_option_line("belt_transform_type");
-        optgroup->append_single_option_line("belt_transform_axes");
+        optgroup->append_single_option_line("belt_shear_x");
+        optgroup->append_single_option_line("belt_shear_x_angle");
+        optgroup->append_single_option_line("belt_shear_x_from");
+        optgroup->append_single_option_line("belt_shear_y");
+        optgroup->append_single_option_line("belt_shear_y_angle");
+        optgroup->append_single_option_line("belt_shear_y_from");
+        optgroup->append_single_option_line("belt_shear_z");
+        optgroup->append_single_option_line("belt_shear_z_angle");
+        optgroup->append_single_option_line("belt_shear_z_from");
+        optgroup->append_single_option_line("belt_gcode_remap_x");
+        optgroup->append_single_option_line("belt_gcode_remap_y");
+        optgroup->append_single_option_line("belt_gcode_remap_z");
         optgroup->append_single_option_line("support_multi_bed_types","printer_basic_information_printable_space#support-multi-bed-types");
         optgroup->append_single_option_line("best_object_pos", "printer_basic_information_printable_space#best-object-position");
         // todo: for multi_extruder test
@@ -5238,8 +5248,11 @@ void TabPrinter::toggle_options()
         bool is_belt = m_config->opt_bool("belt_printer");
         toggle_line("belt_printer_angle", is_belt);
         toggle_line("belt_printer_infinite_y", is_belt);
-        toggle_line("belt_transform_type", is_belt);
-        toggle_line("belt_transform_axes", is_belt);
+        for (auto el : {"belt_shear_x", "belt_shear_x_angle", "belt_shear_x_from",
+                        "belt_shear_y", "belt_shear_y_angle", "belt_shear_y_from",
+                        "belt_shear_z", "belt_shear_z_angle", "belt_shear_z_from",
+                        "belt_gcode_remap_x", "belt_gcode_remap_y", "belt_gcode_remap_z"})
+            toggle_line(el, is_belt);
     }
     
 

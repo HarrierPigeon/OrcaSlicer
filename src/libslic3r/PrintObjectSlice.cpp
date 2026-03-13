@@ -141,66 +141,40 @@ static std::vector<VolumeSlices> slice_volumes_inner(
     params_base.extra_offset   = 0;
     params_base.trafo          = object_trafo;
     if (print_config.belt_printer.value) {
-        BeltTransformType  ttype = print_config.belt_transform_type.value;
-        BeltTransformAxes  taxes = print_config.belt_transform_axes.value;
-        if (ttype != BeltTransformType::Normal) {
-            double angle_rad = Geometry::deg2rad(print_config.belt_printer_angle.value);
+        // Build per-axis shear matrix from 3 independent axis configs.
+        auto compute_shear_factor = [](BeltShearMode mode, double angle_deg) -> double {
+            double angle_rad = Geometry::deg2rad(angle_deg);
             double sin_a = std::sin(angle_rad);
             double cos_a = std::cos(angle_rad);
-
-            // Map axes enum to row/col indices for shear, or rotation plane indices.
-            int ax0 = 0, ax1 = 0; // ax0 = target (shear row), ax1 = source (shear col)
-            switch (taxes) {
-            case BeltTransformAxes::YZ: ax0 = 1; ax1 = 2; break;
-            case BeltTransformAxes::ZY: ax0 = 2; ax1 = 1; break;
-            case BeltTransformAxes::XZ: ax0 = 0; ax1 = 2; break;
-            case BeltTransformAxes::ZX: ax0 = 2; ax1 = 0; break;
-            case BeltTransformAxes::XY: ax0 = 0; ax1 = 1; break;
-            case BeltTransformAxes::YX: ax0 = 1; ax1 = 0; break;
+            switch (mode) {
+            case BeltShearMode::PosCot: return (sin_a > EPSILON) ?  cos_a / sin_a : 0.;
+            case BeltShearMode::NegCot: return (sin_a > EPSILON) ? -cos_a / sin_a : 0.;
+            case BeltShearMode::PosTan: return (cos_a > EPSILON) ?  sin_a / cos_a : 0.;
+            case BeltShearMode::NegTan: return (cos_a > EPSILON) ? -sin_a / cos_a : 0.;
+            default: return 0.;
             }
+        };
 
-            if (ttype == BeltTransformType::RotationNeg || ttype == BeltTransformType::RotationPos) {
-                double rot_angle = (ttype == BeltTransformType::RotationNeg) ? -angle_rad : angle_rad;
-                // Rotation in the (ax0, ax1) plane.
-                Transform3d rot = Transform3d::Identity();
-                rot.matrix()(ax0, ax0) =  std::cos(rot_angle);
-                rot.matrix()(ax0, ax1) = -std::sin(rot_angle);
-                rot.matrix()(ax1, ax0) =  std::sin(rot_angle);
-                rot.matrix()(ax1, ax1) =  std::cos(rot_angle);
-                Transform3d combined = rot * params_base.trafo;
-                // Shift Z so rotated mesh sits at Z >= 0.
-                double min_z = std::numeric_limits<double>::max();
-                for (const ModelVolume *mv : model_volumes) {
-                    if (!mv->is_model_part())
-                        continue;
-                    for (const stl_vertex &v : mv->mesh().its.vertices) {
-                        Vec3d pt = combined * v.cast<double>();
-                        min_z = std::min(min_z, pt.z());
-                    }
-                }
-                if (min_z < 0 && min_z != std::numeric_limits<double>::max()) {
-                    Transform3d z_shift = Transform3d::Identity();
-                    z_shift.matrix()(2, 3) = -min_z;
-                    combined = z_shift * combined;
-                }
-                params_base.trafo = combined;
-            } else {
-                // Shear: matrix(ax0, ax1) = factor
-                double factor = 0;
-                switch (ttype) {
-                case BeltTransformType::ShearPosCot: if (sin_a > EPSILON) factor =  cos_a / sin_a; break;
-                case BeltTransformType::ShearNegCot: if (sin_a > EPSILON) factor = -cos_a / sin_a; break;
-                case BeltTransformType::ShearPosTan: if (cos_a > EPSILON) factor =  sin_a / cos_a; break;
-                case BeltTransformType::ShearNegTan: if (cos_a > EPSILON) factor = -sin_a / cos_a; break;
-                default: break;
-                }
+        struct AxisShear { BeltShearMode mode; double angle; int from; };
+        AxisShear axes[3] = {
+            { print_config.belt_shear_x.value, print_config.belt_shear_x_angle.value, int(print_config.belt_shear_x_from.value) },
+            { print_config.belt_shear_y.value, print_config.belt_shear_y_angle.value, int(print_config.belt_shear_y_from.value) },
+            { print_config.belt_shear_z.value, print_config.belt_shear_z_angle.value, int(print_config.belt_shear_z_from.value) },
+        };
+
+        Transform3d belt_shear = Transform3d::Identity();
+        bool has_shear = false;
+        for (int row = 0; row < 3; ++row) {
+            if (axes[row].mode != BeltShearMode::None) {
+                double factor = compute_shear_factor(axes[row].mode, axes[row].angle);
                 if (std::abs(factor) > EPSILON) {
-                    Transform3d belt_shear = Transform3d::Identity();
-                    belt_shear.matrix()(ax0, ax1) = factor;
-                    params_base.trafo = belt_shear * params_base.trafo;
+                    belt_shear.matrix()(row, axes[row].from) += factor;
+                    has_shear = true;
                 }
             }
         }
+        if (has_shear)
+            params_base.trafo = belt_shear * params_base.trafo;
     }
     //BBS: 0.0025mm is safe enough to simplify the data to speed slicing up for high-resolution model.
     //Also has on influence on arc fitting which has default resolution 0.0125mm.

@@ -25,11 +25,18 @@ void GCodeWriter::set_belt_angle(double angle_deg)
     m_belt_angle_rad = Geometry::deg2rad(angle_deg);
 }
 
+void GCodeWriter::set_axis_remap(int rx, int ry, int rz)
+{
+    m_remap_x = rx;
+    m_remap_y = ry;
+    m_remap_z = rz;
+}
+
 Vec3d GCodeWriter::to_machine_coords(const Vec3d &pos) const
 {
-    // With shear-based belt slicing, sheared coordinates ARE machine coordinates.
-    // No inverse transform needed.
-    return pos;
+    if (!is_belt_printer())
+        return pos;
+    return { pos[m_remap_x], pos[m_remap_y], pos[m_remap_z] };
 }
 
 bool GCodeWriter::supports_separate_travel_acceleration(GCodeFlavor flavor)

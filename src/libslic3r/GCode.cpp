@@ -2414,9 +2414,14 @@ void GCode::_do_export(Print& print, GCodeOutputStream &file, ThumbnailsGenerato
     
     m_writer.set_is_bbl_machine(is_bbl_printers);
 
-    // Belt printer: initialize coordinate transformation on the writer.
-    if (print.config().belt_printer.value)
+    // Belt printer: initialize coordinate transformation and axis remap on the writer.
+    if (print.config().belt_printer.value) {
         m_writer.set_belt_angle(print.config().belt_printer_angle.value);
+        m_writer.set_axis_remap(
+            int(print.config().belt_gcode_remap_x.value),
+            int(print.config().belt_gcode_remap_y.value),
+            int(print.config().belt_gcode_remap_z.value));
+    }
 
     // How many times will be change_layer() called?
     // change_layer() in turn increments the progress bar status.

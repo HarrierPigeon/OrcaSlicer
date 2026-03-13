@@ -3392,49 +3392,34 @@ void PrintObject::update_slicing_parameters()
     // Orca: updated function call for XYZ shrinkage compensation
     if (!m_slicing_params.valid) {
           coordf_t object_height = this->model_object()->max_z();
-          // Belt rotation modes change the effective Z height of the object.
+          // Belt shear modes may change the effective Z height if Z is sheared.
           const auto &pcfg = this->print()->config();
-          if (pcfg.belt_printer.value) {
-              BeltTransformType bt = pcfg.belt_transform_type.value;
-              if (bt == BeltTransformType::RotationNeg || bt == BeltTransformType::RotationPos) {
-                  BeltTransformAxes ba = pcfg.belt_transform_axes.value;
-                  int ax0 = 0, ax1 = 0;
-                  switch (ba) {
-                  case BeltTransformAxes::YZ: ax0 = 1; ax1 = 2; break;
-                  case BeltTransformAxes::ZY: ax0 = 2; ax1 = 1; break;
-                  case BeltTransformAxes::XZ: ax0 = 0; ax1 = 2; break;
-                  case BeltTransformAxes::ZX: ax0 = 2; ax1 = 0; break;
-                  case BeltTransformAxes::XY: ax0 = 0; ax1 = 1; break;
-                  case BeltTransformAxes::YX: ax0 = 1; ax1 = 0; break;
+          if (pcfg.belt_printer.value && pcfg.belt_shear_z.value != BeltShearMode::None) {
+              auto compute_shear_factor = [](BeltShearMode mode, double angle_deg) -> double {
+                  double angle_rad = Geometry::deg2rad(angle_deg);
+                  double sin_a = std::sin(angle_rad), cos_a = std::cos(angle_rad);
+                  switch (mode) {
+                  case BeltShearMode::PosCot: return (sin_a > EPSILON) ?  cos_a / sin_a : 0.;
+                  case BeltShearMode::NegCot: return (sin_a > EPSILON) ? -cos_a / sin_a : 0.;
+                  case BeltShearMode::PosTan: return (cos_a > EPSILON) ?  sin_a / cos_a : 0.;
+                  case BeltShearMode::NegTan: return (cos_a > EPSILON) ? -sin_a / cos_a : 0.;
+                  default: return 0.;
                   }
-                  // Only recompute height if Z (axis 2) participates in the rotation.
-                  if (ax0 == 2 || ax1 == 2) {
-                      double angle_rad = Geometry::deg2rad(pcfg.belt_printer_angle.value);
-                      double rot = (bt == BeltTransformType::RotationNeg) ? -angle_rad : angle_rad;
-                      int other = (ax0 == 2) ? ax1 : ax0;
-                      BoundingBoxf3 bb = this->model_object()->raw_bounding_box();
-                      // Z' depends on axes ax0 and ax1 via rotation matrix row for Z=2.
-                      // R(2, ax0)*val_ax0 + R(2, ax1)*val_ax1
-                      // For rotation in (ax0,ax1) plane: row 2 coefficients:
-                      //   R(2,ax0) = sin(rot) if ax1==2, else 0 or cos(rot)
-                      // Simpler: just check all corner combos of the two involved axes.
-                      double sin_r = std::sin(rot), cos_r = std::cos(rot);
-                      double min_rz = std::numeric_limits<double>::max();
-                      double max_rz = std::numeric_limits<double>::lowest();
-                      for (double v0 : {bb.min(ax0), bb.max(ax0)})
-                          for (double v1 : {bb.min(ax1), bb.max(ax1)}) {
-                              // Rotation: new_ax0 = v0*cos - v1*sin, new_ax1 = v0*sin + v1*cos
-                              // We need the new Z value. Z is either ax0 or ax1.
-                              double new_z;
-                              if (ax0 == 2)
-                                  new_z = v0 * cos_r - v1 * sin_r;
-                              else
-                                  new_z = v0 * sin_r + v1 * cos_r;
-                              min_rz = std::min(min_rz, new_z);
-                              max_rz = std::max(max_rz, new_z);
-                          }
-                      object_height = max_rz - min_rz;
-                  }
+              };
+              double factor = compute_shear_factor(pcfg.belt_shear_z.value, pcfg.belt_shear_z_angle.value);
+              if (std::abs(factor) > EPSILON) {
+                  int from = int(pcfg.belt_shear_z_from.value);
+                  BoundingBoxf3 bb = this->model_object()->raw_bounding_box();
+                  // Z' = Z + factor * source_axis. Compute Z extent over bbox corners.
+                  double min_rz = std::numeric_limits<double>::max();
+                  double max_rz = std::numeric_limits<double>::lowest();
+                  for (double vz : {bb.min.z(), bb.max.z()})
+                      for (double vs : {bb.min(from), bb.max(from)}) {
+                          double new_z = vz + factor * vs;
+                          min_rz = std::min(min_rz, new_z);
+                          max_rz = std::max(max_rz, new_z);
+                      }
+                  object_height = max_rz - min_rz;
               }
           }
           m_slicing_params = SlicingParameters::create_from_config(pcfg, m_config, object_height,
@@ -3479,38 +3464,31 @@ SlicingParameters PrintObject::slicing_parameters(const DynamicPrintConfig &full
     if (object_max_z <= 0.f) {
         BoundingBoxf3 bb = model_object.raw_bounding_box();
         object_max_z = (float)bb.size().z();
-        // Belt rotation modes change the effective Z height.
-        if (print_config.belt_printer.value) {
-            BeltTransformType bt = print_config.belt_transform_type.value;
-            if (bt == BeltTransformType::RotationNeg || bt == BeltTransformType::RotationPos) {
-                BeltTransformAxes ba = print_config.belt_transform_axes.value;
-                int ax0 = 0, ax1 = 0;
-                switch (ba) {
-                case BeltTransformAxes::YZ: ax0 = 1; ax1 = 2; break;
-                case BeltTransformAxes::ZY: ax0 = 2; ax1 = 1; break;
-                case BeltTransformAxes::XZ: ax0 = 0; ax1 = 2; break;
-                case BeltTransformAxes::ZX: ax0 = 2; ax1 = 0; break;
-                case BeltTransformAxes::XY: ax0 = 0; ax1 = 1; break;
-                case BeltTransformAxes::YX: ax0 = 1; ax1 = 0; break;
+        // Belt shear modes may change the effective Z height if Z is sheared.
+        if (print_config.belt_printer.value && print_config.belt_shear_z.value != BeltShearMode::None) {
+            auto compute_shear_factor = [](BeltShearMode mode, double angle_deg) -> double {
+                double angle_rad = Geometry::deg2rad(angle_deg);
+                double sin_a = std::sin(angle_rad), cos_a = std::cos(angle_rad);
+                switch (mode) {
+                case BeltShearMode::PosCot: return (sin_a > EPSILON) ?  cos_a / sin_a : 0.;
+                case BeltShearMode::NegCot: return (sin_a > EPSILON) ? -cos_a / sin_a : 0.;
+                case BeltShearMode::PosTan: return (cos_a > EPSILON) ?  sin_a / cos_a : 0.;
+                case BeltShearMode::NegTan: return (cos_a > EPSILON) ? -sin_a / cos_a : 0.;
+                default: return 0.;
                 }
-                if (ax0 == 2 || ax1 == 2) {
-                    double angle_rad = Geometry::deg2rad(print_config.belt_printer_angle.value);
-                    double rot = (bt == BeltTransformType::RotationNeg) ? -angle_rad : angle_rad;
-                    double sin_r = std::sin(rot), cos_r = std::cos(rot);
-                    double min_rz = std::numeric_limits<double>::max();
-                    double max_rz = std::numeric_limits<double>::lowest();
-                    for (double v0 : {bb.min(ax0), bb.max(ax0)})
-                        for (double v1 : {bb.min(ax1), bb.max(ax1)}) {
-                            double new_z;
-                            if (ax0 == 2)
-                                new_z = v0 * cos_r - v1 * sin_r;
-                            else
-                                new_z = v0 * sin_r + v1 * cos_r;
-                            min_rz = std::min(min_rz, new_z);
-                            max_rz = std::max(max_rz, new_z);
-                        }
-                    object_max_z = (float)(max_rz - min_rz);
-                }
+            };
+            double factor = compute_shear_factor(print_config.belt_shear_z.value, print_config.belt_shear_z_angle.value);
+            if (std::abs(factor) > EPSILON) {
+                int from = int(print_config.belt_shear_z_from.value);
+                double min_rz = std::numeric_limits<double>::max();
+                double max_rz = std::numeric_limits<double>::lowest();
+                for (double vz : {bb.min.z(), bb.max.z()})
+                    for (double vs : {bb.min(from), bb.max(from)}) {
+                        double new_z = vz + factor * vs;
+                        min_rz = std::min(min_rz, new_z);
+                        max_rz = std::max(max_rz, new_z);
+                    }
+                object_max_z = (float)(max_rz - min_rz);
             }
         }
     }

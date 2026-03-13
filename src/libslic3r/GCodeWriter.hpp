@@ -128,6 +128,8 @@ public:
     // Belt printer: set the belt angle and precompute sin/cos for coordinate transformation.
     void set_belt_angle(double angle_deg);
     bool is_belt_printer() const { return m_belt_angle_rad != 0.; }
+    // Set axis remap for G-code output (indices 0=X, 1=Y, 2=Z).
+    void set_axis_remap(int rx, int ry, int rz);
     // Transform a point from the slicing frame to machine coordinates.
     Vec3d to_machine_coords(const Vec3d &pos) const;
 
@@ -186,6 +188,9 @@ public:
 
     // Belt printer state
     double          m_belt_angle_rad = 0.;
+    int             m_remap_x = 0;
+    int             m_remap_y = 1;
+    int             m_remap_z = 2;
     double          m_current_speed;
     bool            m_is_first_layer = true;
 
