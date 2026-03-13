@@ -629,7 +629,8 @@ void compute_global_occlusion(GlobalModelInfo &result, const PrintObject *po,
   BOOST_LOG_TRIVIAL(debug)
       << "SeamPlacer: gather occlusion meshes: start";
   SlicingDirections dirs_occ = SlicingDirections::from_config(po->print()->config());
-  auto obj_transform = Transform3d(dirs_occ.trafo_slice_align * po->trafo_centered());
+  BoundingBoxf3 occ_bbox = po->model_object()->raw_bounding_box().transformed(po->trafo_centered());
+  auto obj_transform = Transform3d(dirs_occ.trafo_for_slicing(occ_bbox) * po->trafo_centered());
   indexed_triangle_set triangle_set;
   indexed_triangle_set negative_volumes_set;
   //add all parts
@@ -715,7 +716,8 @@ void gather_enforcers_blockers(GlobalModelInfo &result, const PrintObject *po) {
       << "SeamPlacer: build AABB trees for raycasting enforcers/blockers: start";
 
   SlicingDirections dirs_eb = SlicingDirections::from_config(po->print()->config());
-  auto obj_transform = Transform3d(dirs_eb.trafo_slice_align * po->trafo_centered());
+  BoundingBoxf3 eb_bbox = po->model_object()->raw_bounding_box().transformed(po->trafo_centered());
+  auto obj_transform = Transform3d(dirs_eb.trafo_for_slicing(eb_bbox) * po->trafo_centered());
 
   for (const ModelVolume *mv : po->model_object()->volumes) {
     if (mv->is_seam_painted()) {

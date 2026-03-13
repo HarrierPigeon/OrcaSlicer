@@ -140,8 +140,15 @@ static std::vector<VolumeSlices> slice_volumes_inner(
     params_base.closing_radius = print_object_config.slice_closing_radius.value;
     params_base.extra_offset   = 0;
     // Prepend slicing direction rotation so the mesh is sliced along the configured axis.
+    // trafo_for_slicing includes a Z shift so the rotated mesh starts at Z=0.
     SlicingDirections dirs = SlicingDirections::from_config(print_config);
-    params_base.trafo          = dirs.trafo_slice_align * object_trafo;
+    {
+        BoundingBoxf3 obj_bbox;
+        for (const ModelVolume* v : model_volumes)
+            obj_bbox.merge(v->mesh().bounding_box());
+        obj_bbox = obj_bbox.transformed(object_trafo);
+        params_base.trafo = dirs.trafo_for_slicing(obj_bbox) * object_trafo;
+    }
     //BBS: 0.0025mm is safe enough to simplify the data to speed slicing up for high-resolution model.
     //Also has on influence on arc fitting which has default resolution 0.0125mm.
     params_base.resolution = print_config.resolution <= 0.001 ? 0.0f : 0.0025;
@@ -1532,7 +1539,14 @@ std::vector<Polygons> PrintObject::slice_support_volumes(const ModelVolumeType m
         auto               throw_on_cancel_callback = std::function<void()>([print](){ print->throw_if_canceled(); });
         MeshSlicingParamsEx params;
         SlicingDirections dirs_sv = SlicingDirections::from_config(print->config());
-        params.trafo = dirs_sv.trafo_slice_align * this->trafo_centered();
+        {
+            BoundingBoxf3 sv_bbox;
+            for (auto it2 = it_volume; it2 != it_volume_end; ++it2)
+                if ((*it2)->type() == model_volume_type)
+                    sv_bbox.merge((*it2)->mesh().bounding_box());
+            sv_bbox = sv_bbox.transformed(this->trafo_centered());
+            params.trafo = dirs_sv.trafo_for_slicing(sv_bbox) * this->trafo_centered();
+        }
         for (; it_volume != it_volume_end; ++ it_volume)
             if ((*it_volume)->type() == model_volume_type) {
                 std::vector<ExPolygons> slices2 = slice_volume(*(*it_volume), zs, params, throw_on_cancel_callback);

@@ -35,6 +35,39 @@ struct SlicingDirections {
         return (plate_normal - Vec3d::UnitZ()).norm() > EPSILON;
     }
 
+    // Compute Z extent of a bounding box after slicing rotation.
+    // Returns {z_min, z_max} in the rotated frame.
+    std::pair<double, double> rotated_z_range(const BoundingBoxf3& bbox) const {
+        double z_min = std::numeric_limits<double>::max();
+        double z_max = std::numeric_limits<double>::lowest();
+        for (int i = 0; i < 8; ++i) {
+            Vec3d corner(
+                (i & 1) ? bbox.max.x() : bbox.min.x(),
+                (i & 2) ? bbox.max.y() : bbox.min.y(),
+                (i & 4) ? bbox.max.z() : bbox.min.z());
+            double z = (q_slice_to_z * corner).z();
+            z_min = std::min(z_min, z);
+            z_max = std::max(z_max, z);
+        }
+        return {z_min, z_max};
+    }
+
+    // Height of a bounding box after slicing rotation.
+    double rotated_height(const BoundingBoxf3& bbox) const {
+        if (!has_custom_slicing()) return bbox.size().z();
+        auto [z_min, z_max] = rotated_z_range(bbox);
+        return z_max - z_min;
+    }
+
+    // Build a complete slicing transform: rotation + Z shift so the rotated mesh starts at Z=0.
+    Transform3d trafo_for_slicing(const BoundingBoxf3& bbox) const {
+        if (!has_custom_slicing()) return trafo_slice_align;
+        auto [z_min, z_max] = rotated_z_range(bbox);
+        Transform3d t = Transform3d::Identity();
+        t.pretranslate(Vec3d(0, 0, -z_min));
+        return t * trafo_slice_align;
+    }
+
     static SlicingDirections from_config(const PrintConfig& cfg) {
         return build(cfg.slicing_direction.value,
                      cfg.gravity_direction.value,

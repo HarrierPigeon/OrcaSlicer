@@ -21,6 +21,7 @@
 #include "Format/STL.hpp"
 #include "format.hpp"
 #include "AABBTreeLines.hpp"
+#include "SlicingDirections.hpp"
 
 #include <float.h>
 #include <oneapi/tbb/blocked_range.h>
@@ -103,6 +104,12 @@ PrintObject::PrintObject(Print* print, ModelObject* model_object, const Transfor
     m_center_offset = Point::new_scale(bbox_center.x(), bbox_center.y());
     // Size of the transformed mesh. This bounding may not be snug in XY plane, but it is snug in Z.
     m_size = (bbox.size() * (1. / SCALING_FACTOR)).cast<coord_t>();
+    // If slicing along a non-default direction, override Z size with the rotated height.
+    {
+        SlicingDirections dirs = SlicingDirections::from_config(print->config());
+        if (dirs.has_custom_slicing())
+            m_size.z() = scaled<coord_t>(dirs.rotated_height(bbox));
+    }
     m_max_z = scaled(model_object->instance_bounding_box(0).max(2));
 
     this->set_instances(std::move(instances));
@@ -3391,7 +3398,12 @@ void PrintObject::update_slicing_parameters()
 {
     // Orca: updated function call for XYZ shrinkage compensation
     if (!m_slicing_params.valid) {
-          m_slicing_params = SlicingParameters::create_from_config(this->print()->config(), m_config, this->model_object()->max_z(),
+          // Use rotated height when slicing along a non-default direction.
+          double object_max_z = this->model_object()->max_z();
+          SlicingDirections dirs = SlicingDirections::from_config(this->print()->config());
+          if (dirs.has_custom_slicing())
+              object_max_z = dirs.rotated_height(this->model_object()->raw_bounding_box());
+          m_slicing_params = SlicingParameters::create_from_config(this->print()->config(), m_config, object_max_z,
                                                                    this->object_extruders(), this->print()->shrinkage_compensation());
       }
 }

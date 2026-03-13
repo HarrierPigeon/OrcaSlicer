@@ -1205,7 +1205,8 @@ static inline std::vector<std::vector<ExPolygons>> segmentation_top_and_bottom_l
     std::vector<std::vector<Polygons>> top_raw(num_facets_states), bottom_raw(num_facets_states);
     std::vector<float> zs = zs_from_layers(layers);
     SlicingDirections  dirs_mm = SlicingDirections::from_config(print_object.print()->config());
-    Transform3d        object_trafo = dirs_mm.trafo_slice_align * print_object.trafo_centered();
+    BoundingBoxf3      mm_bbox = print_object.model_object()->raw_bounding_box().transformed(print_object.trafo_centered());
+    Transform3d        object_trafo = dirs_mm.trafo_for_slicing(mm_bbox) * print_object.trafo_centered();
 
 #ifdef MM_SEGMENTATION_DEBUG_TOP_BOTTOM
     static int iRun = 0;
