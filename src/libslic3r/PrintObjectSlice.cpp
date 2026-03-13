@@ -141,59 +141,65 @@ static std::vector<VolumeSlices> slice_volumes_inner(
     params_base.extra_offset   = 0;
     params_base.trafo          = object_trafo;
     if (print_config.belt_printer.value) {
-        double angle_rad = Geometry::deg2rad(print_config.belt_printer_angle.value);
-        double sin_a = std::sin(angle_rad);
-        double cos_a = std::cos(angle_rad);
-        BeltTransformMode mode = print_config.belt_transform_mode.value;
-        switch (mode) {
-        case BeltTransformMode::ShearYPosCot:
-        case BeltTransformMode::ShearYNegCot:
-        case BeltTransformMode::ShearYPosTan:
-        case BeltTransformMode::ShearYNegTan: {
-            double factor = 0;
-            if (mode == BeltTransformMode::ShearYPosCot && sin_a > EPSILON)
-                factor = cos_a / sin_a;
-            else if (mode == BeltTransformMode::ShearYNegCot && sin_a > EPSILON)
-                factor = -(cos_a / sin_a);
-            else if (mode == BeltTransformMode::ShearYPosTan && cos_a > EPSILON)
-                factor = sin_a / cos_a;
-            else if (mode == BeltTransformMode::ShearYNegTan && cos_a > EPSILON)
-                factor = -(sin_a / cos_a);
-            if (std::abs(factor) > EPSILON) {
-                Transform3d belt_shear = Transform3d::Identity();
-                belt_shear.matrix()(1, 2) = factor;
-                params_base.trafo = belt_shear * params_base.trafo;
+        BeltTransformType  ttype = print_config.belt_transform_type.value;
+        BeltTransformAxes  taxes = print_config.belt_transform_axes.value;
+        if (ttype != BeltTransformType::Normal) {
+            double angle_rad = Geometry::deg2rad(print_config.belt_printer_angle.value);
+            double sin_a = std::sin(angle_rad);
+            double cos_a = std::cos(angle_rad);
+
+            // Map axes enum to row/col indices for shear, or rotation plane indices.
+            int ax0 = 0, ax1 = 0; // ax0 = target (shear row), ax1 = source (shear col)
+            switch (taxes) {
+            case BeltTransformAxes::YZ: ax0 = 1; ax1 = 2; break;
+            case BeltTransformAxes::ZY: ax0 = 2; ax1 = 1; break;
+            case BeltTransformAxes::XZ: ax0 = 0; ax1 = 2; break;
+            case BeltTransformAxes::ZX: ax0 = 2; ax1 = 0; break;
+            case BeltTransformAxes::XY: ax0 = 0; ax1 = 1; break;
+            case BeltTransformAxes::YX: ax0 = 1; ax1 = 0; break;
             }
-            break;
-        }
-        case BeltTransformMode::RotationNeg:
-        case BeltTransformMode::RotationPos: {
-            double rot_angle = (mode == BeltTransformMode::RotationNeg) ? -angle_rad : angle_rad;
-            Transform3d rot = Transform3d::Identity();
-            rot.matrix()(1, 1) = std::cos(rot_angle);
-            rot.matrix()(1, 2) = -std::sin(rot_angle);
-            rot.matrix()(2, 1) = std::sin(rot_angle);
-            rot.matrix()(2, 2) = std::cos(rot_angle);
-            // Apply rotation, then shift Z so rotated mesh sits at Z >= 0.
-            Transform3d combined = rot * params_base.trafo;
-            // Find min Z of all volumes after transform to shift up.
-            double min_z = std::numeric_limits<double>::max();
-            for (const ModelVolume *mv : model_volumes) {
-                if (!mv->is_model_part())
-                    continue;
-                for (const stl_vertex &v : mv->mesh().its.vertices) {
-                    Vec3d pt = combined * v.cast<double>();
-                    min_z = std::min(min_z, pt.z());
+
+            if (ttype == BeltTransformType::RotationNeg || ttype == BeltTransformType::RotationPos) {
+                double rot_angle = (ttype == BeltTransformType::RotationNeg) ? -angle_rad : angle_rad;
+                // Rotation in the (ax0, ax1) plane.
+                Transform3d rot = Transform3d::Identity();
+                rot.matrix()(ax0, ax0) =  std::cos(rot_angle);
+                rot.matrix()(ax0, ax1) = -std::sin(rot_angle);
+                rot.matrix()(ax1, ax0) =  std::sin(rot_angle);
+                rot.matrix()(ax1, ax1) =  std::cos(rot_angle);
+                Transform3d combined = rot * params_base.trafo;
+                // Shift Z so rotated mesh sits at Z >= 0.
+                double min_z = std::numeric_limits<double>::max();
+                for (const ModelVolume *mv : model_volumes) {
+                    if (!mv->is_model_part())
+                        continue;
+                    for (const stl_vertex &v : mv->mesh().its.vertices) {
+                        Vec3d pt = combined * v.cast<double>();
+                        min_z = std::min(min_z, pt.z());
+                    }
+                }
+                if (min_z < 0 && min_z != std::numeric_limits<double>::max()) {
+                    Transform3d z_shift = Transform3d::Identity();
+                    z_shift.matrix()(2, 3) = -min_z;
+                    combined = z_shift * combined;
+                }
+                params_base.trafo = combined;
+            } else {
+                // Shear: matrix(ax0, ax1) = factor
+                double factor = 0;
+                switch (ttype) {
+                case BeltTransformType::ShearPosCot: if (sin_a > EPSILON) factor =  cos_a / sin_a; break;
+                case BeltTransformType::ShearNegCot: if (sin_a > EPSILON) factor = -cos_a / sin_a; break;
+                case BeltTransformType::ShearPosTan: if (cos_a > EPSILON) factor =  sin_a / cos_a; break;
+                case BeltTransformType::ShearNegTan: if (cos_a > EPSILON) factor = -sin_a / cos_a; break;
+                default: break;
+                }
+                if (std::abs(factor) > EPSILON) {
+                    Transform3d belt_shear = Transform3d::Identity();
+                    belt_shear.matrix()(ax0, ax1) = factor;
+                    params_base.trafo = belt_shear * params_base.trafo;
                 }
             }
-            if (min_z < 0 && min_z != std::numeric_limits<double>::max()) {
-                Transform3d z_shift = Transform3d::Identity();
-                z_shift.matrix()(2, 3) = -min_z;
-                combined = z_shift * combined;
-            }
-            params_base.trafo = combined;
-            break;
-        }
         }
     }
     //BBS: 0.0025mm is safe enough to simplify the data to speed slicing up for high-resolution model.

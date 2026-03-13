@@ -3395,22 +3395,46 @@ void PrintObject::update_slicing_parameters()
           // Belt rotation modes change the effective Z height of the object.
           const auto &pcfg = this->print()->config();
           if (pcfg.belt_printer.value) {
-              BeltTransformMode bm = pcfg.belt_transform_mode.value;
-              if (bm == BeltTransformMode::RotationNeg || bm == BeltTransformMode::RotationPos) {
-                  double angle_rad = Geometry::deg2rad(pcfg.belt_printer_angle.value);
-                  double rot = (bm == BeltTransformMode::RotationNeg) ? -angle_rad : angle_rad;
-                  BoundingBoxf3 bb = this->model_object()->raw_bounding_box();
-                  double sin_r = std::sin(rot), cos_r = std::cos(rot);
-                  double min_rz = std::numeric_limits<double>::max();
-                  double max_rz = std::numeric_limits<double>::lowest();
-                  // Only Y and Z affect rotated Z; check all 4 YZ corner combos.
-                  for (double y : {bb.min.y(), bb.max.y()})
-                      for (double z : {bb.min.z(), bb.max.z()}) {
-                          double rz = y * sin_r + z * cos_r;
-                          min_rz = std::min(min_rz, rz);
-                          max_rz = std::max(max_rz, rz);
-                      }
-                  object_height = max_rz - min_rz;
+              BeltTransformType bt = pcfg.belt_transform_type.value;
+              if (bt == BeltTransformType::RotationNeg || bt == BeltTransformType::RotationPos) {
+                  BeltTransformAxes ba = pcfg.belt_transform_axes.value;
+                  int ax0 = 0, ax1 = 0;
+                  switch (ba) {
+                  case BeltTransformAxes::YZ: ax0 = 1; ax1 = 2; break;
+                  case BeltTransformAxes::ZY: ax0 = 2; ax1 = 1; break;
+                  case BeltTransformAxes::XZ: ax0 = 0; ax1 = 2; break;
+                  case BeltTransformAxes::ZX: ax0 = 2; ax1 = 0; break;
+                  case BeltTransformAxes::XY: ax0 = 0; ax1 = 1; break;
+                  case BeltTransformAxes::YX: ax0 = 1; ax1 = 0; break;
+                  }
+                  // Only recompute height if Z (axis 2) participates in the rotation.
+                  if (ax0 == 2 || ax1 == 2) {
+                      double angle_rad = Geometry::deg2rad(pcfg.belt_printer_angle.value);
+                      double rot = (bt == BeltTransformType::RotationNeg) ? -angle_rad : angle_rad;
+                      int other = (ax0 == 2) ? ax1 : ax0;
+                      BoundingBoxf3 bb = this->model_object()->raw_bounding_box();
+                      // Z' depends on axes ax0 and ax1 via rotation matrix row for Z=2.
+                      // R(2, ax0)*val_ax0 + R(2, ax1)*val_ax1
+                      // For rotation in (ax0,ax1) plane: row 2 coefficients:
+                      //   R(2,ax0) = sin(rot) if ax1==2, else 0 or cos(rot)
+                      // Simpler: just check all corner combos of the two involved axes.
+                      double sin_r = std::sin(rot), cos_r = std::cos(rot);
+                      double min_rz = std::numeric_limits<double>::max();
+                      double max_rz = std::numeric_limits<double>::lowest();
+                      for (double v0 : {bb.min(ax0), bb.max(ax0)})
+                          for (double v1 : {bb.min(ax1), bb.max(ax1)}) {
+                              // Rotation: new_ax0 = v0*cos - v1*sin, new_ax1 = v0*sin + v1*cos
+                              // We need the new Z value. Z is either ax0 or ax1.
+                              double new_z;
+                              if (ax0 == 2)
+                                  new_z = v0 * cos_r - v1 * sin_r;
+                              else
+                                  new_z = v0 * sin_r + v1 * cos_r;
+                              min_rz = std::min(min_rz, new_z);
+                              max_rz = std::max(max_rz, new_z);
+                          }
+                      object_height = max_rz - min_rz;
+                  }
               }
           }
           m_slicing_params = SlicingParameters::create_from_config(pcfg, m_config, object_height,
@@ -3457,20 +3481,36 @@ SlicingParameters PrintObject::slicing_parameters(const DynamicPrintConfig &full
         object_max_z = (float)bb.size().z();
         // Belt rotation modes change the effective Z height.
         if (print_config.belt_printer.value) {
-            BeltTransformMode bm = print_config.belt_transform_mode.value;
-            if (bm == BeltTransformMode::RotationNeg || bm == BeltTransformMode::RotationPos) {
-                double angle_rad = Geometry::deg2rad(print_config.belt_printer_angle.value);
-                double rot = (bm == BeltTransformMode::RotationNeg) ? -angle_rad : angle_rad;
-                double sin_r = std::sin(rot), cos_r = std::cos(rot);
-                double min_rz = std::numeric_limits<double>::max();
-                double max_rz = std::numeric_limits<double>::lowest();
-                for (double y : {bb.min.y(), bb.max.y()})
-                    for (double z : {bb.min.z(), bb.max.z()}) {
-                        double rz = y * sin_r + z * cos_r;
-                        min_rz = std::min(min_rz, rz);
-                        max_rz = std::max(max_rz, rz);
-                    }
-                object_max_z = (float)(max_rz - min_rz);
+            BeltTransformType bt = print_config.belt_transform_type.value;
+            if (bt == BeltTransformType::RotationNeg || bt == BeltTransformType::RotationPos) {
+                BeltTransformAxes ba = print_config.belt_transform_axes.value;
+                int ax0 = 0, ax1 = 0;
+                switch (ba) {
+                case BeltTransformAxes::YZ: ax0 = 1; ax1 = 2; break;
+                case BeltTransformAxes::ZY: ax0 = 2; ax1 = 1; break;
+                case BeltTransformAxes::XZ: ax0 = 0; ax1 = 2; break;
+                case BeltTransformAxes::ZX: ax0 = 2; ax1 = 0; break;
+                case BeltTransformAxes::XY: ax0 = 0; ax1 = 1; break;
+                case BeltTransformAxes::YX: ax0 = 1; ax1 = 0; break;
+                }
+                if (ax0 == 2 || ax1 == 2) {
+                    double angle_rad = Geometry::deg2rad(print_config.belt_printer_angle.value);
+                    double rot = (bt == BeltTransformType::RotationNeg) ? -angle_rad : angle_rad;
+                    double sin_r = std::sin(rot), cos_r = std::cos(rot);
+                    double min_rz = std::numeric_limits<double>::max();
+                    double max_rz = std::numeric_limits<double>::lowest();
+                    for (double v0 : {bb.min(ax0), bb.max(ax0)})
+                        for (double v1 : {bb.min(ax1), bb.max(ax1)}) {
+                            double new_z;
+                            if (ax0 == 2)
+                                new_z = v0 * cos_r - v1 * sin_r;
+                            else
+                                new_z = v0 * sin_r + v1 * cos_r;
+                            min_rz = std::min(min_rz, new_z);
+                            max_rz = std::max(max_rz, new_z);
+                        }
+                    object_max_z = (float)(max_rz - min_rz);
+                }
             }
         }
     }

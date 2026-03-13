@@ -283,15 +283,26 @@ static t_config_enum_values s_keys_map_SlicingMode {
 };
 CONFIG_OPTION_ENUM_DEFINE_STATIC_MAPS(SlicingMode)
 
-static t_config_enum_values s_keys_map_BeltTransformMode {
-    { "shear_y_pos_cot", int(BeltTransformMode::ShearYPosCot) },
-    { "shear_y_neg_cot", int(BeltTransformMode::ShearYNegCot) },
-    { "shear_y_pos_tan", int(BeltTransformMode::ShearYPosTan) },
-    { "shear_y_neg_tan", int(BeltTransformMode::ShearYNegTan) },
-    { "rotation_neg",    int(BeltTransformMode::RotationNeg) },
-    { "rotation_pos",    int(BeltTransformMode::RotationPos) },
+static t_config_enum_values s_keys_map_BeltTransformType {
+    { "normal",          int(BeltTransformType::Normal) },
+    { "shear_pos_cot",   int(BeltTransformType::ShearPosCot) },
+    { "shear_neg_cot",   int(BeltTransformType::ShearNegCot) },
+    { "shear_pos_tan",   int(BeltTransformType::ShearPosTan) },
+    { "shear_neg_tan",   int(BeltTransformType::ShearNegTan) },
+    { "rotation_neg",    int(BeltTransformType::RotationNeg) },
+    { "rotation_pos",    int(BeltTransformType::RotationPos) },
 };
-CONFIG_OPTION_ENUM_DEFINE_STATIC_MAPS(BeltTransformMode)
+CONFIG_OPTION_ENUM_DEFINE_STATIC_MAPS(BeltTransformType)
+
+static t_config_enum_values s_keys_map_BeltTransformAxes {
+    { "yz", int(BeltTransformAxes::YZ) },
+    { "zy", int(BeltTransformAxes::ZY) },
+    { "xz", int(BeltTransformAxes::XZ) },
+    { "zx", int(BeltTransformAxes::ZX) },
+    { "xy", int(BeltTransformAxes::XY) },
+    { "yx", int(BeltTransformAxes::YX) },
+};
+CONFIG_OPTION_ENUM_DEFINE_STATIC_MAPS(BeltTransformAxes)
 
 static t_config_enum_values s_keys_map_SupportMaterialPattern {
     { "rectilinear",        smpRectilinear },
@@ -5967,26 +5978,50 @@ void PrintConfigDef::init_fff_params()
     def->mode = comAdvanced;
     def->set_default_value(new ConfigOptionBool(true));
 
-    def = this->add("belt_transform_mode", coEnum);
-    def->label = L("Belt transform mode");
+    def = this->add("belt_transform_type", coEnum);
+    def->label = L("Belt transform type");
     def->category = L("Printable space");
-    def->tooltip = L("Select the coordinate transform applied to the mesh before slicing in belt printer mode. "
-                     "Different transforms produce different G-code output for comparison.");
-    def->enum_keys_map = &ConfigOptionEnum<BeltTransformMode>::get_enum_values();
-    def->enum_values.push_back("shear_y_pos_cot");
-    def->enum_values.push_back("shear_y_neg_cot");
-    def->enum_values.push_back("shear_y_pos_tan");
-    def->enum_values.push_back("shear_y_neg_tan");
+    def->tooltip = L("Select the type of coordinate transform applied to the mesh before slicing in belt printer mode. "
+                     "'Normal' applies no transform.");
+    def->enum_keys_map = &ConfigOptionEnum<BeltTransformType>::get_enum_values();
+    def->enum_values.push_back("normal");
+    def->enum_values.push_back("shear_pos_cot");
+    def->enum_values.push_back("shear_neg_cot");
+    def->enum_values.push_back("shear_pos_tan");
+    def->enum_values.push_back("shear_neg_tan");
     def->enum_values.push_back("rotation_neg");
     def->enum_values.push_back("rotation_pos");
-    def->enum_labels.push_back(L("Y += Z·cot(α)"));
-    def->enum_labels.push_back(L("Y -= Z·cot(α)"));
-    def->enum_labels.push_back(L("Y += Z·tan(α)"));
-    def->enum_labels.push_back(L("Y -= Z·tan(α)"));
-    def->enum_labels.push_back(L("Rotation R(-α, X)"));
-    def->enum_labels.push_back(L("Rotation R(+α, X)"));
+    def->enum_labels.push_back(L("Normal"));
+    def->enum_labels.push_back(L("+cot(α)"));
+    def->enum_labels.push_back(L("-cot(α)"));
+    def->enum_labels.push_back(L("+tan(α)"));
+    def->enum_labels.push_back(L("-tan(α)"));
+    def->enum_labels.push_back(L("Rotation -α"));
+    def->enum_labels.push_back(L("Rotation +α"));
     def->mode = comAdvanced;
-    def->set_default_value(new ConfigOptionEnum<BeltTransformMode>(BeltTransformMode::ShearYPosCot));
+    def->set_default_value(new ConfigOptionEnum<BeltTransformType>(BeltTransformType::ShearPosCot));
+
+    def = this->add("belt_transform_axes", coEnum);
+    def->label = L("Belt transform axes");
+    def->category = L("Printable space");
+    def->tooltip = L("Select which axes the belt transform operates on. "
+                     "For shear, 'AB' means A += B·f(α). "
+                     "For rotation, 'AB' rotates in the AB plane.");
+    def->enum_keys_map = &ConfigOptionEnum<BeltTransformAxes>::get_enum_values();
+    def->enum_values.push_back("yz");
+    def->enum_values.push_back("zy");
+    def->enum_values.push_back("xz");
+    def->enum_values.push_back("zx");
+    def->enum_values.push_back("xy");
+    def->enum_values.push_back("yx");
+    def->enum_labels.push_back(L("YZ"));
+    def->enum_labels.push_back(L("ZY"));
+    def->enum_labels.push_back(L("XZ"));
+    def->enum_labels.push_back(L("ZX"));
+    def->enum_labels.push_back(L("XY"));
+    def->enum_labels.push_back(L("YX"));
+    def->mode = comAdvanced;
+    def->set_default_value(new ConfigOptionEnum<BeltTransformAxes>(BeltTransformAxes::YZ));
 
     def = this->add("tree_support_branch_angle", coFloat);
     def->label = L("Tree support branch angle");
