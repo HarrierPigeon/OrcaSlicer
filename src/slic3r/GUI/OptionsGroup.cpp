@@ -1096,7 +1096,7 @@ boost::any ConfigOptionsGroup::get_config_value(const DynamicPrintConfig& config
         ret = config.option<ConfigOptionPoint>(opt_key)->value;
         break;
     case coPoint3:
-        ret = config.option<ConfigOptionPoint3>(opt_key)->serialize();
+        ret = from_u8(config.option<ConfigOptionPoint3>(opt_key)->serialize());
         break;
 	case coPoints:
 		if (opt_key == "printable_area")
@@ -1236,7 +1236,7 @@ boost::any ConfigOptionsGroup::get_config_value2(const DynamicPrintConfig& confi
         ret = config.option<ConfigOptionPoint>(opt_key)->value;
         break;
     case coPoint3:
-        ret = config.option<ConfigOptionPoint3>(opt_key)->serialize();
+        ret = from_u8(config.option<ConfigOptionPoint3>(opt_key)->serialize());
         break;
     case coPoints:
         if (opt_key == "printable_area")
