@@ -1270,7 +1270,7 @@ void GCodeViewer::load_as_gcode(const GCodeProcessorResult& gcode_result, const 
 
     m_max_print_height = gcode_result.printable_height;
     m_z_offset = gcode_result.z_offset;
-    m_belt_z_shift = gcode_result.belt_z_shift;
+
 
     // load_toolpaths(gcode_result, build_volume, exclude_bounding_box);
     
@@ -2209,15 +2209,17 @@ void GCodeViewer::render_toolpaths()
 {
     const Camera& camera = wxGetApp().plater()->get_camera();
     Matrix4f view = camera.get_view_matrix().matrix().cast<float>();
-    // Belt "raw" view: apply slicing rotation to view matrix so toolpaths appear
-    // in the slicing frame (rotated part with horizontal layers).
-    if (m_belt_show_raw && m_belt_view_enabled && m_belt_angle_deg > 0.f) {
+    // Belt "designed" view: apply inverse shear to view matrix so toolpaths appear
+    // upright (as originally designed) instead of sheared on the belt.
+    if (m_belt_show_designed && m_belt_view_enabled && m_belt_angle_deg > 0.f) {
         double angle_rad = Geometry::deg2rad(static_cast<double>(m_belt_angle_deg));
-        // Apply R(-alpha, X) * T(0,0,-z_shift) to bring machine coords back to slicing frame.
-        Transform3d slicing_trafo = Transform3d::Identity();
-        slicing_trafo.translate(Vec3d(0., 0., -static_cast<double>(m_belt_z_shift)));
-        slicing_trafo = Eigen::AngleAxisd(-angle_rad, Vec3d::UnitX()) * slicing_trafo;
-        view = (camera.get_view_matrix() * slicing_trafo).matrix().cast<float>();
+        double sin_a = std::sin(angle_rad);
+        if (sin_a > 1e-6) {
+            double cot_alpha = std::cos(angle_rad) / sin_a;
+            Transform3d inverse_shear = Transform3d::Identity();
+            inverse_shear.matrix()(1, 2) = -cot_alpha;  // Y -= Z * cot(α)
+            view = (camera.get_view_matrix() * inverse_shear).matrix().cast<float>();
+        }
     }
     const libvgcode::Mat4x4 converted_view_matrix = libvgcode::convert(view);
     const libvgcode::Mat4x4 converted_projetion_matrix = libvgcode::convert(static_cast<Matrix4f>(camera.get_projection_matrix().matrix().cast<float>()));
@@ -4420,7 +4422,7 @@ void GCodeViewer::render_legend(float &legend_height, int canvas_width, int canv
         ImGui::Spacing();
         ImGui::Dummy({ window_padding, 0 });
         ImGui::SameLine();
-        ImGui::Checkbox("Show raw G-code (slicing frame)", &m_belt_show_raw);
+        ImGui::Checkbox("Show designed view (upright)", &m_belt_show_designed);
     }
 
     legend_height = ImGui::GetCurrentWindow()->Size.y;

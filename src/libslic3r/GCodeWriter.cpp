@@ -23,26 +23,13 @@ bool GCodeWriter::full_gcode_comment = true;
 void GCodeWriter::set_belt_angle(double angle_deg)
 {
     m_belt_angle_rad = Geometry::deg2rad(angle_deg);
-    m_belt_cos = std::cos(m_belt_angle_rad);
-    m_belt_sin = std::sin(m_belt_angle_rad);
 }
 
 Vec3d GCodeWriter::to_machine_coords(const Vec3d &pos) const
 {
-    if (!is_belt_printer())
-        return pos;
-
-    // Undo the slicing transform to recover machine-frame coordinates.
-    // Slicing applied: T(0,0,-min_z_rot) * R(-alpha, X) * original_pos
-    // Inverse:         R(+alpha, X) * T(0,0,+min_z_rot) * slicing_pos
-    //
-    // First undo the Z-shift, then apply R(+alpha, X).
-    double sz = pos.z() + m_belt_z_shift;   // undo T(0,0,-min_z_rot)
-    return Vec3d(
-        pos.x(),
-        pos.y() * m_belt_cos - sz * m_belt_sin,   // R(+alpha, X)
-        pos.y() * m_belt_sin + sz * m_belt_cos
-    );
+    // With shear-based belt slicing, sheared coordinates ARE machine coordinates.
+    // No inverse transform needed.
+    return pos;
 }
 
 bool GCodeWriter::supports_separate_travel_acceleration(GCodeFlavor flavor)

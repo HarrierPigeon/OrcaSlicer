@@ -227,9 +227,8 @@ class Print;
         bool support_traditional_timelapse{true};
         float printable_height;
         float z_offset;
-        // Belt printer: angle and Z-shift for coordinate transformation in preview.
+        // Belt printer: angle for coordinate transformation in preview.
         float belt_printer_angle{ 0.f };
-        float belt_z_shift{ 0.f };
         SettingsIds settings_ids;
         size_t filaments_count;
         bool backtrace_enabled;
