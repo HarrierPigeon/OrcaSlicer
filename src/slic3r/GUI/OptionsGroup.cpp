@@ -83,6 +83,9 @@ const t_field& OptionsGroup::build_field(const t_config_option_key& id, const Co
             case coPoints:
                 m_fields.emplace(id, PointCtrl::Create<PointCtrl>(this->ctrl_parent(), opt, id));
 				break;
+            case coPoint3:
+                m_fields.emplace(id, TextCtrl::Create<TextCtrl>(this->ctrl_parent(), opt, id));
+				break;
             case coNone:   break;
             default:
 				throw Slic3r::LogicError("This control doesn't exist till now"); break;
@@ -1092,6 +1095,9 @@ boost::any ConfigOptionsGroup::get_config_value(const DynamicPrintConfig& config
     case coPoint:
         ret = config.option<ConfigOptionPoint>(opt_key)->value;
         break;
+    case coPoint3:
+        ret = config.option<ConfigOptionPoint3>(opt_key)->serialize();
+        break;
 	case coPoints:
 		if (opt_key == "printable_area")
             ret = get_thumbnails_string(config.option<ConfigOptionPoints>(opt_key)->values);
@@ -1228,6 +1234,9 @@ boost::any ConfigOptionsGroup::get_config_value2(const DynamicPrintConfig& confi
         break;
     case coPoint:
         ret = config.option<ConfigOptionPoint>(opt_key)->value;
+        break;
+    case coPoint3:
+        ret = config.option<ConfigOptionPoint3>(opt_key)->serialize();
         break;
     case coPoints:
         if (opt_key == "printable_area")

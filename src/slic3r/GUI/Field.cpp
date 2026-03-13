@@ -595,6 +595,18 @@ void Field::get_value_by_opt_type(wxString& str, const bool check_value/* = true
         m_value = out_value;
         break; }
 
+    case coPoint3:{
+        std::string s = into_u8(str);
+        ConfigOptionPoint3 opt;
+        if (!s.empty() && !opt.deserialize(s)) {
+            if (!m_value.empty())
+                set_value(wxString::FromUTF8(boost::any_cast<std::string>(m_value)), true);
+            show_error(m_parent, _L("Invalid format. Expected: X,Y,Z"));
+        } else {
+            m_value = opt.serialize();
+        }
+        break; }
+
     case coPoints: {
         std::vector<Vec2d> out_values;
         str.Replace(" ", wxEmptyString, true);
@@ -810,6 +822,9 @@ void TextCtrl::BUILD() {
 	}
     case coPoint:
         text_value = get_thumbnail_string(m_opt.get_default_value<ConfigOptionPoint>()->value);
+        break;
+    case coPoint3:
+        text_value = wxString::FromUTF8(m_opt.get_default_value<ConfigOptionPoint3>()->serialize());
         break;
     case coPoints:
         text_value = get_thumbnails_string(m_opt.get_default_value<ConfigOptionPoints>()->values);

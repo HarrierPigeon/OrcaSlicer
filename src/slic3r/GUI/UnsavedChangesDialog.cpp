@@ -1350,6 +1350,9 @@ static wxString get_string_value(std::string opt_key, const DynamicPrintConfig& 
         Vec2d val = config.opt<ConfigOptionPoint>(opt_key)->value;
         return from_u8((boost::format("[%1%]") % ConfigOptionPoint(val).serialize()).str());
     }
+    case coPoint3: {
+        return from_u8(config.opt<ConfigOptionPoint3>(opt_key)->serialize());
+    }
     case coPoints: {
         //BBS: add bed_exclude_area
         if (opt_key == "printable_area" || opt_key == "thumbnails") {

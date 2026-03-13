@@ -218,6 +218,12 @@ void change_opt_value(DynamicPrintConfig& config, const t_config_option_key& opt
 			config.set_key_value(opt_key, new ConfigOptionPoint(boost::any_cast<Vec2d>(value)));
 			}
 			break;
+		case coPoint3:{
+			auto opt = new ConfigOptionPoint3();
+			opt->deserialize(boost::any_cast<std::string>(value));
+			config.set_key_value(opt_key, opt);
+			}
+			break;
 		case coPoints:{
 			if (opt_key == "printable_area" || opt_key == "bed_exclude_area" || opt_key == "thumbnails" || opt_key == "wrapping_exclude_area" ) {
 				config.option<ConfigOptionPoints>(opt_key)->values = boost::any_cast<std::vector<Vec2d>>(value);
