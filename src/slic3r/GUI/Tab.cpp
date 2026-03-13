@@ -4369,6 +4369,7 @@ void TabPrinter::build_fff()
         optgroup->append_single_option_line("belt_printer");
         optgroup->append_single_option_line("belt_printer_angle");
         optgroup->append_single_option_line("belt_printer_infinite_y");
+        optgroup->append_single_option_line("belt_transform_mode");
         optgroup->append_single_option_line("support_multi_bed_types","printer_basic_information_printable_space#support-multi-bed-types");
         optgroup->append_single_option_line("best_object_pos", "printer_basic_information_printable_space#best-object-position");
         // todo: for multi_extruder test
@@ -5236,6 +5237,7 @@ void TabPrinter::toggle_options()
         bool is_belt = m_config->opt_bool("belt_printer");
         toggle_line("belt_printer_angle", is_belt);
         toggle_line("belt_printer_infinite_y", is_belt);
+        toggle_line("belt_transform_mode", is_belt);
     }
     
 

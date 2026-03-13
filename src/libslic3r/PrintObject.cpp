@@ -3392,7 +3392,28 @@ void PrintObject::update_slicing_parameters()
     // Orca: updated function call for XYZ shrinkage compensation
     if (!m_slicing_params.valid) {
           coordf_t object_height = this->model_object()->max_z();
-          m_slicing_params = SlicingParameters::create_from_config(this->print()->config(), m_config, object_height,
+          // Belt rotation modes change the effective Z height of the object.
+          const auto &pcfg = this->print()->config();
+          if (pcfg.belt_printer.value) {
+              BeltTransformMode bm = pcfg.belt_transform_mode.value;
+              if (bm == BeltTransformMode::RotationNeg || bm == BeltTransformMode::RotationPos) {
+                  double angle_rad = Geometry::deg2rad(pcfg.belt_printer_angle.value);
+                  double rot = (bm == BeltTransformMode::RotationNeg) ? -angle_rad : angle_rad;
+                  BoundingBoxf3 bb = this->model_object()->raw_bounding_box();
+                  double sin_r = std::sin(rot), cos_r = std::cos(rot);
+                  double min_rz = std::numeric_limits<double>::max();
+                  double max_rz = std::numeric_limits<double>::lowest();
+                  // Only Y and Z affect rotated Z; check all 4 YZ corner combos.
+                  for (double y : {bb.min.y(), bb.max.y()})
+                      for (double z : {bb.min.z(), bb.max.z()}) {
+                          double rz = y * sin_r + z * cos_r;
+                          min_rz = std::min(min_rz, rz);
+                          max_rz = std::max(max_rz, rz);
+                      }
+                  object_height = max_rz - min_rz;
+              }
+          }
+          m_slicing_params = SlicingParameters::create_from_config(pcfg, m_config, object_height,
                                                                    this->object_extruders(), this->print()->shrinkage_compensation());
       }
 }
@@ -3434,6 +3455,24 @@ SlicingParameters PrintObject::slicing_parameters(const DynamicPrintConfig &full
     if (object_max_z <= 0.f) {
         BoundingBoxf3 bb = model_object.raw_bounding_box();
         object_max_z = (float)bb.size().z();
+        // Belt rotation modes change the effective Z height.
+        if (print_config.belt_printer.value) {
+            BeltTransformMode bm = print_config.belt_transform_mode.value;
+            if (bm == BeltTransformMode::RotationNeg || bm == BeltTransformMode::RotationPos) {
+                double angle_rad = Geometry::deg2rad(print_config.belt_printer_angle.value);
+                double rot = (bm == BeltTransformMode::RotationNeg) ? -angle_rad : angle_rad;
+                double sin_r = std::sin(rot), cos_r = std::cos(rot);
+                double min_rz = std::numeric_limits<double>::max();
+                double max_rz = std::numeric_limits<double>::lowest();
+                for (double y : {bb.min.y(), bb.max.y()})
+                    for (double z : {bb.min.z(), bb.max.z()}) {
+                        double rz = y * sin_r + z * cos_r;
+                        min_rz = std::min(min_rz, rz);
+                        max_rz = std::max(max_rz, rz);
+                    }
+                object_max_z = (float)(max_rz - min_rz);
+            }
+        }
     }
     return SlicingParameters::create_from_config(print_config, object_config, object_max_z, object_extruders, object_shrinkage_compensation);
 }

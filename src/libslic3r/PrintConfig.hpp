@@ -152,6 +152,16 @@ enum class SlicingMode
     CloseHoles,
 };
 
+enum class BeltTransformMode
+{
+    ShearYPosCot,   // Y += Z·cot(α)
+    ShearYNegCot,   // Y -= Z·cot(α)
+    ShearYPosTan,   // Y += Z·tan(α)
+    ShearYNegTan,   // Y -= Z·tan(α)
+    RotationNeg,    // R(-α, X)
+    RotationPos,    // R(+α, X)
+};
+
 enum SupportMaterialPattern {
     smpDefault,
     smpRectilinear, smpRectilinearGrid, smpHoneycomb,
@@ -494,6 +504,7 @@ CONFIG_OPTION_ENUM_DECLARE_STATIC_MAPS(NoiseType)
 CONFIG_OPTION_ENUM_DECLARE_STATIC_MAPS(InfillPattern)
 CONFIG_OPTION_ENUM_DECLARE_STATIC_MAPS(IroningType)
 CONFIG_OPTION_ENUM_DECLARE_STATIC_MAPS(SlicingMode)
+CONFIG_OPTION_ENUM_DECLARE_STATIC_MAPS(BeltTransformMode)
 CONFIG_OPTION_ENUM_DECLARE_STATIC_MAPS(SupportMaterialPattern)
 CONFIG_OPTION_ENUM_DECLARE_STATIC_MAPS(SupportMaterialStyle)
 CONFIG_OPTION_ENUM_DECLARE_STATIC_MAPS(SupportMaterialInterfacePattern)
@@ -1410,6 +1421,7 @@ PRINT_CONFIG_CLASS_DERIVED_DEFINE(
     ((ConfigOptionBool,                belt_printer))
     ((ConfigOptionFloat,               belt_printer_angle))
     ((ConfigOptionBool,                belt_printer_infinite_y))
+    ((ConfigOptionEnum<BeltTransformMode>, belt_transform_mode))
     //BBS
     ((ConfigOptionInts,               additional_cooling_fan_speed))
     ((ConfigOptionBool,               reduce_crossing_wall))

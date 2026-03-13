@@ -143,13 +143,58 @@ static std::vector<VolumeSlices> slice_volumes_inner(
     if (print_config.belt_printer.value) {
         double angle_rad = Geometry::deg2rad(print_config.belt_printer_angle.value);
         double sin_a = std::sin(angle_rad);
-        if (sin_a > EPSILON) {
-            double cot_alpha = std::cos(angle_rad) / sin_a;
-            Transform3d belt_shear = Transform3d::Identity();
-            belt_shear.matrix()(1, 2) = cot_alpha;  // Y += Z * cot(α)
-            params_base.trafo = belt_shear * params_base.trafo;
+        double cos_a = std::cos(angle_rad);
+        BeltTransformMode mode = print_config.belt_transform_mode.value;
+        switch (mode) {
+        case BeltTransformMode::ShearYPosCot:
+        case BeltTransformMode::ShearYNegCot:
+        case BeltTransformMode::ShearYPosTan:
+        case BeltTransformMode::ShearYNegTan: {
+            double factor = 0;
+            if (mode == BeltTransformMode::ShearYPosCot && sin_a > EPSILON)
+                factor = cos_a / sin_a;
+            else if (mode == BeltTransformMode::ShearYNegCot && sin_a > EPSILON)
+                factor = -(cos_a / sin_a);
+            else if (mode == BeltTransformMode::ShearYPosTan && cos_a > EPSILON)
+                factor = sin_a / cos_a;
+            else if (mode == BeltTransformMode::ShearYNegTan && cos_a > EPSILON)
+                factor = -(sin_a / cos_a);
+            if (std::abs(factor) > EPSILON) {
+                Transform3d belt_shear = Transform3d::Identity();
+                belt_shear.matrix()(1, 2) = factor;
+                params_base.trafo = belt_shear * params_base.trafo;
+            }
+            break;
         }
-        // No Z-shift needed: shear preserves Z, object still starts at Z=0.
+        case BeltTransformMode::RotationNeg:
+        case BeltTransformMode::RotationPos: {
+            double rot_angle = (mode == BeltTransformMode::RotationNeg) ? -angle_rad : angle_rad;
+            Transform3d rot = Transform3d::Identity();
+            rot.matrix()(1, 1) = std::cos(rot_angle);
+            rot.matrix()(1, 2) = -std::sin(rot_angle);
+            rot.matrix()(2, 1) = std::sin(rot_angle);
+            rot.matrix()(2, 2) = std::cos(rot_angle);
+            // Apply rotation, then shift Z so rotated mesh sits at Z >= 0.
+            Transform3d combined = rot * params_base.trafo;
+            // Find min Z of all volumes after transform to shift up.
+            double min_z = std::numeric_limits<double>::max();
+            for (const ModelVolume *mv : model_volumes) {
+                if (!mv->is_model_part())
+                    continue;
+                for (const stl_vertex &v : mv->mesh().its.vertices) {
+                    Vec3d pt = combined * v.cast<double>();
+                    min_z = std::min(min_z, pt.z());
+                }
+            }
+            if (min_z < 0 && min_z != std::numeric_limits<double>::max()) {
+                Transform3d z_shift = Transform3d::Identity();
+                z_shift.matrix()(2, 3) = -min_z;
+                combined = z_shift * combined;
+            }
+            params_base.trafo = combined;
+            break;
+        }
+        }
     }
     //BBS: 0.0025mm is safe enough to simplify the data to speed slicing up for high-resolution model.
     //Also has on influence on arc fitting which has default resolution 0.0125mm.
