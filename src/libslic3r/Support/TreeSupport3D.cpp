@@ -19,6 +19,7 @@
 #include "Polygon.hpp"
 #include "Polyline.hpp"
 #include "MutablePolygon.hpp"
+#include "SlicingDirections.hpp"
 #include "SupportCommon.hpp"
 #include "TriangleMeshSlicer.hpp"
 #include "TreeSupport.hpp"
@@ -208,10 +209,13 @@ static std::vector<std::pair<TreeSupportSettings, std::vector<size_t>>> group_me
     const bool               support_threshold_auto = support_threshold == 0;
     // +1 makes the threshold inclusive
     double                   tan_threshold          = support_threshold_auto ? 0. : tan(M_PI * double(support_threshold + 1) / 180.);
-    // Build plate tilt: compute per-layer XY shift for tilted gravity direction
-    const double             tilt_x_rad             = Geometry::deg2rad(print_config.build_plate_tilt_x.value);
-    const double             tilt_y_rad             = Geometry::deg2rad(print_config.build_plate_tilt_y.value);
-    const bool               has_tilt               = std::abs(tilt_x_rad) > EPSILON || std::abs(tilt_y_rad) > EPSILON;
+    // Generalized gravity direction: project into slice frame for per-layer XY shift
+    SlicingDirections        dirs                   = SlicingDirections::from_config(print_config);
+    Vec3d                    grav                   = dirs.gravity_in_slice_frame;
+    Vec2d                    grav_xy(grav.x(), grav.y());
+    const bool               has_tilt               = grav_xy.norm() > EPSILON;
+    const double             gravity_ratio          = has_tilt ? grav_xy.norm() / std::abs(grav.z()) : 0.0;
+    const Vec2d              gravity_dir_2d         = has_tilt ? grav_xy.normalized() : Vec2d::Zero();
     //FIXME this is a fudge constant!
     auto                     enforcer_overhang_offset = scaled<double>(config.tree_support_tip_diameter.value);
     const coordf_t radius_sample_resolution = g_config_tree_support_collision_resolution;
@@ -233,7 +237,7 @@ static std::vector<std::pair<TreeSupportSettings, std::vector<size_t>>> group_me
     size_t num_overhang_layers = support_auto ? num_object_layers : std::min(num_object_layers, std::max(size_t(support_enforce_layers), enforcers_layers.size()));
     tbb::parallel_for(tbb::blocked_range<LayerIndex>(1, num_overhang_layers),
         [&print_object, &config, &print_config, &enforcers_layers, &blockers_layers,
-         support_auto, support_enforce_layers, support_threshold_auto, tan_threshold, enforcer_overhang_offset, num_raft_layers, radius_sample_resolution, has_tilt, tilt_x_rad, tilt_y_rad, &throw_on_cancel, &out]
+         support_auto, support_enforce_layers, support_threshold_auto, tan_threshold, enforcer_overhang_offset, num_raft_layers, radius_sample_resolution, has_tilt, gravity_ratio, gravity_dir_2d, &throw_on_cancel, &out]
         (const tbb::blocked_range<LayerIndex> &range) {
         for (LayerIndex layer_id = range.begin(); layer_id < range.end(); ++ layer_id) {
             const Layer   &current_layer  = *print_object.get_layer(layer_id);
@@ -257,12 +261,13 @@ static std::vector<std::pair<TreeSupportSettings, std::vector<size_t>>> group_me
                     lower_layer_offset = external_perimeter_width - float(scale_(config.support_threshold_overlap.get_abs_value(unscale_(external_perimeter_width))));
                 } else
                     lower_layer_offset = scaled<float>(lower_layer.height / tan_threshold);
-                // Apply build plate tilt: shift lower layer polygons to simulate tilted gravity
+                // Apply gravity direction shift: shift lower layer polygons to simulate off-axis gravity
                 Polygons lower_src = to_polygons(lower_layer.lslices_extrudable);
                 if (has_tilt) {
                     const double lh = lower_layer.height;
-                    Point tilt_shift(coord_t(scale_(lh * tan(tilt_y_rad))),
-                                     coord_t(scale_(lh * tan(tilt_x_rad))));
+                    double shift_mag = lh * gravity_ratio;
+                    Point tilt_shift(coord_t(scale_(shift_mag * gravity_dir_2d.x())),
+                                     coord_t(scale_(shift_mag * gravity_dir_2d.y())));
                     translate(lower_src, tilt_shift);
                 }
                 Polygons lower_layer_offseted = offset(lower_src, lower_layer_offset);

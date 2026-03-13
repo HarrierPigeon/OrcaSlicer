@@ -11,6 +11,7 @@
 #include "slic3r/Utils/UndoRedo.hpp"
 #include "libslic3r/Model.hpp"
 #include "libslic3r/PresetBundle.hpp"
+#include "libslic3r/SlicingDirections.hpp"
 #include "libslic3r/TriangleMesh.hpp"
 
 #include <memory>
@@ -76,13 +77,10 @@ GLGizmoPainterBase::ClippingPlaneDataWrapper GLGizmoPainterBase::get_clipping_pl
 Vec3f GLGizmoPainterBase::get_tilt_up_direction() const
 {
     const DynamicPrintConfig& cfg = wxGetApp().preset_bundle->printers.get_edited_preset().config;
-    double tilt_x_deg = cfg.opt_float("build_plate_tilt_x");
-    double tilt_y_deg = cfg.opt_float("build_plate_tilt_y");
-    if (tilt_x_deg == 0. && tilt_y_deg == 0.)
-        return Vec3f::UnitZ();
-    double tilt_x_rad = Geometry::deg2rad(tilt_x_deg);
-    double tilt_y_rad = Geometry::deg2rad(tilt_y_deg);
-    return Vec3f(float(tan(tilt_y_rad)), float(tan(tilt_x_rad)), 1.f).normalized();
+    auto dirs = SlicingDirections::from_config(cfg);
+    return dirs.has_custom_gravity()
+        ? (-dirs.gravity_dir).cast<float>().normalized()
+        : Vec3f::UnitZ();
 }
 
 void GLGizmoPainterBase::render_triangles(const Selection& selection) const

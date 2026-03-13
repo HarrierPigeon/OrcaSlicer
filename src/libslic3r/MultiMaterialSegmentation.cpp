@@ -3,6 +3,7 @@
 #include "EdgeGrid.hpp"
 #include "Layer.hpp"
 #include "Print.hpp"
+#include "SlicingDirections.hpp"
 #include "Geometry/VoronoiVisualUtils.hpp"
 #include "Geometry/VoronoiUtils.hpp"
 #include "MutablePolygon.hpp"
@@ -1203,7 +1204,8 @@ static inline std::vector<std::vector<ExPolygons>> segmentation_top_and_bottom_l
     // project downards pointing painted triangles over bottom surfaces.
     std::vector<std::vector<Polygons>> top_raw(num_facets_states), bottom_raw(num_facets_states);
     std::vector<float> zs = zs_from_layers(layers);
-    Transform3d        object_trafo = print_object.trafo_centered();
+    SlicingDirections  dirs_mm = SlicingDirections::from_config(print_object.print()->config());
+    Transform3d        object_trafo = dirs_mm.trafo_slice_align * print_object.trafo_centered();
 
 #ifdef MM_SEGMENTATION_DEBUG_TOP_BOTTOM
     static int iRun = 0;

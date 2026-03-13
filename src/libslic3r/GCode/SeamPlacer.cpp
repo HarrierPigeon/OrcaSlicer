@@ -14,6 +14,7 @@
 #include "libslic3r/KDTreeIndirect.hpp"
 #include "libslic3r/ExtrusionEntity.hpp"
 #include "libslic3r/Print.hpp"
+#include "libslic3r/SlicingDirections.hpp"
 #include "libslic3r/BoundingBox.hpp"
 #include "libslic3r/ClipperUtils.hpp"
 #include "libslic3r/Layer.hpp"
@@ -627,7 +628,8 @@ void compute_global_occlusion(GlobalModelInfo &result, const PrintObject *po,
                               SeamPosition seam_position = spAligned) {
   BOOST_LOG_TRIVIAL(debug)
       << "SeamPlacer: gather occlusion meshes: start";
-  auto obj_transform = po->trafo_centered();
+  SlicingDirections dirs_occ = SlicingDirections::from_config(po->print()->config());
+  auto obj_transform = Transform3d(dirs_occ.trafo_slice_align * po->trafo_centered());
   indexed_triangle_set triangle_set;
   indexed_triangle_set negative_volumes_set;
   //add all parts
@@ -712,7 +714,8 @@ void gather_enforcers_blockers(GlobalModelInfo &result, const PrintObject *po) {
   BOOST_LOG_TRIVIAL(debug)
       << "SeamPlacer: build AABB trees for raycasting enforcers/blockers: start";
 
-  auto obj_transform = po->trafo_centered();
+  SlicingDirections dirs_eb = SlicingDirections::from_config(po->print()->config());
+  auto obj_transform = Transform3d(dirs_eb.trafo_slice_align * po->trafo_centered());
 
   for (const ModelVolume *mv : po->model_object()->volumes) {
     if (mv->is_seam_painted()) {

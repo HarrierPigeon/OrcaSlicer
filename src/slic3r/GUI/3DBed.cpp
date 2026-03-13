@@ -6,6 +6,7 @@
 #include "libslic3r/ClipperUtils.hpp"
 #include "libslic3r/BoundingBox.hpp"
 #include "libslic3r/Geometry/Circle.hpp"
+#include "libslic3r/SlicingDirections.hpp"
 #include "libslic3r/Tesselate.hpp"
 #include "libslic3r/PresetBundle.hpp"
 
@@ -394,7 +395,7 @@ void Bed3D::render_internal(GLCanvas3D& canvas, const Transform3d& view_matrix, 
     case Type::Custom: { render_custom(canvas, view_matrix, projection_matrix, bottom); break; }
     }
 
-    render_gravity_arrow(view_matrix, projection_matrix);
+    render_direction_arrows(view_matrix, projection_matrix);
 
     glsafe(::glDisable(GL_DEPTH_TEST));
 }
@@ -733,44 +734,20 @@ void Bed3D::render_custom(GLCanvas3D& canvas, const Transform3d& view_matrix, co
         render_texture(bottom, canvas);*/
 }
 
-void Bed3D::render_gravity_arrow(const Transform3d& view_matrix, const Transform3d& projection_matrix)
+void Bed3D::render_single_arrow(const Vec3d& dir, const ColorRGBA& color, GLModel& model,
+                                const Transform3d& view_matrix, const Transform3d& projection_matrix)
 {
-    const DynamicPrintConfig& cfg = wxGetApp().preset_bundle->printers.get_edited_preset().config;
-    double tilt_x_deg = cfg.opt_float("build_plate_tilt_x");
-    double tilt_y_deg = cfg.opt_float("build_plate_tilt_y");
-    if (tilt_x_deg == 0. && tilt_y_deg == 0.) {
-        m_gravity_arrow.reset();
-        return;
-    }
-
-    // Gravity direction (matching the slicer's tilt convention)
-    double tilt_x_rad = Geometry::deg2rad(tilt_x_deg);
-    double tilt_y_rad = Geometry::deg2rad(tilt_y_deg);
-    Vec3d gravity_dir = Vec3d(-tan(tilt_y_rad), -tan(tilt_x_rad), -1.0).normalized();
-
-    // Build the arrow model (same dimensions as the axis arrows)
-    if (!m_gravity_arrow.is_initialized()) {
+    if (!model.is_initialized()) {
         const float stem_length = Axes::DefaultStemLength;
         const float tip_radius  = Axes::DefaultTipRadius;
         const float tip_length  = Axes::DefaultTipLength;
-        const float stem_radius = stem_length / 75.f; // same ratio as axis cylinders
-        m_gravity_arrow.init_from(stilized_arrow(16, tip_radius, tip_length, stem_radius, stem_length));
+        const float stem_radius = stem_length / 75.f;
+        model.init_from(stilized_arrow(16, tip_radius, tip_length, stem_radius, stem_length));
     }
 
-    // The arrow model points along +Z by default. Compute rotation to align with gravity_dir.
-    // Rotation axis = cross(+Z, gravity_dir), angle = acos(dot(+Z, gravity_dir))
-    Vec3d from = Vec3d::UnitZ();
-    Vec3d to   = gravity_dir;
-    double dot  = from.dot(to);
-    Transform3d rot = Transform3d::Identity();
-    if (dot < -0.9999) {
-        // Nearly opposite — rotate 180° around X
-        rot = Eigen::AngleAxisd(M_PI, Vec3d::UnitX()) * rot;
-    } else if (dot < 0.9999) {
-        Vec3d axis  = from.cross(to).normalized();
-        double angle = std::acos(std::clamp(dot, -1.0, 1.0));
-        rot = Eigen::AngleAxisd(angle, axis) * rot;
-    }
+    // The arrow model points along +Z. Rotate to align with target direction.
+    Eigen::Quaterniond q = Eigen::Quaterniond::FromTwoVectors(Vec3d::UnitZ(), dir);
+    Transform3d rot(q);
 
     GLShaderProgram* shader = wxGetApp().get_shader("flat");
     if (shader == nullptr)
@@ -780,14 +757,44 @@ void Bed3D::render_gravity_arrow(const Transform3d& view_matrix, const Transform
     shader->start_using();
 
     const Camera& camera = wxGetApp().plater()->get_camera();
-    Transform3d model_matrix = rot;
-    shader->set_uniform("view_model_matrix", camera.get_view_matrix() * model_matrix);
+    shader->set_uniform("view_model_matrix", camera.get_view_matrix() * rot);
     shader->set_uniform("projection_matrix", camera.get_projection_matrix());
 
-    m_gravity_arrow.set_color({ 1.0f, 0.85f, 0.0f, 1.0f }); // yellow
-    m_gravity_arrow.render();
+    model.set_color(color);
+    model.render();
 
     shader->stop_using();
+}
+
+void Bed3D::render_direction_arrows(const Transform3d& view_matrix, const Transform3d& projection_matrix)
+{
+    const DynamicPrintConfig& cfg = wxGetApp().preset_bundle->printers.get_edited_preset().config;
+    SlicingDirections dirs = SlicingDirections::from_config(cfg);
+
+    if (dirs.is_default()) {
+        m_slicing_arrow.reset();
+        m_gravity_arrow.reset();
+        m_plate_normal_arrow.reset();
+        return;
+    }
+
+    // Cyan for slicing direction
+    if (dirs.has_custom_slicing())
+        render_single_arrow(dirs.slicing_dir, { 0.0f, 0.8f, 1.0f, 1.0f }, m_slicing_arrow, view_matrix, projection_matrix);
+    else
+        m_slicing_arrow.reset();
+
+    // Yellow for gravity direction
+    if (dirs.has_custom_gravity())
+        render_single_arrow(dirs.gravity_dir, { 1.0f, 0.85f, 0.0f, 1.0f }, m_gravity_arrow, view_matrix, projection_matrix);
+    else
+        m_gravity_arrow.reset();
+
+    // Magenta for build plate normal
+    if (dirs.has_custom_plate_normal())
+        render_single_arrow(dirs.plate_normal, { 1.0f, 0.0f, 0.8f, 1.0f }, m_plate_normal_arrow, view_matrix, projection_matrix);
+    else
+        m_plate_normal_arrow.reset();
 }
 
 void Bed3D::render_default(bool bottom, const Transform3d& view_matrix, const Transform3d& projection_matrix)

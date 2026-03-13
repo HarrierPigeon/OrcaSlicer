@@ -3,6 +3,7 @@
 #include "libslic3r/Model.hpp"
 //BBS
 #include "libslic3r/Layer.hpp"
+#include "libslic3r/SlicingDirections.hpp"
 #include "libslic3r/Thread.hpp"
 
 //#include "slic3r/GUI/3DScene.hpp"
@@ -537,12 +538,11 @@ int GLGizmoFdmSupports::get_selection_support_threshold_angle()
     return auto_support ? support_threshold_angle : 0;
 }
 
-std::pair<double, double> GLGizmoFdmSupports::get_build_plate_tilt()
+Vec3d GLGizmoFdmSupports::get_gravity_direction()
 {
     const DynamicPrintConfig& cfg = wxGetApp().preset_bundle->printers.get_edited_preset().config;
-    double tilt_x = cfg.opt_float("build_plate_tilt_x");
-    double tilt_y = cfg.opt_float("build_plate_tilt_y");
-    return {tilt_x, tilt_y};
+    auto dirs = SlicingDirections::from_config(cfg);
+    return dirs.gravity_dir;
 }
 
 void GLGizmoFdmSupports::select_facets_by_angle(float threshold_deg, bool block)
@@ -552,11 +552,8 @@ void GLGizmoFdmSupports::select_facets_by_angle(float threshold_deg, bool block)
     const ModelObject* mo = m_c->selection_info()->model_object();
     const ModelInstance* mi = mo->instances[selection.get_instance_idx()];
 
-    // Compute gravity direction accounting for build plate tilt
-    auto [tilt_x_deg, tilt_y_deg] = get_build_plate_tilt();
-    double tilt_x_rad = tilt_x_deg * M_PI / 180.0;
-    double tilt_y_rad = tilt_y_deg * M_PI / 180.0;
-    Vec3d gravity_dir = Vec3d(-tan(tilt_y_rad), -tan(tilt_x_rad), -1.0).normalized();
+    // Compute gravity direction from generalized direction vectors
+    Vec3d gravity_dir = get_gravity_direction();
 
     int mesh_id = -1;
     for (const ModelVolume* mv : mo->volumes) {

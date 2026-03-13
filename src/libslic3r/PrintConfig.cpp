@@ -5901,29 +5901,33 @@ void PrintConfigDef::init_fff_params()
     def->mode = comSimple;
     def->set_default_value(new ConfigOptionFloatOrPercent(50., true));
 
-    def = this->add("build_plate_tilt_x", coFloat);
-    def->label = L("Build plate tilt X");
-    def->category = L("Support");
-    def->tooltip = L("Tilt angle of the build plate along the X axis. "
-                     "A positive value tilts the plate so the +X side is higher, shifting gravity toward -X and increasing overhangs on the +X side. "
-                     "A negative value tilts the -X side higher. Set to 0 for no X-axis tilt.");
-    def->sidetext = u8"\u00B0";
-    def->min = -45;
-    def->max = 45;
-    def->mode = comAdvanced;
-    def->set_default_value(new ConfigOptionFloat(0.));
+    def = this->add("slicing_direction", coPoint3);
+    def->label = L("Slicing direction");
+    def->category = L("Machine");
+    def->tooltip = L("Direction vector along which the model is sliced into layers. "
+                     "Default (0,0,1) slices horizontally. For belt printers or tilted beds, "
+                     "set to the actual build direction. The vector is normalized internally.");
+    def->mode = comDevelop;
+    def->set_default_value(new ConfigOptionPoint3(Vec3d(0, 0, 1)));
 
-    def = this->add("build_plate_tilt_y", coFloat);
-    def->label = L("Build plate tilt Y");
-    def->category = L("Support");
-    def->tooltip = L("Tilt angle of the build plate along the Y axis. "
-                     "A positive value tilts the plate so the +Y side is higher, shifting gravity toward -Y and increasing overhangs on the +Y side. "
-                     "A negative value tilts the -Y side higher. Set to 0 for no Y-axis tilt.");
-    def->sidetext = u8"\u00B0";
-    def->min = -45;
-    def->max = 45;
-    def->mode = comAdvanced;
-    def->set_default_value(new ConfigOptionFloat(0.));
+    def = this->add("gravity_direction", coPoint3);
+    def->label = L("Gravity direction");
+    def->category = L("Machine");
+    def->tooltip = L("Direction of gravity relative to the printer frame. "
+                     "Default (0,0,-1) is straight down. For tilted beds, set to the actual "
+                     "gravity direction. Affects overhang detection and support generation. "
+                     "The vector is normalized internally.");
+    def->mode = comDevelop;
+    def->set_default_value(new ConfigOptionPoint3(Vec3d(0, 0, -1)));
+
+    def = this->add("build_plate_normal", coPoint3);
+    def->label = L("Build plate normal");
+    def->category = L("Machine");
+    def->tooltip = L("Normal vector of the build plate surface pointing away from the print. "
+                     "Default (0,0,1) is a flat horizontal plate. For tilted or angled build "
+                     "surfaces, set accordingly. The vector is normalized internally.");
+    def->mode = comDevelop;
+    def->set_default_value(new ConfigOptionPoint3(Vec3d(0, 0, 1)));
 
     def = this->add("tree_support_branch_angle", coFloat);
     def->label = L("Tree support branch angle");

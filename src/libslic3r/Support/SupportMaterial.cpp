@@ -8,6 +8,7 @@
 #include "Geometry.hpp"
 #include "Point.hpp"
 #include "MutablePolygon.hpp"
+#include "SlicingDirections.hpp"
 
 #include <cmath>
 #include <memory>
@@ -1392,10 +1393,13 @@ static inline ExPolygons detect_overhangs(
     const double threshold_rad = Geometry::deg2rad(thresh_angle);
     const bool bridge_no_support = object_config.bridge_no_support.value;
     const coordf_t xy_expansion = scale_(object_config.support_expansion.value);
-    // Build plate tilt: compute per-layer XY shift for tilted gravity direction
-    const double tilt_x_rad = Geometry::deg2rad(print_config.build_plate_tilt_x.value);
-    const double tilt_y_rad = Geometry::deg2rad(print_config.build_plate_tilt_y.value);
-    const bool   has_tilt   = std::abs(tilt_x_rad) > EPSILON || std::abs(tilt_y_rad) > EPSILON;
+    // Generalized gravity direction: project into slice frame for per-layer XY shift
+    SlicingDirections dirs = SlicingDirections::from_config(print_config);
+    Vec3d grav = dirs.gravity_in_slice_frame;
+    Vec2d grav_xy(grav.x(), grav.y());
+    const bool   has_tilt      = grav_xy.norm() > EPSILON;
+    const double gravity_ratio = has_tilt ? grav_xy.norm() / std::abs(grav.z()) : 0.0;
+    const Vec2d  gravity_dir_2d = has_tilt ? grav_xy.normalized() : Vec2d::Zero();
     float lower_layer_offset = 0;
 
     if (layer_id == 0)
@@ -1445,12 +1449,13 @@ static inline ExPolygons detect_overhangs(
             // Overhang polygons for this layer and region.
             Polygons diff_polygons;
             Polygons layerm_polygons = to_polygons(layerm->slices.surfaces);
-            // Apply build plate tilt: shift lower layer polygons to simulate tilted gravity
+            // Apply gravity direction shift: shift lower layer polygons to simulate off-axis gravity
             Polygons effective_lower = lower_layer_polygons;
             if (has_tilt) {
                 const double lh = lower_layer.height;
-                Point tilt_shift(coord_t(scale_(lh * tan(tilt_y_rad))),
-                                 coord_t(scale_(lh * tan(tilt_x_rad))));
+                double shift_mag = lh * gravity_ratio;
+                Point tilt_shift(coord_t(scale_(shift_mag * gravity_dir_2d.x())),
+                                 coord_t(scale_(shift_mag * gravity_dir_2d.y())));
                 translate(effective_lower, tilt_shift);
             }
             if (lower_layer_offset == 0.f) {

@@ -8,6 +8,7 @@
 #include "Layer.hpp"
 #include "MultiMaterialSegmentation.hpp"
 #include "Print.hpp"
+#include "SlicingDirections.hpp"
 //BBS
 #include "ShortestPath.hpp"
 #include "libslic3r/Feature/Interlocking/InterlockingGenerator.hpp"
@@ -138,7 +139,9 @@ static std::vector<VolumeSlices> slice_volumes_inner(
     MeshSlicingParamsEx params_base;
     params_base.closing_radius = print_object_config.slice_closing_radius.value;
     params_base.extra_offset   = 0;
-    params_base.trafo          = object_trafo;
+    // Prepend slicing direction rotation so the mesh is sliced along the configured axis.
+    SlicingDirections dirs = SlicingDirections::from_config(print_config);
+    params_base.trafo          = dirs.trafo_slice_align * object_trafo;
     //BBS: 0.0025mm is safe enough to simplify the data to speed slicing up for high-resolution model.
     //Also has on influence on arc fitting which has default resolution 0.0125mm.
     params_base.resolution = print_config.resolution <= 0.001 ? 0.0f : 0.0025;
@@ -1528,7 +1531,8 @@ std::vector<Polygons> PrintObject::slice_support_volumes(const ModelVolumeType m
         const Print       *print = this->print();
         auto               throw_on_cancel_callback = std::function<void()>([print](){ print->throw_if_canceled(); });
         MeshSlicingParamsEx params;
-        params.trafo = this->trafo_centered();
+        SlicingDirections dirs_sv = SlicingDirections::from_config(print->config());
+        params.trafo = dirs_sv.trafo_slice_align * this->trafo_centered();
         for (; it_volume != it_volume_end; ++ it_volume)
             if ((*it_volume)->type() == model_volume_type) {
                 std::vector<ExPolygons> slices2 = slice_volume(*(*it_volume), zs, params, throw_on_cancel_callback);
