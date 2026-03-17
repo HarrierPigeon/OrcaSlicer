@@ -299,6 +299,25 @@ static t_config_enum_values s_keys_map_BeltAxis {
 };
 CONFIG_OPTION_ENUM_DEFINE_STATIC_MAPS(BeltAxis)
 
+static t_config_enum_values s_keys_map_BeltScaleMode {
+    { "none",      int(BeltScaleMode::None) },
+    { "inv_sin",   int(BeltScaleMode::InvSin) },
+    { "inv_cos",   int(BeltScaleMode::InvCos) },
+    { "sin",       int(BeltScaleMode::Sin) },
+    { "cos",       int(BeltScaleMode::Cos) },
+};
+CONFIG_OPTION_ENUM_DEFINE_STATIC_MAPS(BeltScaleMode)
+
+static t_config_enum_values s_keys_map_BeltRemapAxis {
+    { "pos_x", int(BeltRemapAxis::PosX) },
+    { "pos_y", int(BeltRemapAxis::PosY) },
+    { "pos_z", int(BeltRemapAxis::PosZ) },
+    { "neg_x", int(BeltRemapAxis::NegX) },
+    { "neg_y", int(BeltRemapAxis::NegY) },
+    { "neg_z", int(BeltRemapAxis::NegZ) },
+};
+CONFIG_OPTION_ENUM_DEFINE_STATIC_MAPS(BeltRemapAxis)
+
 static t_config_enum_values s_keys_map_SupportMaterialPattern {
     { "rectilinear",        smpRectilinear },
     { "rectilinear-grid",   smpRectilinearGrid },
@@ -6020,9 +6039,55 @@ void PrintConfigDef::init_fff_params()
     add_belt_shear_angle("belt_shear_z_angle", "Angle");
     add_belt_axis_enum("belt_shear_z_from", "From", "Source axis for Z shear.", BeltAxis::Y);
 
-    add_belt_axis_enum("belt_gcode_remap_x", "X", "Which slicing axis maps to machine X in G-code output.", BeltAxis::X);
-    add_belt_axis_enum("belt_gcode_remap_y", "Y", "Which slicing axis maps to machine Y in G-code output.", BeltAxis::Y);
-    add_belt_axis_enum("belt_gcode_remap_z", "Z", "Which slicing axis maps to machine Z in G-code output.", BeltAxis::Z);
+    // Per-axis scale controls for belt printer
+    auto add_belt_scale_mode = [this](const char *key, const char *label, BeltScaleMode default_mode) {
+        auto def = this->add(key, coEnum);
+        def->label = L(label);
+        def->category = L("Printable space");
+        def->tooltip = L("Scale factor applied to this axis in belt printer mode.");
+        def->enum_keys_map = &ConfigOptionEnum<BeltScaleMode>::get_enum_values();
+        def->enum_values  = {"none", "inv_sin", "inv_cos", "sin", "cos"};
+        def->enum_labels  = {L("None"), L("1/sin(α)"), L("1/cos(α)"), L("sin(α)"), L("cos(α)")};
+        def->mode = comAdvanced;
+        def->set_default_value(new ConfigOptionEnum<BeltScaleMode>(default_mode));
+    };
+    auto add_belt_scale_angle = [this](const char *key, const char *label) {
+        auto def = this->add(key, coFloat);
+        def->label = L(label);
+        def->category = L("Printable space");
+        def->tooltip = L("Angle (degrees) for the scale function on this axis.");
+        def->sidetext = L("°");
+        def->min = 0.1;
+        def->max = 89.9;
+        def->mode = comAdvanced;
+        def->set_default_value(new ConfigOptionFloat(45));
+    };
+
+    add_belt_scale_mode("belt_scale_x", "Function", BeltScaleMode::None);
+    add_belt_scale_angle("belt_scale_x_angle", "Angle");
+
+    add_belt_scale_mode("belt_scale_y", "Function", BeltScaleMode::None);
+    add_belt_scale_angle("belt_scale_y_angle", "Angle");
+
+    add_belt_scale_mode("belt_scale_z", "Function", BeltScaleMode::None);
+    add_belt_scale_angle("belt_scale_z_angle", "Angle");
+
+    // G-code axis remap with sign
+    auto add_belt_remap = [this](const char *key, const char *label, const char *tooltip, BeltRemapAxis default_axis) {
+        auto def = this->add(key, coEnum);
+        def->label = L(label);
+        def->category = L("Printable space");
+        def->tooltip = L(tooltip);
+        def->enum_keys_map = &ConfigOptionEnum<BeltRemapAxis>::get_enum_values();
+        def->enum_values  = {"pos_x", "pos_y", "pos_z", "neg_x", "neg_y", "neg_z"};
+        def->enum_labels  = {L("+X"), L("+Y"), L("+Z"), L("-X"), L("-Y"), L("-Z")};
+        def->mode = comAdvanced;
+        def->set_default_value(new ConfigOptionEnum<BeltRemapAxis>(default_axis));
+    };
+
+    add_belt_remap("belt_gcode_remap_x", "X", "Which slicing axis maps to machine X in G-code output.", BeltRemapAxis::PosX);
+    add_belt_remap("belt_gcode_remap_y", "Y", "Which slicing axis maps to machine Y in G-code output.", BeltRemapAxis::PosY);
+    add_belt_remap("belt_gcode_remap_z", "Z", "Which slicing axis maps to machine Z in G-code output.", BeltRemapAxis::PosZ);
 
     def = this->add("tree_support_branch_angle", coFloat);
     def->label = L("Tree support branch angle");

@@ -2411,7 +2411,7 @@ void GCode::_do_export(Print& print, GCodeOutputStream &file, ThumbnailsGenerato
     m_is_role_based_fan_on.fill(false);
 
     m_fan_mover.release();
-    
+
     m_writer.set_is_bbl_machine(is_bbl_printers);
 
     // Belt printer: initialize coordinate transformation and axis remap on the writer.

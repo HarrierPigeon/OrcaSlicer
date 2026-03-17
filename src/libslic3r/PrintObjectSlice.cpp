@@ -173,8 +173,37 @@ static std::vector<VolumeSlices> slice_volumes_inner(
                 }
             }
         }
-        if (has_shear)
-            params_base.trafo = belt_shear * params_base.trafo;
+
+        // Build per-axis scale matrix.
+        auto compute_scale_factor = [](BeltScaleMode mode, double angle_deg) -> double {
+            if (mode == BeltScaleMode::None) return 1.;
+            double angle_rad = Geometry::deg2rad(angle_deg);
+            double sin_a = std::sin(angle_rad);
+            double cos_a = std::cos(angle_rad);
+            switch (mode) {
+            case BeltScaleMode::InvSin: return (sin_a > EPSILON) ? 1. / sin_a : 1.;
+            case BeltScaleMode::InvCos: return (cos_a > EPSILON) ? 1. / cos_a : 1.;
+            case BeltScaleMode::Sin:    return sin_a;
+            case BeltScaleMode::Cos:    return cos_a;
+            default: return 1.;
+            }
+        };
+
+        Transform3d belt_scale = Transform3d::Identity();
+        bool has_scale = false;
+        double sx = compute_scale_factor(print_config.belt_scale_x.value, print_config.belt_scale_x_angle.value);
+        double sy = compute_scale_factor(print_config.belt_scale_y.value, print_config.belt_scale_y_angle.value);
+        double sz = compute_scale_factor(print_config.belt_scale_z.value, print_config.belt_scale_z_angle.value);
+        if (std::abs(sx - 1.) > EPSILON || std::abs(sy - 1.) > EPSILON || std::abs(sz - 1.) > EPSILON) {
+            belt_scale.matrix()(0, 0) = sx;
+            belt_scale.matrix()(1, 1) = sy;
+            belt_scale.matrix()(2, 2) = sz;
+            has_scale = true;
+        }
+
+        // Apply: scale * shear * trafo (shear first, then scale).
+        if (has_shear || has_scale)
+            params_base.trafo = belt_scale * belt_shear * params_base.trafo;
     }
     //BBS: 0.0025mm is safe enough to simplify the data to speed slicing up for high-resolution model.
     //Also has on influence on arc fitting which has default resolution 0.0125mm.

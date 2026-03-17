@@ -161,11 +161,26 @@ enum class BeltShearMode
     NegTan,     // -= tan(α)
 };
 
+enum class BeltScaleMode
+{
+    None,       // No scaling (factor = 1)
+    InvSin,     // 1/sin(α)
+    InvCos,     // 1/cos(α)
+    Sin,        // sin(α)
+    Cos,        // cos(α)
+};
+
 enum class BeltAxis
 {
     X = 0,
     Y = 1,
     Z = 2,
+};
+
+enum class BeltRemapAxis
+{
+    PosX = 0, PosY = 1, PosZ = 2,
+    NegX = 3, NegY = 4, NegZ = 5,
 };
 
 enum SupportMaterialPattern {
@@ -511,7 +526,9 @@ CONFIG_OPTION_ENUM_DECLARE_STATIC_MAPS(InfillPattern)
 CONFIG_OPTION_ENUM_DECLARE_STATIC_MAPS(IroningType)
 CONFIG_OPTION_ENUM_DECLARE_STATIC_MAPS(SlicingMode)
 CONFIG_OPTION_ENUM_DECLARE_STATIC_MAPS(BeltShearMode)
+CONFIG_OPTION_ENUM_DECLARE_STATIC_MAPS(BeltScaleMode)
 CONFIG_OPTION_ENUM_DECLARE_STATIC_MAPS(BeltAxis)
+CONFIG_OPTION_ENUM_DECLARE_STATIC_MAPS(BeltRemapAxis)
 CONFIG_OPTION_ENUM_DECLARE_STATIC_MAPS(SupportMaterialPattern)
 CONFIG_OPTION_ENUM_DECLARE_STATIC_MAPS(SupportMaterialStyle)
 CONFIG_OPTION_ENUM_DECLARE_STATIC_MAPS(SupportMaterialInterfacePattern)
@@ -1437,9 +1454,15 @@ PRINT_CONFIG_CLASS_DERIVED_DEFINE(
     ((ConfigOptionEnum<BeltShearMode>,  belt_shear_z))
     ((ConfigOptionFloat,                belt_shear_z_angle))
     ((ConfigOptionEnum<BeltAxis>,       belt_shear_z_from))
-    ((ConfigOptionEnum<BeltAxis>,       belt_gcode_remap_x))
-    ((ConfigOptionEnum<BeltAxis>,       belt_gcode_remap_y))
-    ((ConfigOptionEnum<BeltAxis>,       belt_gcode_remap_z))
+    ((ConfigOptionEnum<BeltScaleMode>,  belt_scale_x))
+    ((ConfigOptionFloat,                belt_scale_x_angle))
+    ((ConfigOptionEnum<BeltScaleMode>,  belt_scale_y))
+    ((ConfigOptionFloat,                belt_scale_y_angle))
+    ((ConfigOptionEnum<BeltScaleMode>,  belt_scale_z))
+    ((ConfigOptionFloat,                belt_scale_z_angle))
+    ((ConfigOptionEnum<BeltRemapAxis>,  belt_gcode_remap_x))
+    ((ConfigOptionEnum<BeltRemapAxis>,  belt_gcode_remap_y))
+    ((ConfigOptionEnum<BeltRemapAxis>,  belt_gcode_remap_z))
     //BBS
     ((ConfigOptionInts,               additional_cooling_fan_speed))
     ((ConfigOptionBool,               reduce_crossing_wall))

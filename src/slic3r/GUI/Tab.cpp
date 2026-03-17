@@ -4392,6 +4392,24 @@ void TabPrinter::build_fff()
             optgroup->append_line(line);
         }
         {
+            Line line = { L("Scale X"), L("Scale applied to the X axis before slicing") };
+            line.append_option(optgroup->get_option("belt_scale_x"));
+            line.append_option(optgroup->get_option("belt_scale_x_angle"));
+            optgroup->append_line(line);
+        }
+        {
+            Line line = { L("Scale Y"), L("Scale applied to the Y axis before slicing") };
+            line.append_option(optgroup->get_option("belt_scale_y"));
+            line.append_option(optgroup->get_option("belt_scale_y_angle"));
+            optgroup->append_line(line);
+        }
+        {
+            Line line = { L("Scale Z"), L("Scale applied to the Z axis before slicing") };
+            line.append_option(optgroup->get_option("belt_scale_z"));
+            line.append_option(optgroup->get_option("belt_scale_z_angle"));
+            optgroup->append_line(line);
+        }
+        {
             Line line = { L("G-code axis remap"), L("Remap slicing-frame axes to machine axes in G-code output") };
             line.append_option(optgroup->get_option("belt_gcode_remap_x"));
             line.append_option(optgroup->get_option("belt_gcode_remap_y"));
@@ -5265,7 +5283,9 @@ void TabPrinter::toggle_options()
         bool is_belt = m_config->opt_bool("belt_printer");
         toggle_line("belt_printer_angle", is_belt);
         toggle_line("belt_printer_infinite_y", is_belt);
-        for (auto el : {"belt_shear_x", "belt_shear_y", "belt_shear_z", "belt_gcode_remap_x"})
+        for (auto el : {"belt_shear_x", "belt_shear_y", "belt_shear_z",
+                        "belt_scale_x", "belt_scale_y", "belt_scale_z",
+                        "belt_gcode_remap_x"})
             toggle_line(el, is_belt);
     }
     

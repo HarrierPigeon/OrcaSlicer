@@ -36,7 +36,12 @@ Vec3d GCodeWriter::to_machine_coords(const Vec3d &pos) const
 {
     if (!is_belt_printer())
         return pos;
-    return { pos[m_remap_x], pos[m_remap_y], pos[m_remap_z] };
+    // BeltRemapAxis: 0-2 = +X/+Y/+Z, 3-5 = -X/-Y/-Z
+    auto remap = [&pos](int r) -> double {
+        int axis = r % 3;
+        return (r < 3) ? pos[axis] : -pos[axis];
+    };
+    return { remap(m_remap_x), remap(m_remap_y), remap(m_remap_z) };
 }
 
 bool GCodeWriter::supports_separate_travel_acceleration(GCodeFlavor flavor)
