@@ -110,6 +110,13 @@ struct SlicingParameters
      coordf_t     object_print_z_uncompensated_max { 0 };
      // Scaling factor for compensating shrinkage in Z-axis.
      coordf_t    object_shrinkage_compensation_z { 0 };
+
+    // Belt printer: floor plane parameters for support clipping.
+    // The belt floor in the slicing frame is:  Z_floor(axis) = shear_factor * axis - z_offset
+    // Supports below this plane should be clipped.
+    double      belt_floor_shear_factor { 0.0 };  // shear factor (e.g. cot(45deg))
+    int         belt_floor_from_axis { 1 };        // which axis the shear is from (0=X, 1=Y)
+    double      belt_floor_z_offset { 0.0 };       // the min_z used for Z-shift
 };
 static_assert(IsTriviallyCopyable<SlicingParameters>::value, "SlicingParameters class is not POD (and it should be - see constructor).");
 

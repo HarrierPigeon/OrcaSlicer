@@ -3392,6 +3392,10 @@ void PrintObject::update_slicing_parameters()
     // Orca: updated function call for XYZ shrinkage compensation
     if (!m_slicing_params.valid) {
           coordf_t object_height = this->model_object()->max_z();
+          // Belt floor parameters for support clipping (populated below if belt Z-shear is active).
+          double belt_floor_shear_factor_out = 0.0;
+          int    belt_floor_from_axis_out    = 1;
+          double belt_floor_z_offset_out     = 0.0;
           // Belt shear/scale may change the effective Z height.
           const auto &pcfg = this->print()->config();
           if (pcfg.belt_printer.value) {
@@ -3435,6 +3439,13 @@ void PrintObject::update_slicing_parameters()
                               max_rz = std::max(max_rz, new_z);
                           }
                       object_height = max_rz - min_rz;
+                      // Store belt floor parameters for support clipping later.
+                      // The belt floor in slicing frame is: Z_floor(from_axis) = shear_factor * from_axis_val - min_rz
+                      // After Z-shift (subtracting min_rz), the floor becomes: Z = shear_factor * from_axis_val - min_rz
+                      // So at a given print_z, the cutoff on the from_axis is: from_axis_val = (print_z + min_rz) / shear_factor
+                      belt_floor_shear_factor_out = shear_factor;
+                      belt_floor_from_axis_out = from;
+                      belt_floor_z_offset_out = min_rz;
                   } else {
                       object_height *= scale_z;
                   }
@@ -3442,6 +3453,10 @@ void PrintObject::update_slicing_parameters()
           }
           m_slicing_params = SlicingParameters::create_from_config(pcfg, m_config, object_height,
                                                                    this->object_extruders(), this->print()->shrinkage_compensation());
+          // Populate belt floor parameters into slicing params for support clipping.
+          m_slicing_params.belt_floor_shear_factor = belt_floor_shear_factor_out;
+          m_slicing_params.belt_floor_from_axis    = belt_floor_from_axis_out;
+          m_slicing_params.belt_floor_z_offset     = belt_floor_z_offset_out;
       }
 }
 
@@ -3478,6 +3493,11 @@ SlicingParameters PrintObject::slicing_parameters(const DynamicPrintConfig &full
 		}
     sort_remove_duplicates(object_extruders);
     //FIXME add painting extruders
+
+    // Belt floor parameters for support clipping (populated below if belt Z-shear is active).
+    double belt_floor_shear_factor_out = 0.0;
+    int    belt_floor_from_axis_out    = 1;
+    double belt_floor_z_offset_out     = 0.0;
 
     if (object_max_z <= 0.f) {
         BoundingBoxf3 bb = model_object.raw_bounding_box();
@@ -3523,13 +3543,20 @@ SlicingParameters PrintObject::slicing_parameters(const DynamicPrintConfig &full
                             max_rz = std::max(max_rz, new_z);
                         }
                     object_max_z = (float)(max_rz - min_rz);
+                    belt_floor_shear_factor_out = shear_factor;
+                    belt_floor_from_axis_out = from;
+                    belt_floor_z_offset_out = min_rz;
                 } else {
                     object_max_z *= (float)scale_z;
                 }
             }
         }
     }
-    return SlicingParameters::create_from_config(print_config, object_config, object_max_z, object_extruders, object_shrinkage_compensation);
+    SlicingParameters params = SlicingParameters::create_from_config(print_config, object_config, object_max_z, object_extruders, object_shrinkage_compensation);
+    params.belt_floor_shear_factor = belt_floor_shear_factor_out;
+    params.belt_floor_from_axis    = belt_floor_from_axis_out;
+    params.belt_floor_z_offset     = belt_floor_z_offset_out;
+    return params;
 }
 
 // returns 0-based indices of extruders used to print the object (without brim, support and other helper extrusions)
@@ -4048,6 +4075,79 @@ void PrintObject::_generate_support_material()
     else {
         PrintObjectSupportMaterial support_material(this, m_slicing_params);
         support_material.generate(*this);
+    }
+
+    // Belt printer: clip support layers to the transformed build plate (belt floor).
+    // The belt floor in the slicing frame is: Z_floor = shear_factor * from_axis - z_offset
+    // At a given print_z, supports should only exist where Z_floor < print_z,
+    // i.e. where from_axis is on the valid side of the cutoff line.
+    if (std::abs(m_slicing_params.belt_floor_shear_factor) > EPSILON && !m_support_layers.empty()) {
+        const double shear_factor = m_slicing_params.belt_floor_shear_factor;
+        const int    from_axis    = m_slicing_params.belt_floor_from_axis;  // 0=X, 1=Y
+        const double z_offset     = m_slicing_params.belt_floor_z_offset;
+
+        // Large bound for the clip rectangle (in scaled coordinates).
+        const coord_t large_bound = scale_(1e4);  // 10 meters, well beyond any print
+
+        for (SupportLayer *support_layer : m_support_layers) {
+            const double print_z = support_layer->print_z;
+            // Compute the cutoff on the from_axis: from_axis_val = (print_z + z_offset) / shear_factor
+            const double cutoff = (print_z + z_offset) / shear_factor;
+            const coord_t cutoff_scaled = scale_(cutoff);
+
+            // Build a clip polygon representing the valid half-plane.
+            // If shear_factor > 0: valid region is from_axis < cutoff
+            // If shear_factor < 0: valid region is from_axis > cutoff
+            Polygon clip_poly;
+            if (from_axis == 0) {
+                // Clipping on X axis
+                if (shear_factor > 0) {
+                    // Valid: X < cutoff
+                    clip_poly.points = {
+                        Point(-large_bound, -large_bound),
+                        Point(cutoff_scaled, -large_bound),
+                        Point(cutoff_scaled,  large_bound),
+                        Point(-large_bound,  large_bound)
+                    };
+                } else {
+                    // Valid: X > cutoff
+                    clip_poly.points = {
+                        Point(cutoff_scaled, -large_bound),
+                        Point(large_bound,   -large_bound),
+                        Point(large_bound,    large_bound),
+                        Point(cutoff_scaled,  large_bound)
+                    };
+                }
+            } else {
+                // Clipping on Y axis (default for belt printers)
+                if (shear_factor > 0) {
+                    // Valid: Y < cutoff
+                    clip_poly.points = {
+                        Point(-large_bound, -large_bound),
+                        Point( large_bound, -large_bound),
+                        Point( large_bound, cutoff_scaled),
+                        Point(-large_bound, cutoff_scaled)
+                    };
+                } else {
+                    // Valid: Y > cutoff
+                    clip_poly.points = {
+                        Point(-large_bound, cutoff_scaled),
+                        Point( large_bound, cutoff_scaled),
+                        Point( large_bound, large_bound),
+                        Point(-large_bound, large_bound)
+                    };
+                }
+            }
+            Polygons clip_polygons = { clip_poly };
+
+            // Clip support_islands (ExPolygons used for retraction suppression and visualization).
+            if (!support_layer->support_islands.empty())
+                support_layer->support_islands = intersection_ex(support_layer->support_islands, clip_polygons);
+
+            // Clip tree support base_areas if present.
+            if (!support_layer->base_areas.empty())
+                support_layer->base_areas = intersection_ex(support_layer->base_areas, clip_polygons);
+        }
     }
 }
 
