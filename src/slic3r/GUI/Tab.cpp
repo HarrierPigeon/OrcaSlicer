@@ -4393,6 +4393,7 @@ void TabPrinter::build_fff()
             line.append_option(optgroup->get_option("belt_shear_x"));
             line.append_option(optgroup->get_option("belt_shear_x_angle"));
             line.append_option(optgroup->get_option("belt_shear_x_from"));
+            line.append_option(optgroup->get_option("belt_shear_x_global"));
             optgroup->append_line(line);
         }
         {
@@ -4400,6 +4401,7 @@ void TabPrinter::build_fff()
             line.append_option(optgroup->get_option("belt_shear_y"));
             line.append_option(optgroup->get_option("belt_shear_y_angle"));
             line.append_option(optgroup->get_option("belt_shear_y_from"));
+            line.append_option(optgroup->get_option("belt_shear_y_global"));
             optgroup->append_line(line);
         }
         {
@@ -4407,6 +4409,7 @@ void TabPrinter::build_fff()
             line.append_option(optgroup->get_option("belt_shear_z"));
             line.append_option(optgroup->get_option("belt_shear_z_angle"));
             line.append_option(optgroup->get_option("belt_shear_z_from"));
+            line.append_option(optgroup->get_option("belt_shear_z_global"));
             optgroup->append_line(line);
         }
         {
@@ -5290,16 +5293,19 @@ void TabPrinter::toggle_options()
 
         // Gray out angle/from sub-options when their parent shear/scale mode is None.
         auto sx = m_config->option<ConfigOptionEnum<BeltShearMode>>("belt_shear_x")->value;
-        toggle_option("belt_shear_x_angle", is_belt && sx != BeltShearMode::None);
-        toggle_option("belt_shear_x_from",  is_belt && sx != BeltShearMode::None);
+        toggle_option("belt_shear_x_angle",  is_belt && sx != BeltShearMode::None);
+        toggle_option("belt_shear_x_from",   is_belt && sx != BeltShearMode::None);
+        toggle_option("belt_shear_x_global", is_belt && sx != BeltShearMode::None);
 
         auto sy = m_config->option<ConfigOptionEnum<BeltShearMode>>("belt_shear_y")->value;
-        toggle_option("belt_shear_y_angle", is_belt && sy != BeltShearMode::None);
-        toggle_option("belt_shear_y_from",  is_belt && sy != BeltShearMode::None);
+        toggle_option("belt_shear_y_angle",  is_belt && sy != BeltShearMode::None);
+        toggle_option("belt_shear_y_from",   is_belt && sy != BeltShearMode::None);
+        toggle_option("belt_shear_y_global", is_belt && sy != BeltShearMode::None);
 
         auto sz = m_config->option<ConfigOptionEnum<BeltShearMode>>("belt_shear_z")->value;
-        toggle_option("belt_shear_z_angle", is_belt && sz != BeltShearMode::None);
-        toggle_option("belt_shear_z_from",  is_belt && sz != BeltShearMode::None);
+        toggle_option("belt_shear_z_angle",  is_belt && sz != BeltShearMode::None);
+        toggle_option("belt_shear_z_from",   is_belt && sz != BeltShearMode::None);
+        toggle_option("belt_shear_z_global", is_belt && sz != BeltShearMode::None);
 
         auto scx = m_config->option<ConfigOptionEnum<BeltScaleMode>>("belt_scale_x")->value;
         toggle_option("belt_scale_x_angle", is_belt && scx != BeltScaleMode::None);

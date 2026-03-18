@@ -1010,9 +1010,9 @@ static std::vector<std::string> s_Preset_machine_limits_options {
 
 static std::vector<std::string> s_Preset_printer_options {
     "printer_technology",
-    "printable_area", "extruder_printable_area", "bed_exclude_area","bed_custom_texture", "bed_custom_model", "build_plate_tilt_x", "build_plate_tilt_y", "belt_printer", "belt_printer_angle", "belt_printer_infinite_y", "belt_shear_x", "belt_shear_x_angle", "belt_shear_x_from",
-    "belt_shear_y", "belt_shear_y_angle", "belt_shear_y_from",
-    "belt_shear_z", "belt_shear_z_angle", "belt_shear_z_from",
+    "printable_area", "extruder_printable_area", "bed_exclude_area","bed_custom_texture", "bed_custom_model", "build_plate_tilt_x", "build_plate_tilt_y", "belt_printer", "belt_printer_angle", "belt_printer_infinite_y", "belt_shear_x", "belt_shear_x_angle", "belt_shear_x_from", "belt_shear_x_global",
+    "belt_shear_y", "belt_shear_y_angle", "belt_shear_y_from", "belt_shear_y_global",
+    "belt_shear_z", "belt_shear_z_angle", "belt_shear_z_from", "belt_shear_z_global",
     "belt_scale_x", "belt_scale_x_angle", "belt_scale_y", "belt_scale_y_angle", "belt_scale_z", "belt_scale_z_angle",
     "belt_gcode_remap_x", "belt_gcode_remap_y", "belt_gcode_remap_z", "gcode_flavor",
     "fan_kickstart", "fan_speedup_time", "fan_speedup_overhangs",
