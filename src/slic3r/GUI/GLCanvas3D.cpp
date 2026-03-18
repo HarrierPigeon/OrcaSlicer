@@ -3507,8 +3507,16 @@ void GLCanvas3D::on_char(wxKeyEvent& evt)
                     post_event(SimpleEvent(EVT_GLCANVAS_ARRANGE));
                 break;
             }
-        //case 'B':
-        //case 'b': { zoom_to_bed(); break; }
+        case 'B':
+        case 'b': {
+            // Toggle belt printer "show designed" view when in G-code preview with belt mode active.
+            if (dynamic_cast<Preview*>(m_canvas->GetParent()) != nullptr &&
+                m_gcode_viewer.is_belt_view()) {
+                m_gcode_viewer.toggle_belt_show_designed();
+                m_dirty = true;
+            }
+            break;
+        }
         case 'C':
         case 'c': { wxGetApp().toggle_show_gcode_window(); m_dirty = true; request_extra_frame(); break; }
         //case 'G':

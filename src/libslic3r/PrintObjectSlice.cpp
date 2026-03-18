@@ -1,4 +1,5 @@
 #include <boost/log/trivial.hpp>
+#include <limits>
 
 #include <tbb/parallel_for.h>
 
@@ -153,7 +154,8 @@ static std::vector<VolumeSlices> slice_volumes_inner(
     ModelVolumePtrs                                           model_volumes,
     const std::vector<PrintObjectRegions::LayerRangeRegions> &layer_ranges,
     const std::vector<float>                                 &zs,
-    const std::function<void()>                              &throw_on_cancel_callback)
+    const std::function<void()>                              &throw_on_cancel_callback,
+    double                                                   *out_belt_min_z = nullptr)
 {
     model_volumes_sort_by_id(model_volumes);
 
@@ -230,8 +232,32 @@ static std::vector<VolumeSlices> slice_volumes_inner(
         }
 
         // Apply: scale * shear * trafo (shear first, then scale).
-        if (has_shear || has_scale)
+        if (has_shear || has_scale) {
             params_base.trafo = belt_scale * belt_shear * params_base.trafo;
+
+            // After the shear/scale transform, the mesh may clip through the
+            // build plate (Z < 0).  Detect this and shift the mesh up.
+            Transform3d combined = params_base.trafo;
+            double min_z = std::numeric_limits<double>::max();
+            for (const ModelVolume *mv : model_volumes) {
+                if (!mv->is_model_part()) continue;
+                for (const stl_vertex &v : mv->mesh().its.vertices) {
+                    Vec3d pt = combined * v.cast<double>();
+                    min_z = std::min(min_z, pt.z());
+                }
+            }
+            double belt_z_shift_val = (min_z < 0. && min_z != std::numeric_limits<double>::max()) ? -min_z : 0.;
+            BOOST_LOG_TRIVIAL(warning) << "Belt Z-shift: min_z=" << min_z
+                << " z_shift=" << belt_z_shift_val
+                << " trafo_z=" << object_trafo.matrix()(2, 3);
+            if (belt_z_shift_val > 0.) {
+                Transform3d z_shift = Transform3d::Identity();
+                z_shift.matrix()(2, 3) = belt_z_shift_val;
+                params_base.trafo = z_shift * params_base.trafo;
+            }
+            if (out_belt_min_z)
+                *out_belt_min_z = (min_z != std::numeric_limits<double>::max()) ? min_z : 0.;
+        }
     }
     //BBS: 0.0025mm is safe enough to simplify the data to speed slicing up for high-resolution model.
     //Also has on influence on arc fitting which has default resolution 0.0125mm.
@@ -894,6 +920,20 @@ void PrintObject::slice()
     m_layers = new_layers(this, generate_object_layers(m_slicing_params, layer_height_profile, m_config.precise_z_height.value));
     this->slice_volumes();
     m_print->throw_if_canceled();
+
+    // After slicing, m_belt_min_z holds the exact post-shear minimum Z
+    // in trafo_centered space (which includes the ensure_on_bed Z offset).
+    // The belt surface is at Z=0 in trafo_centered space; after shear it
+    // becomes Z = sf*Y, and after the z-shift that keeps the mesh above
+    // Z=0 it becomes Z = sf*Y + z_shift_val.  So belt_floor_z_shift is
+    // simply the z-shift applied, i.e. max(0, -m_belt_min_z).
+    // NOTE: do NOT add raw_bounding_box().min.z() here — m_belt_min_z
+    // already includes the ensure_on_bed offset, unlike the min_rz used
+    // in update_slicing_parameters() which needs that compensation.
+    if (std::abs(m_slicing_params.belt_floor_shear_factor) > EPSILON) {
+        m_slicing_params.belt_floor_z_shift = (m_belt_min_z < 0.) ? -m_belt_min_z : 0.;
+    }
+
     int firstLayerReplacedBy = 0;
 
 #if 0
@@ -931,6 +971,83 @@ void PrintObject::slice()
         });
     if (m_layers.empty())
         throw Slic3r::SlicingError(L("No layers were detected. You might want to repair your STL file(s) or check their size or thickness and retry.\n"));
+
+    // Belt printer global mode: offset all layer Z values so objects at
+    // different bed positions print at different heights on the tilted belt.
+    // This is a post-slicing adjustment — the sliced geometry is identical
+    // regardless of global mode, only the output Z coordinates change.
+    {
+        const auto &pcfg = this->print()->config();
+        BOOST_LOG_TRIVIAL(warning) << "Belt global check: belt_printer=" << pcfg.belt_printer.value
+            << " belt_shear_z=" << int(pcfg.belt_shear_z.value)
+            << " belt_shear_z_global=" << pcfg.belt_shear_z_global.value
+            << " object=" << this->model_object()->name;
+        if (pcfg.belt_printer.value) {
+            auto compute_shear_factor = [](BeltShearMode mode, double angle_deg) -> double {
+                double angle_rad = Geometry::deg2rad(angle_deg);
+                double sin_a = std::sin(angle_rad);
+                double cos_a = std::cos(angle_rad);
+                switch (mode) {
+                case BeltShearMode::PosCot: return (sin_a > EPSILON) ?  cos_a / sin_a : 0.;
+                case BeltShearMode::NegCot: return (sin_a > EPSILON) ? -cos_a / sin_a : 0.;
+                case BeltShearMode::PosTan: return (cos_a > EPSILON) ?  sin_a / cos_a : 0.;
+                case BeltShearMode::NegTan: return (cos_a > EPSILON) ? -sin_a / cos_a : 0.;
+                default: return 0.;
+                }
+            };
+
+            Point inst_shift = this->instances().empty() ? Point(0, 0)
+                : this->instances().front().shift - this->center_offset();
+            BOOST_LOG_TRIVIAL(warning) << "Belt global: object " << this->model_object()->name
+                << " instances=" << this->instances().size()
+                << " shift=(" << unscale<double>(inst_shift.x()) << ", " << unscale<double>(inst_shift.y()) << ")";
+            double global_z_offset = 0.;
+
+            struct GAxis { BeltShearMode mode; double angle; int from; bool global; };
+            GAxis gaxes[3] = {
+                { pcfg.belt_shear_x.value, pcfg.belt_shear_x_angle.value, int(pcfg.belt_shear_x_from.value), pcfg.belt_shear_x_global.value },
+                { pcfg.belt_shear_y.value, pcfg.belt_shear_y_angle.value, int(pcfg.belt_shear_y_from.value), pcfg.belt_shear_y_global.value },
+                { pcfg.belt_shear_z.value, pcfg.belt_shear_z_angle.value, int(pcfg.belt_shear_z_from.value), pcfg.belt_shear_z_global.value },
+            };
+
+            // Only the Z-row shear contributes a Z offset from global mode.
+            // (X/Y row shears with global would offset X/Y, not Z — not useful here.)
+            // Offsets are RELATIVE: we subtract the minimum shift across all
+            // PrintObjects so the lowest-positioned object stays at Z=0.
+            const auto &za = gaxes[2]; // Z row
+            if (za.global && za.mode != BeltShearMode::None && za.from < 2) {
+                double factor = compute_shear_factor(za.mode, za.angle);
+                // The Z-shift brought the mesh's lowest sheared vertex to
+                // Z=0.  That vertex's physical Y determines the belt contact
+                // point.  With trafo_z preserved (ensure_on_bed offset),
+                // min_z = Y_at_contact * factor for bottom-face vertices,
+                // so: z_offset = center_Y * factor + min_z.
+                Point phys = inst_shift; // already has center_offset subtracted
+                double center_on_axis = (za.from == 0) ? unscale<double>(phys.x()) : unscale<double>(phys.y());
+                global_z_offset += center_on_axis * factor + m_belt_min_z;
+            }
+
+            BOOST_LOG_TRIVIAL(warning) << "Belt global: z_offset=" << global_z_offset
+                << " za.global=" << za.global << " za.mode=" << int(za.mode) << " za.from=" << za.from
+                << " (relative to min across " << this->print()->objects().size() << " objects)";
+            m_belt_global_z_offset = global_z_offset;
+            if (std::abs(global_z_offset) > EPSILON) {
+                for (Layer *layer : m_layers)
+                    layer->print_z += global_z_offset;
+                // Keep belt floor clipping in sync with the shifted print_z
+                // values — the support generator sees globally-offset object
+                // layer print_z, so belt_floor_z_shift must match.
+                m_slicing_params.belt_floor_z_shift += global_z_offset;
+            }
+            if (!m_layers.empty()) {
+                BOOST_LOG_TRIVIAL(warning) << "Belt global: first_layer_z=" << m_layers.front()->print_z
+                    << " last_layer_z=" << m_layers.back()->print_z
+                    << " num_layers=" << m_layers.size()
+                    << " center_offset=(" << unscale<double>(m_center_offset.x())
+                    << ", " << unscale<double>(m_center_offset.y()) << ")";
+            }
+        }
+    }
 
     // BBS
     this->set_done(posSlice);
@@ -1236,7 +1353,8 @@ void PrintObject::slice_volumes()
     if (!slice_zs.empty()) {
         objSliceByVolume = slice_volumes_inner(
             print->config(), this->config(), this->trafo_centered(),
-            this->model_object()->volumes, m_shared_regions->layer_ranges, slice_zs, throw_on_cancel_callback);
+            this->model_object()->volumes, m_shared_regions->layer_ranges, slice_zs, throw_on_cancel_callback,
+            &m_belt_min_z);
     }
 
     //BBS: "model_part" volumes are grouded according to their connections

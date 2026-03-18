@@ -586,7 +586,15 @@ private:
 
     PrintObject*                            m_shared_object{ nullptr };
 
-    
+    // Belt printer: global Z offset applied to this object's layers for shear positioning.
+    double                                  m_belt_global_z_offset { 0.0 };
+    // Belt printer: min_z of mesh after belt shear (before Z-shift), for z_offset calc.
+    double                                  m_belt_min_z { 0.0 };
+public:
+    double belt_global_z_offset() const { return m_belt_global_z_offset; }
+private:
+
+
     // SoftFever
     // 
     // object id

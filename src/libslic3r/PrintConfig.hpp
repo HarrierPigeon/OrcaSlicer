@@ -261,6 +261,21 @@ enum class BeltRemapAxis
     RevX = 6, RevY = 7, RevZ = 8,  // Reversed: max - pos
 };
 
+enum class BeltSupportFloorMode
+{
+    None,           // No belt floor awareness
+    GeneratorOnly,  // Only in tree support drop_nodes/contact_points
+    ClipOnly,       // Only post-processing clipping
+    Both,           // Both generator and clipping
+};
+
+enum class BeltSupportZOffsetMode
+{
+    None,           // Don't apply global_z_offset to support layers
+    Unconditional,  // Apply to all support layers
+    RaftOnly,       // Only apply to raft layers
+};
+
 enum SupportMaterialPattern {
     smpDefault,
     smpRectilinear, smpRectilinearGrid, smpHoneycomb,
@@ -683,6 +698,8 @@ CONFIG_OPTION_ENUM_DECLARE_STATIC_MAPS(BeltShearMode)
 CONFIG_OPTION_ENUM_DECLARE_STATIC_MAPS(BeltScaleMode)
 CONFIG_OPTION_ENUM_DECLARE_STATIC_MAPS(BeltAxis)
 CONFIG_OPTION_ENUM_DECLARE_STATIC_MAPS(BeltRemapAxis)
+CONFIG_OPTION_ENUM_DECLARE_STATIC_MAPS(BeltSupportFloorMode)
+CONFIG_OPTION_ENUM_DECLARE_STATIC_MAPS(BeltSupportZOffsetMode)
 CONFIG_OPTION_ENUM_DECLARE_STATIC_MAPS(SupportMaterialPattern)
 CONFIG_OPTION_ENUM_DECLARE_STATIC_MAPS(SupportMaterialStyle)
 CONFIG_OPTION_ENUM_DECLARE_STATIC_MAPS(SupportMaterialInterfacePattern)
@@ -1751,12 +1768,15 @@ PRINT_CONFIG_CLASS_DERIVED_DEFINE(
     ((ConfigOptionEnum<BeltShearMode>,  belt_shear_x))
     ((ConfigOptionFloat,                belt_shear_x_angle))
     ((ConfigOptionEnum<BeltAxis>,       belt_shear_x_from))
+    ((ConfigOptionBool,                 belt_shear_x_global))
     ((ConfigOptionEnum<BeltShearMode>,  belt_shear_y))
     ((ConfigOptionFloat,                belt_shear_y_angle))
     ((ConfigOptionEnum<BeltAxis>,       belt_shear_y_from))
+    ((ConfigOptionBool,                 belt_shear_y_global))
     ((ConfigOptionEnum<BeltShearMode>,  belt_shear_z))
     ((ConfigOptionFloat,                belt_shear_z_angle))
     ((ConfigOptionEnum<BeltAxis>,       belt_shear_z_from))
+    ((ConfigOptionBool,                 belt_shear_z_global))
     ((ConfigOptionEnum<BeltScaleMode>,  belt_scale_x))
     ((ConfigOptionFloat,                belt_scale_x_angle))
     ((ConfigOptionEnum<BeltScaleMode>,  belt_scale_y))
@@ -1766,6 +1786,9 @@ PRINT_CONFIG_CLASS_DERIVED_DEFINE(
     ((ConfigOptionEnum<BeltRemapAxis>,  belt_gcode_remap_x))
     ((ConfigOptionEnum<BeltRemapAxis>,  belt_gcode_remap_y))
     ((ConfigOptionEnum<BeltRemapAxis>,  belt_gcode_remap_z))
+    ((ConfigOptionFloat,                          belt_support_floor_offset))
+    ((ConfigOptionEnum<BeltSupportFloorMode>,     belt_support_floor_mode))
+    ((ConfigOptionEnum<BeltSupportZOffsetMode>,   belt_support_z_offset_mode))
     //BBS
     ((ConfigOptionInts,               additional_cooling_fan_speed))
     ((ConfigOptionInts,               close_additional_fan_first_x_layers))

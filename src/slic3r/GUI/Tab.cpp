@@ -4982,58 +4982,6 @@ void TabPrinter::build_fff()
         optgroup->append_single_option_line(option, "printer_basic_information_printable_space#excluded-bed-area");
         // optgroup->append_single_option_line("printable_area");
         optgroup->append_single_option_line("printable_height", "printer_basic_information_printable_space#printable-height");
-        optgroup->append_single_option_line("build_plate_tilt_x");
-        optgroup->append_single_option_line("build_plate_tilt_y");
-        optgroup->append_single_option_line("belt_printer");
-        optgroup->append_single_option_line("belt_printer_angle");
-        optgroup->append_single_option_line("belt_printer_infinite_y");
-        // Per-axis shear: group mode + angle + source on one row per axis
-        {
-            Line line = { L("Shear X"), L("Shear applied to the X axis before slicing") };
-            line.append_option(optgroup->get_option("belt_shear_x"));
-            line.append_option(optgroup->get_option("belt_shear_x_angle"));
-            line.append_option(optgroup->get_option("belt_shear_x_from"));
-            optgroup->append_line(line);
-        }
-        {
-            Line line = { L("Shear Y"), L("Shear applied to the Y axis before slicing") };
-            line.append_option(optgroup->get_option("belt_shear_y"));
-            line.append_option(optgroup->get_option("belt_shear_y_angle"));
-            line.append_option(optgroup->get_option("belt_shear_y_from"));
-            optgroup->append_line(line);
-        }
-        {
-            Line line = { L("Shear Z"), L("Shear applied to the Z axis before slicing") };
-            line.append_option(optgroup->get_option("belt_shear_z"));
-            line.append_option(optgroup->get_option("belt_shear_z_angle"));
-            line.append_option(optgroup->get_option("belt_shear_z_from"));
-            optgroup->append_line(line);
-        }
-        {
-            Line line = { L("Scale X"), L("Scale applied to the X axis before slicing") };
-            line.append_option(optgroup->get_option("belt_scale_x"));
-            line.append_option(optgroup->get_option("belt_scale_x_angle"));
-            optgroup->append_line(line);
-        }
-        {
-            Line line = { L("Scale Y"), L("Scale applied to the Y axis before slicing") };
-            line.append_option(optgroup->get_option("belt_scale_y"));
-            line.append_option(optgroup->get_option("belt_scale_y_angle"));
-            optgroup->append_line(line);
-        }
-        {
-            Line line = { L("Scale Z"), L("Scale applied to the Z axis before slicing") };
-            line.append_option(optgroup->get_option("belt_scale_z"));
-            line.append_option(optgroup->get_option("belt_scale_z_angle"));
-            optgroup->append_line(line);
-        }
-        {
-            Line line = { L("G-code axis remap"), L("Remap slicing-frame axes to machine axes in G-code output") };
-            line.append_option(optgroup->get_option("belt_gcode_remap_x"));
-            line.append_option(optgroup->get_option("belt_gcode_remap_y"));
-            line.append_option(optgroup->get_option("belt_gcode_remap_z"));
-            optgroup->append_line(line);
-        }
         optgroup->append_single_option_line("support_multi_bed_types","printer_basic_information_printable_space#support-multi-bed-types");
         optgroup->append_single_option_line("best_object_pos", "printer_basic_information_printable_space#best-object-position");
         // todo: for multi_extruder test
@@ -5088,6 +5036,68 @@ void TabPrinter::build_fff()
         //option.opt.full_width = true;
         //optgroup->append_single_option_line(option);
         optgroup->append_single_option_line("disable_m73", "printer_basic_information_advanced#disable-set-remaining-print-time");
+        optgroup->append_single_option_line("build_plate_tilt_x");
+        optgroup->append_single_option_line("build_plate_tilt_y");
+        optgroup->append_single_option_line("belt_printer");
+        optgroup->append_single_option_line("belt_printer_angle");
+        optgroup->append_single_option_line("belt_printer_infinite_y");
+        // Per-axis shear: group mode + angle + source on one row per axis
+        {
+            Line line = { L("Mesh shear X"), L("Shear applied to the X axis before slicing") };
+            line.append_option(optgroup->get_option("belt_shear_x"));
+            line.append_option(optgroup->get_option("belt_shear_x_angle"));
+            line.append_option(optgroup->get_option("belt_shear_x_from"));
+            line.append_option(optgroup->get_option("belt_shear_x_global"));
+            optgroup->append_line(line);
+        }
+        {
+            Line line = { L("Mesh shear Y"), L("Shear applied to the Y axis before slicing") };
+            line.append_option(optgroup->get_option("belt_shear_y"));
+            line.append_option(optgroup->get_option("belt_shear_y_angle"));
+            line.append_option(optgroup->get_option("belt_shear_y_from"));
+            line.append_option(optgroup->get_option("belt_shear_y_global"));
+            optgroup->append_line(line);
+        }
+        {
+            Line line = { L("Mesh shear Z"), L("Shear applied to the Z axis before slicing") };
+            line.append_option(optgroup->get_option("belt_shear_z"));
+            line.append_option(optgroup->get_option("belt_shear_z_angle"));
+            line.append_option(optgroup->get_option("belt_shear_z_from"));
+            line.append_option(optgroup->get_option("belt_shear_z_global"));
+            optgroup->append_line(line);
+        }
+        {
+            Line line = { L("Mesh scale X"), L("Scale applied to the X axis before slicing") };
+            line.append_option(optgroup->get_option("belt_scale_x"));
+            line.append_option(optgroup->get_option("belt_scale_x_angle"));
+            optgroup->append_line(line);
+        }
+        {
+            Line line = { L("Mesh scale Y"), L("Scale applied to the Y axis before slicing") };
+            line.append_option(optgroup->get_option("belt_scale_y"));
+            line.append_option(optgroup->get_option("belt_scale_y_angle"));
+            optgroup->append_line(line);
+        }
+        {
+            Line line = { L("Mesh scale Z"), L("Scale applied to the Z axis before slicing") };
+            line.append_option(optgroup->get_option("belt_scale_z"));
+            line.append_option(optgroup->get_option("belt_scale_z_angle"));
+            optgroup->append_line(line);
+        }
+        {
+            Line line = { L("G-code axis remap"), L("Remap slicing-frame axes to machine axes in G-code output") };
+            line.append_option(optgroup->get_option("belt_gcode_remap_x"));
+            line.append_option(optgroup->get_option("belt_gcode_remap_y"));
+            line.append_option(optgroup->get_option("belt_gcode_remap_z"));
+            optgroup->append_line(line);
+        }
+        {
+            Line line = { L("Support floor"), L("Belt floor awareness for support generation and clipping") };
+            line.append_option(optgroup->get_option("belt_support_floor_mode"));
+            line.append_option(optgroup->get_option("belt_support_floor_offset"));
+            line.append_option(optgroup->get_option("belt_support_z_offset_mode"));
+            optgroup->append_line(line);
+        }
         option = optgroup->get_option("thumbnails");
         option.opt.full_width = true;
         optgroup->append_single_option_line(option, "printer_basic_information_advanced#g-code-thumbnails");
@@ -6150,6 +6160,33 @@ void TabPrinter::toggle_options()
                         "belt_scale_x", "belt_scale_y", "belt_scale_z",
                         "belt_gcode_remap_x"})
             toggle_line(el, is_belt);
+
+        // Gray out angle/from sub-options when their parent shear/scale mode is None.
+        auto sx = m_config->option<ConfigOptionEnum<BeltShearMode>>("belt_shear_x")->value;
+        toggle_option("belt_shear_x_angle",  is_belt && sx != BeltShearMode::None);
+        toggle_option("belt_shear_x_from",   is_belt && sx != BeltShearMode::None);
+        toggle_option("belt_shear_x_global", is_belt && sx != BeltShearMode::None);
+
+        auto sy = m_config->option<ConfigOptionEnum<BeltShearMode>>("belt_shear_y")->value;
+        toggle_option("belt_shear_y_angle",  is_belt && sy != BeltShearMode::None);
+        toggle_option("belt_shear_y_from",   is_belt && sy != BeltShearMode::None);
+        toggle_option("belt_shear_y_global", is_belt && sy != BeltShearMode::None);
+
+        auto sz = m_config->option<ConfigOptionEnum<BeltShearMode>>("belt_shear_z")->value;
+        toggle_option("belt_shear_z_angle",  is_belt && sz != BeltShearMode::None);
+        toggle_option("belt_shear_z_from",   is_belt && sz != BeltShearMode::None);
+        toggle_option("belt_shear_z_global", is_belt && sz != BeltShearMode::None);
+
+        auto scx = m_config->option<ConfigOptionEnum<BeltScaleMode>>("belt_scale_x")->value;
+        toggle_option("belt_scale_x_angle", is_belt && scx != BeltScaleMode::None);
+
+        auto scy = m_config->option<ConfigOptionEnum<BeltScaleMode>>("belt_scale_y")->value;
+        toggle_option("belt_scale_y_angle", is_belt && scy != BeltScaleMode::None);
+
+        auto scz = m_config->option<ConfigOptionEnum<BeltScaleMode>>("belt_scale_z")->value;
+        toggle_option("belt_scale_z_angle", is_belt && scz != BeltScaleMode::None);
+
+        toggle_line("belt_support_floor_mode", is_belt);
     }
 
 

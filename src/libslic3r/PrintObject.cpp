@@ -13,6 +13,7 @@
 #include "PrintConfig.hpp"
 #include "SLA/IndexedMesh.hpp"
 #include "Support/SupportMaterial.hpp"
+#include "Support/SupportCommon.hpp"
 #include "Support/SupportSpotsGenerator.hpp"
 #include "Support/TreeSupport.hpp"
 #include "Surface.hpp"
@@ -1589,7 +1590,12 @@ bool PrintObject::invalidate_step(PrintObjectStep step)
     } else if (step == posSupportMaterial) {
         invalidated |= this->invalidate_steps({ posSimplifySupportPath });
         invalidated |= m_print->invalidate_steps({ psSkirtBrim });
-        m_slicing_params.valid = false;
+        // NOTE: do NOT set m_slicing_params.valid = false here.
+        // belt_floor_z_shift is patched to an exact value during posSlice
+        // (PrintObjectSlice.cpp, after slice_volumes).  Invalidating slicing
+        // params here causes update_slicing_parameters() to overwrite that
+        // exact value with a bounding-box approximation, while posSlice does
+        // not re-run to correct it — breaking belt support clipping.
     }
 
     // Wipe tower depends on the ordering of extruders, which in turn depends on everything.
@@ -3908,6 +3914,10 @@ void PrintObject::update_slicing_parameters()
     // Orca: updated function call for XYZ shrinkage compensation
     if (!m_slicing_params.valid) {
           coordf_t object_height = this->model_object()->max_z();
+          // Belt floor parameters for support clipping (populated below if belt Z-shear is active).
+          double belt_floor_shear_factor_out = 0.0;
+          int    belt_floor_from_axis_out    = 1;
+          double belt_floor_z_shift_out     = 0.0;
           // Belt shear/scale may change the effective Z height.
           const auto &pcfg = this->print()->config();
           if (pcfg.belt_printer.value) {
@@ -3951,6 +3961,12 @@ void PrintObject::update_slicing_parameters()
                               max_rz = std::max(max_rz, new_z);
                           }
                       object_height = max_rz - min_rz;
+                      belt_floor_shear_factor_out = shear_factor;
+                      belt_floor_from_axis_out = from;
+                      // Belt contact surface starts at bb.min.z() pre-shear; add the
+                      // slicing Z-shift that keeps the mesh above Z=0.
+                      // Exact value is patched after slice_volumes() in posSlice.
+                      belt_floor_z_shift_out = bb.min.z() + ((min_rz < 0.) ? -min_rz : 0.);
                   } else {
                       object_height *= scale_z;
                   }
@@ -3958,6 +3974,10 @@ void PrintObject::update_slicing_parameters()
           }
           m_slicing_params = SlicingParameters::create_from_config(pcfg, m_config, object_height,
                                                                    this->object_extruders(), this->print()->shrinkage_compensation());
+          // Populate belt floor parameters into slicing params for support clipping.
+          m_slicing_params.belt_floor_shear_factor = belt_floor_shear_factor_out;
+          m_slicing_params.belt_floor_from_axis    = belt_floor_from_axis_out;
+          m_slicing_params.belt_floor_z_shift     = belt_floor_z_shift_out;
       }
 }
 
@@ -3997,6 +4017,11 @@ SlicingParameters PrintObject::slicing_parameters(const DynamicPrintConfig &full
 		}
     sort_remove_duplicates(object_extruders);
     //FIXME add painting extruders
+
+    // Belt floor parameters for support clipping (populated below if belt Z-shear is active).
+    double belt_floor_shear_factor_out = 0.0;
+    int    belt_floor_from_axis_out    = 1;
+    double belt_floor_z_shift_out     = 0.0;
 
     if (object_max_z <= 0.f) {
         BoundingBoxf3 bb = model_object.raw_bounding_box();
@@ -4042,13 +4067,20 @@ SlicingParameters PrintObject::slicing_parameters(const DynamicPrintConfig &full
                             max_rz = std::max(max_rz, new_z);
                         }
                     object_max_z = (float)(max_rz - min_rz);
+                    belt_floor_shear_factor_out = shear_factor;
+                    belt_floor_from_axis_out = from;
+                    belt_floor_z_shift_out = bb.min.z() + ((min_rz < 0.) ? -min_rz : 0.);
                 } else {
                     object_max_z *= (float)scale_z;
                 }
             }
         }
     }
-    return SlicingParameters::create_from_config(print_config, object_config, object_max_z, object_extruders, object_shrinkage_compensation);
+    SlicingParameters params = SlicingParameters::create_from_config(print_config, object_config, object_max_z, object_extruders, object_shrinkage_compensation);
+    params.belt_floor_shear_factor = belt_floor_shear_factor_out;
+    params.belt_floor_from_axis    = belt_floor_from_axis_out;
+    params.belt_floor_z_shift     = belt_floor_z_shift_out;
+    return params;
 }
 
 // returns 0-based indices of extruders used to print the object (without brim, support and other helper extrusions)
@@ -4557,6 +4589,67 @@ void PrintObject::combine_infill()
     }
 }
 
+// Belt printer: clip an ExtrusionEntityCollection to a region defined by clip_expoly.
+// Handles ExtrusionPath, ExtrusionMultiPath, ExtrusionLoop, and nested ExtrusionEntityCollection.
+static void clip_support_fills(ExtrusionEntityCollection &fills, const ExPolygons &clip_region)
+{
+    ExtrusionEntitiesPtr new_entities;
+    for (ExtrusionEntity *entity : fills.entities) {
+        if (auto *path = dynamic_cast<ExtrusionPath *>(entity)) {
+            ExtrusionEntityCollection clipped;
+            path->intersect_expolygons(clip_region, &clipped);
+            if (!clipped.empty()) {
+                for (ExtrusionEntity *e : clipped.entities)
+                    new_entities.push_back(e->clone());
+            }
+            delete entity;
+        } else if (auto *multipath = dynamic_cast<ExtrusionMultiPath *>(entity)) {
+            ExtrusionPaths new_paths;
+            for (const ExtrusionPath &p : multipath->paths) {
+                ExtrusionEntityCollection clipped;
+                p.intersect_expolygons(clip_region, &clipped);
+                for (ExtrusionEntity *e : clipped.entities)
+                    if (auto *cp = dynamic_cast<ExtrusionPath *>(e))
+                        new_paths.push_back(std::move(*cp));
+            }
+            if (!new_paths.empty()) {
+                multipath->paths = std::move(new_paths);
+                new_entities.push_back(multipath);
+            } else {
+                delete entity;
+            }
+        } else if (auto *loop = dynamic_cast<ExtrusionLoop *>(entity)) {
+            ExtrusionPaths new_paths;
+            for (const ExtrusionPath &p : loop->paths) {
+                ExtrusionEntityCollection clipped;
+                p.intersect_expolygons(clip_region, &clipped);
+                for (ExtrusionEntity *e : clipped.entities)
+                    if (auto *cp = dynamic_cast<ExtrusionPath *>(e))
+                        new_paths.push_back(std::move(*cp));
+            }
+            if (!new_paths.empty()) {
+                // Loop is no longer a closed loop after clipping; emit as individual paths.
+                for (auto &p : new_paths)
+                    new_entities.push_back(new ExtrusionPath(std::move(p)));
+                delete entity;
+            } else {
+                delete entity;
+            }
+        } else if (auto *coll = dynamic_cast<ExtrusionEntityCollection *>(entity)) {
+            clip_support_fills(*coll, clip_region);
+            if (!coll->empty()) {
+                new_entities.push_back(coll);
+            } else {
+                delete entity;
+            }
+        } else {
+            // Unknown entity type — keep as-is.
+            new_entities.push_back(entity);
+        }
+    }
+    fills.entities = std::move(new_entities);
+}
+
 void PrintObject::_generate_support_material()
 {
     if (is_tree(m_config.support_type.value)) {
@@ -4568,6 +4661,25 @@ void PrintObject::_generate_support_material()
         PrintObjectSupportMaterial support_material(this, m_slicing_params);
         support_material.generate(*this);
     }
+    // Global Z offset for support layers:
+    // - Normal support: layers already inherit global_z_offset from object layers.
+    // - Non-organic tree support (slim/strong/hybrid): plan_layer_heights() reads
+    //   from globally-offset object layers, so support layers already have it.
+    // - Organic tree support: generate_tree_support_3D() computes its own Z values
+    //   independently and does NOT inherit the offset — apply it here.
+    // Belt floor polygon clipping for non-organic tree support is done inside
+    // draw_circles() before area_groups and toolpaths are built.
+    if (is_tree(m_config.support_type.value) && std::abs(m_belt_global_z_offset) > EPSILON) {
+        // Resolve effective support style (same logic as SupportParameters).
+        auto style = m_config.support_style.value;
+        if (style == smsDefault)
+            style = smsTreeOrganic;
+        if (style == smsTreeOrganic) {
+            for (SupportLayer *sl : m_support_layers)
+                sl->print_z += m_belt_global_z_offset;
+        }
+    }
+
 }
 
 // BBS

@@ -1405,11 +1405,13 @@ static std::vector<std::string> s_Preset_machine_limits_options {
 
 static std::vector<std::string> s_Preset_printer_options {
     "printer_technology",
-    "printable_area", "extruder_printable_area", "support_parallel_printheads", "parallel_printheads_count", "parallel_printheads_bed_exclude_areas", "bed_exclude_area","bed_custom_texture", "bed_custom_model", "build_plate_tilt_x", "build_plate_tilt_y", "belt_printer", "belt_printer_angle", "belt_printer_infinite_y", "belt_shear_x", "belt_shear_x_angle", "belt_shear_x_from",
-    "belt_shear_y", "belt_shear_y_angle", "belt_shear_y_from",
-    "belt_shear_z", "belt_shear_z_angle", "belt_shear_z_from",
+    "printable_area", "extruder_printable_area", "support_parallel_printheads", "parallel_printheads_count", "parallel_printheads_bed_exclude_areas", "bed_exclude_area","bed_custom_texture", "bed_custom_model", "build_plate_tilt_x", "build_plate_tilt_y", "belt_printer", "belt_printer_angle", "belt_printer_infinite_y", "belt_shear_x", "belt_shear_x_angle", "belt_shear_x_from", "belt_shear_x_global",
+    "belt_shear_y", "belt_shear_y_angle", "belt_shear_y_from", "belt_shear_y_global",
+    "belt_shear_z", "belt_shear_z_angle", "belt_shear_z_from", "belt_shear_z_global",
     "belt_scale_x", "belt_scale_x_angle", "belt_scale_y", "belt_scale_y_angle", "belt_scale_z", "belt_scale_z_angle",
-    "belt_gcode_remap_x", "belt_gcode_remap_y", "belt_gcode_remap_z", "gcode_flavor",
+    "belt_gcode_remap_x", "belt_gcode_remap_y", "belt_gcode_remap_z",
+    "belt_support_floor_offset", "belt_support_floor_mode", "belt_support_z_offset_mode",
+    "gcode_flavor",
      "gcode_skip_config_block", "fan_kickstart", "part_cooling_fan_min_pwm", "fan_speedup_time", "fan_speedup_overhangs",
     "single_extruder_multi_material", "manual_filament_change", "file_start_gcode", "machine_start_gcode", "machine_end_gcode", "before_layer_change_gcode", "printing_by_object_gcode", "layer_change_gcode", "time_lapse_gcode", "wrapping_detection_gcode", "change_filament_gcode", "change_extrusion_role_gcode",
     "printer_model", "printer_variant", "printer_extruder_id", "printer_extruder_variant", "extruder_variant_list", "default_nozzle_volume_type",

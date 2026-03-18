@@ -2311,17 +2311,11 @@ void GCodeViewer::render_toolpaths()
 {
     const Camera& camera = wxGetApp().plater()->get_camera();
     Matrix4f view = camera.get_view_matrix().matrix().cast<float>();
-    // Belt "designed" view: apply inverse shear to view matrix so toolpaths appear
-    // upright (as originally designed) instead of sheared on the belt.
-    if (m_belt_show_designed && m_belt_view_enabled && m_belt_angle_deg > 0.f) {
-        double angle_rad = Geometry::deg2rad(static_cast<double>(m_belt_angle_deg));
-        double sin_a = std::sin(angle_rad);
-        if (sin_a > 1e-6) {
-            double cot_alpha = std::cos(angle_rad) / sin_a;
-            Transform3d inverse_shear = Transform3d::Identity();
-            inverse_shear.matrix()(1, 2) = -cot_alpha;  // Y -= Z * cot(α)
-            view = (camera.get_view_matrix() * inverse_shear).matrix().cast<float>();
-        }
+    // Belt "designed" view: apply the precomputed inverse of the full belt
+    // shear+scale transform so toolpaths appear upright (as originally designed)
+    // instead of transformed on the belt.
+    if (m_belt_show_designed && m_belt_view_enabled) {
+        view = (camera.get_view_matrix() * m_belt_inverse_transform).matrix().cast<float>();
     }
     const libvgcode::Mat4x4 converted_view_matrix = libvgcode::convert(view);
     const libvgcode::Mat4x4 converted_projetion_matrix = libvgcode::convert(static_cast<Matrix4f>(camera.get_projection_matrix().matrix().cast<float>()));
@@ -4708,12 +4702,18 @@ void GCodeViewer::render_legend(float &legend_height, int canvas_width, int canv
     if (m_nozzle_nums > 1 && (m_viewer.get_view_type() == libvgcode::EViewType::Summary || m_viewer.get_view_type() == libvgcode::EViewType::ColorPrint)) // ORCA show only on summary and filament tab
         render_legend_color_arr_recommen(window_padding);
 
-    // Belt printer: toggle for viewing raw slicing-frame G-code
+    // Belt printer: toggle for viewing designed (upright) vs. machine-frame G-code.
+    // Rendered with a separator and hint text so users can find it easily.
     if (m_belt_view_enabled) {
+        ImGui::Spacing();
+        ImGui::Separator();
         ImGui::Spacing();
         ImGui::Dummy({ window_padding, 0 });
         ImGui::SameLine();
-        ImGui::Checkbox("Show designed view (upright)", &m_belt_show_designed);
+        ImGui::TextColored(ImVec4(0.f, 0.59f, 0.53f, 1.f), "%s", _u8L("Belt Printer").c_str());
+        ImGui::Dummy({ window_padding, 0 });
+        ImGui::SameLine();
+        ImGui::Checkbox(_u8L("Show designed view (upright) [B]").c_str(), &m_belt_show_designed);
     }
 
     legend_height = ImGui::GetCurrentWindow()->Size.y;

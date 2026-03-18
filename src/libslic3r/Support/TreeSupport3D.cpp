@@ -3430,6 +3430,36 @@ static void generate_support_areas(Print &print, TreeSupport* tree_support, cons
         // this struct is used to easy retrieve setting. No other function except those in TreeModelVolumes and generate_initial_areas() have knowledge of the existence of multiple meshes being processed.
         //FIXME this is a copy
         // Contains config settings to avoid loading them in every function. This was done to improve readability of the code.
+        // Belt printer: add virtual "belt raft" layers below the object so
+        // organic branches can extend below the model's first layer and
+        // terminate at the belt surface instead of creating a flat base at Z=0.
+        {
+            PrintObject &po = *print.get_object(processing.second.front());
+            const auto &sp  = po.slicing_parameters();
+            const auto &pcfg = po.print()->config();
+            const double sf  = sp.belt_floor_shear_factor;
+            if (std::abs(sf) > EPSILON && std::abs(po.belt_global_z_offset()) > EPSILON
+                && pcfg.belt_support_floor_mode.value == BeltSupportFloorMode::GeneratorOnly) {
+                // z_shift_local is the belt surface height at Y=0 in local coords.
+                // Extend below the belt so the base expansion and build-plate
+                // termination happen inside the belt region and get clipped.
+                // Use the distance from the pre-shear bbox min Z to the part's
+                // post-shear min Z, plus 10mm for base expansion headroom.
+                double bb_min_z    = std::abs(po.model_object()->raw_bounding_box().min.z());
+                double extra_depth = bb_min_z + 10.;
+                int    num_extra     = std::max(0, (int)std::ceil(extra_depth / sp.layer_height));
+                if (num_extra > 0) {
+                    // Insert belt raft layers at the front, from lowest Z to highest.
+                    std::vector<coordf_t> belt_layers;
+                    belt_layers.reserve(num_extra);
+                    for (int i = num_extra; i >= 1; --i)
+                        belt_layers.push_back(sp.first_object_layer_height - i * sp.layer_height);
+                    // Prepend to existing raft_layers (if any).
+                    auto &rl = processing.first.raft_layers;
+                    rl.insert(rl.begin(), belt_layers.begin(), belt_layers.end());
+                }
+            }
+        }
         const TreeSupportSettings &config = processing.first;
         BOOST_LOG_TRIVIAL(info) << "Processing support tree mesh group " << counter + 1 << " of " << grouped_meshes.size() << " containing " << grouped_meshes[counter].second.size() << " meshes.";
         auto t_start = std::chrono::high_resolution_clock::now();
@@ -3612,6 +3642,43 @@ static void generate_support_areas(Print &print, TreeSupport* tree_support, cons
         tbb::parallel_for_each(layers_sorted.begin(), layers_sorted.end(), [&](SupportGeneratorLayer *layer) {
             if (layer) layer->polygons = intersection(layer->polygons, volumes.m_bed_area);
         });
+
+        // Belt floor: clip ALL organic support layers (including intermediate/base
+        // fill) against the belt surface.  The branch slices were already clipped
+        // in organic_draw_branches(), but intermediate layers generated between
+        // branches and the build plate need clipping too.
+        // Compute the belt floor polygon directly from each layer's print_z
+        // rather than mapping to a layer index (avoids index mismatch issues).
+        {
+            const auto &sp = print_object.slicing_parameters();
+            const double sf        = sp.belt_floor_shear_factor;
+            const double z_shift   = sp.belt_floor_z_shift - print_object.belt_global_z_offset();
+            const double floor_off = print_object.print()->config().belt_support_floor_offset.value;
+            const int    from_axis = sp.belt_floor_from_axis;
+            if (std::abs(sf) > EPSILON
+                && print_object.print()->config().belt_support_floor_mode.value == BeltSupportFloorMode::GeneratorOnly) {
+                tbb::parallel_for_each(layers_sorted.begin(), layers_sorted.end(), [&](SupportGeneratorLayer *layer) {
+                    if (!layer || layer->polygons.empty())
+                        return;
+                    double    cutoff    = (layer->print_z - z_shift - floor_off) / sf;
+                    coord_t   cutoff_sc = scale_(cutoff);
+                    coord_t   big       = scale_(1e4);
+                    Polygon belt_poly;
+                    if (from_axis == 0) {
+                        if (sf > 0)
+                            belt_poly.points = {{cutoff_sc,-big},{big,-big},{big,big},{cutoff_sc,big}};
+                        else
+                            belt_poly.points = {{-big,-big},{cutoff_sc,-big},{cutoff_sc,big},{-big,big}};
+                    } else {
+                        if (sf > 0)
+                            belt_poly.points = {{-big,cutoff_sc},{big,cutoff_sc},{big,big},{-big,big}};
+                        else
+                            belt_poly.points = {{-big,-big},{big,-big},{big,cutoff_sc},{-big,cutoff_sc}};
+                    }
+                    layer->polygons = diff(layer->polygons, Polygons{belt_poly});
+                });
+            }
+        }
 
         print.set_status(69, _L("Generating support"));
         generate_support_toolpaths(print_object.support_layers(), print_object.config(), support_params, print_object.slicing_parameters(),
@@ -3903,6 +3970,10 @@ void organic_draw_branches(
                         // ORCA: safety offset when trimming collision/bed to improve robustness.
                         slices[i] = diff_clipped(slices[i], volumes.getCollision(0, layer_begin + i, true), ApplySafetyOffset::Yes); // FIXME parent_uses_min || draw_area.element->state.use_min_xy_dist);
                         slices[i] = intersection(slices[i], volumes.m_bed_area, ApplySafetyOffset::Yes);
+                        // Belt floor: clip branch slices against the belt surface plane.
+                        LayerIndex belt_idx = layer_begin + i;
+                        if (belt_idx < LayerIndex(volumes.m_belt_floor.size()) && !volumes.m_belt_floor[belt_idx].empty())
+                            slices[i] = diff(slices[i], volumes.m_belt_floor[belt_idx]);
                         remove_small(slices[i], tiny_area);
                     }
 
@@ -3972,6 +4043,9 @@ void organic_draw_branches(
                                 LayerIndex collision_layer = (layer_idx == layer_begin - 1) ? layer_begin : layer_idx;
                                 Polygons collision = volumes.getCollision(0, collision_layer, false);
                                 rest_support = diff_clipped(rest_support.empty() ? slice_front_contact : rest_support, collision, ApplySafetyOffset::Yes);
+                                // Belt floor: clip propagated support at belt surface.
+                                if (layer_idx < LayerIndex(volumes.m_belt_floor.size()) && !volumes.m_belt_floor[layer_idx].empty())
+                                    rest_support = diff(rest_support, volumes.m_belt_floor[layer_idx]);
                                 remove_small(rest_support, tiny_area);
                                 double rest_support_area = area(rest_support);
                                 if (rest_support_area < support_area_stop)
