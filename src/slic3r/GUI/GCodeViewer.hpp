@@ -240,6 +240,7 @@ mutable bool m_no_render_path { false };
     bool  m_belt_view_enabled = false;
     float m_belt_angle_deg = 0.f;
     bool  m_belt_show_designed = false;  // Toggle: show designed (upright) view via inverse shear
+    Transform3d m_belt_inverse_transform{Transform3d::Identity()};
 
     libvgcode::Viewer m_viewer;
     bool m_loaded_as_preview{ false };
@@ -341,6 +342,7 @@ public:
     void export_toolpaths_to_obj(const char* filename) const;
 
     void set_belt_printer(bool enabled, float angle_deg) { m_belt_view_enabled = enabled; m_belt_angle_deg = angle_deg; }
+    void set_belt_inverse_transform(const Transform3d& t) { m_belt_inverse_transform = t; }
     bool is_belt_view() const { return m_belt_view_enabled && m_belt_angle_deg > 0.f; }
 
     size_t get_extruders_count() { return m_extruders_count; }

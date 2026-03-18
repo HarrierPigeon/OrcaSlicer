@@ -3051,6 +3051,84 @@ void GCodeProcessor::process_tags(const std::string_view comment, bool producers
         } catch (...) {}
         return;
     }
+    // Belt printer: parse shear configs from header comments.
+    {
+        auto parse_shear_mode = [](const std::string &s) -> BeltShearMode {
+            if (s == "pos_cot") return BeltShearMode::PosCot;
+            if (s == "neg_cot") return BeltShearMode::NegCot;
+            if (s == "pos_tan") return BeltShearMode::PosTan;
+            if (s == "neg_tan") return BeltShearMode::NegTan;
+            return BeltShearMode::None;
+        };
+        auto parse_axis = [](const std::string &s) -> BeltAxis {
+            if (s == "y") return BeltAxis::Y;
+            if (s == "z") return BeltAxis::Z;
+            return BeltAxis::X;
+        };
+        auto parse_scale_mode = [](const std::string &s) -> BeltScaleMode {
+            if (s == "inv_sin") return BeltScaleMode::InvSin;
+            if (s == "inv_cos") return BeltScaleMode::InvCos;
+            if (s == "sin")     return BeltScaleMode::Sin;
+            if (s == "cos")     return BeltScaleMode::Cos;
+            return BeltScaleMode::None;
+        };
+        auto trim = [](const std::string &s) -> std::string {
+            size_t start = s.find_first_not_of(" \t\r\n");
+            size_t end   = s.find_last_not_of(" \t\r\n");
+            return (start == std::string::npos) ? "" : s.substr(start, end - start + 1);
+        };
+        // Shear X
+        if (boost::starts_with(comment, " belt_shear_x = ")) {
+            m_result.belt_shear_x = parse_shear_mode(trim(std::string(comment.substr(16)))); return;
+        }
+        if (boost::starts_with(comment, " belt_shear_x_angle = ")) {
+            try { m_result.belt_shear_x_angle = std::stof(std::string(comment.substr(22))); } catch (...) {} return;
+        }
+        if (boost::starts_with(comment, " belt_shear_x_from = ")) {
+            m_result.belt_shear_x_from = parse_axis(trim(std::string(comment.substr(21)))); return;
+        }
+        // Shear Y
+        if (boost::starts_with(comment, " belt_shear_y = ")) {
+            m_result.belt_shear_y = parse_shear_mode(trim(std::string(comment.substr(16)))); return;
+        }
+        if (boost::starts_with(comment, " belt_shear_y_angle = ")) {
+            try { m_result.belt_shear_y_angle = std::stof(std::string(comment.substr(22))); } catch (...) {} return;
+        }
+        if (boost::starts_with(comment, " belt_shear_y_from = ")) {
+            m_result.belt_shear_y_from = parse_axis(trim(std::string(comment.substr(21)))); return;
+        }
+        // Shear Z
+        if (boost::starts_with(comment, " belt_shear_z = ")) {
+            m_result.belt_shear_z = parse_shear_mode(trim(std::string(comment.substr(16)))); return;
+        }
+        if (boost::starts_with(comment, " belt_shear_z_angle = ")) {
+            try { m_result.belt_shear_z_angle = std::stof(std::string(comment.substr(22))); } catch (...) {} return;
+        }
+        if (boost::starts_with(comment, " belt_shear_z_from = ")) {
+            m_result.belt_shear_z_from = parse_axis(trim(std::string(comment.substr(21)))); return;
+        }
+        // Scale X
+        if (boost::starts_with(comment, " belt_scale_x = ")) {
+            m_result.belt_scale_x = parse_scale_mode(trim(std::string(comment.substr(16)))); return;
+        }
+        if (boost::starts_with(comment, " belt_scale_x_angle = ")) {
+            try { m_result.belt_scale_x_angle = std::stof(std::string(comment.substr(22))); } catch (...) {} return;
+        }
+        // Scale Y
+        if (boost::starts_with(comment, " belt_scale_y = ")) {
+            m_result.belt_scale_y = parse_scale_mode(trim(std::string(comment.substr(16)))); return;
+        }
+        if (boost::starts_with(comment, " belt_scale_y_angle = ")) {
+            try { m_result.belt_scale_y_angle = std::stof(std::string(comment.substr(22))); } catch (...) {} return;
+        }
+        // Scale Z
+        if (boost::starts_with(comment, " belt_scale_z = ")) {
+            m_result.belt_scale_z = parse_scale_mode(trim(std::string(comment.substr(16)))); return;
+        }
+        if (boost::starts_with(comment, " belt_scale_z_angle = ")) {
+            try { m_result.belt_scale_z_angle = std::stof(std::string(comment.substr(22))); } catch (...) {} return;
+        }
+    }
     // wipe start tag
     if (boost::starts_with(comment, reserved_tag(ETags::Wipe_Start))) {
         m_wiping = true;

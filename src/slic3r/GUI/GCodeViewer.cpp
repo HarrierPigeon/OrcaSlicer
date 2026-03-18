@@ -2209,17 +2209,11 @@ void GCodeViewer::render_toolpaths()
 {
     const Camera& camera = wxGetApp().plater()->get_camera();
     Matrix4f view = camera.get_view_matrix().matrix().cast<float>();
-    // Belt "designed" view: apply inverse shear to view matrix so toolpaths appear
-    // upright (as originally designed) instead of sheared on the belt.
-    if (m_belt_show_designed && m_belt_view_enabled && m_belt_angle_deg > 0.f) {
-        double angle_rad = Geometry::deg2rad(static_cast<double>(m_belt_angle_deg));
-        double sin_a = std::sin(angle_rad);
-        if (sin_a > 1e-6) {
-            double cot_alpha = std::cos(angle_rad) / sin_a;
-            Transform3d inverse_shear = Transform3d::Identity();
-            inverse_shear.matrix()(1, 2) = -cot_alpha;  // Y -= Z * cot(α)
-            view = (camera.get_view_matrix() * inverse_shear).matrix().cast<float>();
-        }
+    // Belt "designed" view: apply the precomputed inverse of the full belt
+    // shear+scale transform so toolpaths appear upright (as originally designed)
+    // instead of transformed on the belt.
+    if (m_belt_show_designed && m_belt_view_enabled) {
+        view = (camera.get_view_matrix() * m_belt_inverse_transform).matrix().cast<float>();
     }
     const libvgcode::Mat4x4 converted_view_matrix = libvgcode::convert(view);
     const libvgcode::Mat4x4 converted_projetion_matrix = libvgcode::convert(static_cast<Matrix4f>(camera.get_projection_matrix().matrix().cast<float>()));
