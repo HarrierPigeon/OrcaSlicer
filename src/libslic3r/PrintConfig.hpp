@@ -181,6 +181,7 @@ enum class BeltRemapAxis
 {
     PosX = 0, PosY = 1, PosZ = 2,
     NegX = 3, NegY = 4, NegZ = 5,
+    RevX = 6, RevY = 7, RevZ = 8,  // Reversed: max - pos
 };
 
 enum SupportMaterialPattern {

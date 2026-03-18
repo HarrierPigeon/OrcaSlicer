@@ -315,6 +315,9 @@ static t_config_enum_values s_keys_map_BeltRemapAxis {
     { "neg_x", int(BeltRemapAxis::NegX) },
     { "neg_y", int(BeltRemapAxis::NegY) },
     { "neg_z", int(BeltRemapAxis::NegZ) },
+    { "rev_x", int(BeltRemapAxis::RevX) },
+    { "rev_y", int(BeltRemapAxis::RevY) },
+    { "rev_z", int(BeltRemapAxis::RevZ) },
 };
 CONFIG_OPTION_ENUM_DEFINE_STATIC_MAPS(BeltRemapAxis)
 
@@ -6079,8 +6082,8 @@ void PrintConfigDef::init_fff_params()
         def->category = L("Printable space");
         def->tooltip = L(tooltip);
         def->enum_keys_map = &ConfigOptionEnum<BeltRemapAxis>::get_enum_values();
-        def->enum_values  = {"pos_x", "pos_y", "pos_z", "neg_x", "neg_y", "neg_z"};
-        def->enum_labels  = {L("+X"), L("+Y"), L("+Z"), L("-X"), L("-Y"), L("-Z")};
+        def->enum_values  = {"pos_x", "pos_y", "pos_z", "neg_x", "neg_y", "neg_z", "rev_x", "rev_y", "rev_z"};
+        def->enum_labels  = {L("+X"), L("+Y"), L("+Z"), L("-X"), L("-Y"), L("-Z"), L("Rev X"), L("Rev Y"), L("Rev Z")};
         def->mode = comAdvanced;
         def->set_default_value(new ConfigOptionEnum<BeltRemapAxis>(default_axis));
     };

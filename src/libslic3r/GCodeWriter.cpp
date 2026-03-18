@@ -32,14 +32,21 @@ void GCodeWriter::set_axis_remap(int rx, int ry, int rz)
     m_remap_z = rz;
 }
 
+void GCodeWriter::set_build_volume_max(const Vec3d &max)
+{
+    m_build_vol_max = max;
+}
+
 Vec3d GCodeWriter::to_machine_coords(const Vec3d &pos) const
 {
     if (!is_belt_printer())
         return pos;
-    // BeltRemapAxis: 0-2 = +X/+Y/+Z, 3-5 = -X/-Y/-Z
-    auto remap = [&pos](int r) -> double {
+    // BeltRemapAxis: 0-2 = +X/+Y/+Z, 3-5 = -X/-Y/-Z, 6-8 = Rev X/Y/Z
+    auto remap = [this, &pos](int r) -> double {
         int axis = r % 3;
-        return (r < 3) ? pos[axis] : -pos[axis];
+        if (r < 3) return pos[axis];
+        if (r < 6) return -pos[axis];
+        return m_build_vol_max[axis] - pos[axis];
     };
     return { remap(m_remap_x), remap(m_remap_y), remap(m_remap_z) };
 }

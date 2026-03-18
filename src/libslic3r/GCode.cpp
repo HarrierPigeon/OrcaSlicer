@@ -2421,6 +2421,9 @@ void GCode::_do_export(Print& print, GCodeOutputStream &file, ThumbnailsGenerato
             int(print.config().belt_gcode_remap_x.value),
             int(print.config().belt_gcode_remap_y.value),
             int(print.config().belt_gcode_remap_z.value));
+        // Build volume extents for Rev remap mode.
+        BoundingBoxf bbox_bed(print.config().printable_area.values);
+        m_writer.set_build_volume_max(Vec3d(bbox_bed.max.x(), bbox_bed.max.y(), print.config().printable_height.value));
     }
 
     // How many times will be change_layer() called?
