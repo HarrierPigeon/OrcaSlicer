@@ -1,4 +1,5 @@
 #include <boost/log/trivial.hpp>
+#include <limits>
 
 #include <tbb/parallel_for.h>
 
@@ -202,8 +203,26 @@ static std::vector<VolumeSlices> slice_volumes_inner(
         }
 
         // Apply: scale * shear * trafo (shear first, then scale).
-        if (has_shear || has_scale)
+        if (has_shear || has_scale) {
             params_base.trafo = belt_scale * belt_shear * params_base.trafo;
+
+            // After the shear/scale transform, the mesh may clip through the
+            // build plate (Z < 0).  Detect this and shift the mesh up.
+            Transform3d combined = params_base.trafo;
+            double min_z = std::numeric_limits<double>::max();
+            for (const ModelVolume *mv : model_volumes) {
+                if (!mv->is_model_part()) continue;
+                for (const stl_vertex &v : mv->mesh().its.vertices) {
+                    Vec3d pt = combined * v.cast<double>();
+                    min_z = std::min(min_z, pt.z());
+                }
+            }
+            if (min_z < 0. && min_z != std::numeric_limits<double>::max()) {
+                Transform3d z_shift = Transform3d::Identity();
+                z_shift.matrix()(2, 3) = -min_z;
+                params_base.trafo = z_shift * params_base.trafo;
+            }
+        }
     }
     //BBS: 0.0025mm is safe enough to simplify the data to speed slicing up for high-resolution model.
     //Also has on influence on arc fitting which has default resolution 0.0125mm.
