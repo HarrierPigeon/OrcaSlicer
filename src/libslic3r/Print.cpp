@@ -99,6 +99,10 @@ bool Print::invalidate_state_by_config_options(const ConfigOptionResolver & /* n
     // Cache the plenty of parameters, which influence the G-code generator only,
     // or they are only notes not influencing the generated G-code.
     static std::unordered_set<std::string> steps_gcode = {
+        // Belt printer G-code axis remap (only affects G-code output, not slicing).
+        "belt_gcode_remap_x",
+        "belt_gcode_remap_y",
+        "belt_gcode_remap_z",
         //BBS
         "additional_cooling_fan_speed",
         "reduce_crossing_wall",
@@ -275,7 +279,28 @@ bool Print::invalidate_state_by_config_options(const ConfigOptionResolver & /* n
             // Spiral Vase forces different kind of slicing than the normal model:
             // In Spiral Vase mode, holes are closed and only the largest area contour is kept at each layer.
             // Therefore toggling the Spiral Vase on / off requires complete reslicing.
-            || opt_key == "spiral_mode") {
+            || opt_key == "spiral_mode"
+            // Belt printer transform options change the mesh geometry before slicing.
+            || opt_key == "belt_printer"
+            || opt_key == "belt_printer_angle"
+            || opt_key == "belt_shear_x"
+            || opt_key == "belt_shear_x_angle"
+            || opt_key == "belt_shear_x_from"
+            || opt_key == "belt_shear_x_global"
+            || opt_key == "belt_shear_y"
+            || opt_key == "belt_shear_y_angle"
+            || opt_key == "belt_shear_y_from"
+            || opt_key == "belt_shear_y_global"
+            || opt_key == "belt_shear_z"
+            || opt_key == "belt_shear_z_angle"
+            || opt_key == "belt_shear_z_from"
+            || opt_key == "belt_shear_z_global"
+            || opt_key == "belt_scale_x"
+            || opt_key == "belt_scale_x_angle"
+            || opt_key == "belt_scale_y"
+            || opt_key == "belt_scale_y_angle"
+            || opt_key == "belt_scale_z"
+            || opt_key == "belt_scale_z_angle") {
             osteps.emplace_back(posSlice);
         } else if (
                opt_key == "print_sequence"

@@ -126,8 +126,7 @@ static std::vector<VolumeSlices> slice_volumes_inner(
     ModelVolumePtrs                                           model_volumes,
     const std::vector<PrintObjectRegions::LayerRangeRegions> &layer_ranges,
     const std::vector<float>                                 &zs,
-    const std::function<void()>                              &throw_on_cancel_callback,
-    const Point                                              &instance_shift = Point(0, 0))
+    const std::function<void()>                              &throw_on_cancel_callback)
 {
     model_volumes_sort_by_id(model_volumes);
 
@@ -157,11 +156,11 @@ static std::vector<VolumeSlices> slice_volumes_inner(
             }
         };
 
-        struct AxisShear { BeltShearMode mode; double angle; int from; bool global; };
+        struct AxisShear { BeltShearMode mode; double angle; int from; };
         AxisShear axes[3] = {
-            { print_config.belt_shear_x.value, print_config.belt_shear_x_angle.value, int(print_config.belt_shear_x_from.value), print_config.belt_shear_x_global.value },
-            { print_config.belt_shear_y.value, print_config.belt_shear_y_angle.value, int(print_config.belt_shear_y_from.value), print_config.belt_shear_y_global.value },
-            { print_config.belt_shear_z.value, print_config.belt_shear_z_angle.value, int(print_config.belt_shear_z_from.value), print_config.belt_shear_z_global.value },
+            { print_config.belt_shear_x.value, print_config.belt_shear_x_angle.value, int(print_config.belt_shear_x_from.value) },
+            { print_config.belt_shear_y.value, print_config.belt_shear_y_angle.value, int(print_config.belt_shear_y_from.value) },
+            { print_config.belt_shear_z.value, print_config.belt_shear_z_angle.value, int(print_config.belt_shear_z_from.value) },
         };
 
         Transform3d belt_shear = Transform3d::Identity();
@@ -172,16 +171,6 @@ static std::vector<VolumeSlices> slice_volumes_inner(
                 if (std::abs(factor) > EPSILON) {
                     belt_shear.matrix()(row, axes[row].from) += factor;
                     has_shear = true;
-                    // In global mode, add a translation to account for instance shift.
-                    // The shear-from axis (axes[row].from) 0=X, 1=Y; instance_shift
-                    // is 2D (X,Y) in scaled coords. Z (from==2) has no instance shift.
-                    if (axes[row].global && axes[row].from < 2) {
-                        double shift_mm = (axes[row].from == 0)
-                            ? unscale<double>(instance_shift.x())
-                            : unscale<double>(instance_shift.y());
-                        belt_shear.matrix()(row, 3) += factor * shift_mm;
-                        has_shear = true;
-                    }
                 }
             }
         }
@@ -934,6 +923,56 @@ void PrintObject::slice()
     if (m_layers.empty())
         throw Slic3r::SlicingError(L("No layers were detected. You might want to repair your STL file(s) or check their size or thickness and retry.\n"));
 
+    // Belt printer global mode: offset all layer Z values so objects at
+    // different bed positions print at different heights on the tilted belt.
+    // This is a post-slicing adjustment — the sliced geometry is identical
+    // regardless of global mode, only the output Z coordinates change.
+    {
+        const auto &pcfg = this->print()->config();
+        if (pcfg.belt_printer.value) {
+            auto compute_shear_factor = [](BeltShearMode mode, double angle_deg) -> double {
+                double angle_rad = Geometry::deg2rad(angle_deg);
+                double sin_a = std::sin(angle_rad);
+                double cos_a = std::cos(angle_rad);
+                switch (mode) {
+                case BeltShearMode::PosCot: return (sin_a > EPSILON) ?  cos_a / sin_a : 0.;
+                case BeltShearMode::NegCot: return (sin_a > EPSILON) ? -cos_a / sin_a : 0.;
+                case BeltShearMode::PosTan: return (cos_a > EPSILON) ?  sin_a / cos_a : 0.;
+                case BeltShearMode::NegTan: return (cos_a > EPSILON) ? -sin_a / cos_a : 0.;
+                default: return 0.;
+                }
+            };
+
+            Point inst_shift = this->instances().empty() ? Point(0, 0) : this->instances().front().shift;
+            double global_z_offset = 0.;
+
+            struct GAxis { BeltShearMode mode; double angle; int from; bool global; };
+            GAxis gaxes[3] = {
+                { pcfg.belt_shear_x.value, pcfg.belt_shear_x_angle.value, int(pcfg.belt_shear_x_from.value), pcfg.belt_shear_x_global.value },
+                { pcfg.belt_shear_y.value, pcfg.belt_shear_y_angle.value, int(pcfg.belt_shear_y_from.value), pcfg.belt_shear_y_global.value },
+                { pcfg.belt_shear_z.value, pcfg.belt_shear_z_angle.value, int(pcfg.belt_shear_z_from.value), pcfg.belt_shear_z_global.value },
+            };
+
+            // Only the Z-row shear contributes a Z offset from global mode.
+            // (X/Y row shears with global would offset X/Y, not Z — not useful here.)
+            const auto &za = gaxes[2]; // Z row
+            if (za.global && za.mode != BeltShearMode::None && za.from < 2) {
+                double factor = compute_shear_factor(za.mode, za.angle);
+                double shift_mm = (za.from == 0)
+                    ? unscale<double>(inst_shift.x())
+                    : unscale<double>(inst_shift.y());
+                global_z_offset += factor * shift_mm;
+            }
+
+            if (std::abs(global_z_offset) > EPSILON) {
+                for (Layer *layer : m_layers)
+                    layer->print_z += global_z_offset;
+                for (SupportLayer *slayer : m_support_layers)
+                    slayer->print_z += global_z_offset;
+            }
+        }
+    }
+
     // BBS
     this->set_done(posSlice);
 }
@@ -1238,8 +1277,7 @@ void PrintObject::slice_volumes()
     if (!slice_zs.empty()) {
         objSliceByVolume = slice_volumes_inner(
             print->config(), this->config(), this->trafo_centered(),
-            this->model_object()->volumes, m_shared_regions->layer_ranges, slice_zs, throw_on_cancel_callback,
-            this->instances().empty() ? Point(0, 0) : this->instances().front().shift);
+            this->model_object()->volumes, m_shared_regions->layer_ranges, slice_zs, throw_on_cancel_callback);
     }
 
     //BBS: "model_part" volumes are grouded according to their connections
