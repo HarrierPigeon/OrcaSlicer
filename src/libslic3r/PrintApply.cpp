@@ -135,22 +135,27 @@ struct PrintObjectTrafoAndInstances
 
 // Generate a list of trafos and XY offsets for instances of a ModelObject
 // Orca: Updated to include XYZ filament shrinkage compensation
-static std::vector<PrintObjectTrafoAndInstances> print_objects_from_model_object(const ModelObject &model_object, const Vec3d &shrinkage_compensation)
+static std::vector<PrintObjectTrafoAndInstances> print_objects_from_model_object(const ModelObject &model_object, const Vec3d &shrinkage_compensation, bool force_separate_instances = false)
 {
     std::set<PrintObjectTrafoAndInstances> trafos;
     PrintObjectTrafoAndInstances           trafo;
     //BBS: add useful logs for debug
     int index = 0;
+    int unique_counter = 0;
     for (ModelInstance *model_instance : model_object.instances) {
         if (model_instance->is_printable()) {
             // Orca: Updated with XYZ filament shrinkage compensation
             Geometry::Transformation model_instance_transformation = model_instance->get_transformation();
             trafo.trafo = model_instance_transformation.get_matrix_with_applied_shrinkage_compensation(shrinkage_compensation);
-            
+
             auto shift = Point::new_scale(trafo.trafo.data()[12], trafo.trafo.data()[13]);
             // Reset the XY axes of the transformation.
             trafo.trafo.data()[12] = 0;
             trafo.trafo.data()[13] = 0;
+            // Belt printer global mode: prevent instance grouping so each
+            // copy gets its own PrintObject with independent layer Z values.
+            if (force_separate_instances)
+                trafo.trafo.data()[14] = 1e-10 * (++unique_counter);
             // Search or insert a trafo.
             auto it = trafos.emplace(trafo).first;
             const_cast<PrintObjectTrafoAndInstances&>(*it).instances.emplace_back(PrintInstance{ nullptr, model_instance, shift });
@@ -1510,7 +1515,11 @@ Print::ApplyStatus Print::apply(const Model &model, DynamicPrintConfig new_full_
         for (ModelObject *model_object : m_model.objects) {
             ModelObjectStatus &model_object_status = const_cast<ModelObjectStatus&>(model_object_status_db.reuse(*model_object));
             // Orca: Updated for XYZ filament shrink compensation
-            model_object_status.print_instances = print_objects_from_model_object(*model_object, this->shrinkage_compensation());
+            // Belt global mode: force each instance into its own PrintObject
+            // so each gets independent layer Z values.
+            bool belt_force_separate = m_config.belt_printer.value && m_config.belt_shear_z_global.value
+                && m_config.belt_shear_z.value != BeltShearMode::None;
+            model_object_status.print_instances = print_objects_from_model_object(*model_object, this->shrinkage_compensation(), belt_force_separate);
             std::vector<const PrintObjectStatus*> old;
             old.reserve(print_object_status_db.count(*model_object));
             for (const PrintObjectStatus &print_object_status : print_object_status_db.get_range(*model_object))

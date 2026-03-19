@@ -929,6 +929,10 @@ void PrintObject::slice()
     // regardless of global mode, only the output Z coordinates change.
     {
         const auto &pcfg = this->print()->config();
+        BOOST_LOG_TRIVIAL(warning) << "Belt global check: belt_printer=" << pcfg.belt_printer.value
+            << " belt_shear_z=" << int(pcfg.belt_shear_z.value)
+            << " belt_shear_z_global=" << pcfg.belt_shear_z_global.value
+            << " object=" << this->model_object()->name;
         if (pcfg.belt_printer.value) {
             auto compute_shear_factor = [](BeltShearMode mode, double angle_deg) -> double {
                 double angle_rad = Geometry::deg2rad(angle_deg);
@@ -944,6 +948,9 @@ void PrintObject::slice()
             };
 
             Point inst_shift = this->instances().empty() ? Point(0, 0) : this->instances().front().shift;
+            BOOST_LOG_TRIVIAL(warning) << "Belt global: object " << this->model_object()->name
+                << " instances=" << this->instances().size()
+                << " shift=(" << unscale<double>(inst_shift.x()) << ", " << unscale<double>(inst_shift.y()) << ")";
             double global_z_offset = 0.;
 
             struct GAxis { BeltShearMode mode; double angle; int from; bool global; };
@@ -955,15 +962,27 @@ void PrintObject::slice()
 
             // Only the Z-row shear contributes a Z offset from global mode.
             // (X/Y row shears with global would offset X/Y, not Z — not useful here.)
+            // Offsets are RELATIVE: we subtract the minimum shift across all
+            // PrintObjects so the lowest-positioned object stays at Z=0.
             const auto &za = gaxes[2]; // Z row
             if (za.global && za.mode != BeltShearMode::None && za.from < 2) {
                 double factor = compute_shear_factor(za.mode, za.angle);
-                double shift_mm = (za.from == 0)
-                    ? unscale<double>(inst_shift.x())
-                    : unscale<double>(inst_shift.y());
-                global_z_offset += factor * shift_mm;
+                auto get_shift = [&](const Point &s) {
+                    return (za.from == 0) ? unscale<double>(s.x()) : unscale<double>(s.y());
+                };
+                double this_shift = get_shift(inst_shift);
+                // Find minimum shift across all objects for relative offset.
+                double min_shift = this_shift;
+                for (const PrintObject *obj : this->print()->objects()) {
+                    if (!obj->instances().empty())
+                        min_shift = std::min(min_shift, get_shift(obj->instances().front().shift));
+                }
+                global_z_offset += factor * (this_shift - min_shift);
             }
 
+            BOOST_LOG_TRIVIAL(warning) << "Belt global: z_offset=" << global_z_offset
+                << " za.global=" << za.global << " za.mode=" << int(za.mode) << " za.from=" << za.from
+                << " (relative to min across " << this->print()->objects().size() << " objects)";
             if (std::abs(global_z_offset) > EPSILON) {
                 for (Layer *layer : m_layers)
                     layer->print_z += global_z_offset;
