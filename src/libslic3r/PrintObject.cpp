@@ -4133,15 +4133,19 @@ void PrintObject::_generate_support_material()
         tree_support.throw_on_cancel = [this]() { this->throw_if_canceled(); };
         tree_support.generate();
 
-        // Tree support non-raft layers derive Z from object layers (already include
-        // global_z_offset). Only raft layers (from SlicingParameters) need the offset.
-        // Raft/gap layers have print_z <= object_print_z_min.
+        // Tree support layers use Z heights from plan_layer_heights() which may not
+        // include global_z_offset. Apply it unconditionally so support layers align
+        // with the offset'd object layers.
         if (std::abs(m_belt_global_z_offset) > EPSILON) {
-            const double raft_z_threshold = m_slicing_params.object_print_z_min + EPSILON;
-            for (SupportLayer *sl : m_support_layers) {
-                if (sl->print_z <= raft_z_threshold)
-                    sl->print_z += m_belt_global_z_offset;
-            }
+            BOOST_LOG_TRIVIAL(warning) << "Belt tree support Z offset: applying " << m_belt_global_z_offset
+                << " to " << m_support_layers.size() << " layers"
+                << " (before: first=" << (m_support_layers.empty() ? 0.0 : m_support_layers.front()->print_z)
+                << " last=" << (m_support_layers.empty() ? 0.0 : m_support_layers.back()->print_z) << ")";
+            for (SupportLayer *sl : m_support_layers)
+                sl->print_z += m_belt_global_z_offset;
+            BOOST_LOG_TRIVIAL(warning) << "Belt tree support Z offset: after: first="
+                << (m_support_layers.empty() ? 0.0 : m_support_layers.front()->print_z)
+                << " last=" << (m_support_layers.empty() ? 0.0 : m_support_layers.back()->print_z);
         }
     }
     else {

@@ -637,6 +637,21 @@ TreeSupport::TreeSupport(PrintObject& object, const SlicingParameters &slicing_p
 }
 
 
+double TreeSupport::belt_floor_print_z(const Point &pos_slicing) const
+{
+    double sf = m_slicing_params.belt_floor_shear_factor;
+    if (std::abs(sf) < EPSILON)
+        return -std::numeric_limits<double>::max(); // no belt floor
+    int    from  = m_slicing_params.belt_floor_from_axis;
+    double z_off = m_slicing_params.belt_floor_z_offset;
+    // Convert from slicing coords to model coords on the shear axis.
+    double center = unscale<double>(from == 0
+        ? m_object->center_offset().x() : m_object->center_offset().y());
+    double from_val = unscale<double>(from == 0 ? pos_slicing.x() : pos_slicing.y()) + center;
+    // Belt floor in local slicing frame (before global_z_offset).
+    return sf * from_val - z_off;
+}
+
 #define SUPPORT_SURFACES_OFFSET_PARAMETERS ClipperLib::jtSquare, 0.
 void TreeSupport::detect_overhangs(bool check_support_necessity/* = false*/)
 {
@@ -2445,6 +2460,7 @@ void TreeSupport::drop_nodes()
     const coordf_t radius_sample_resolution = m_ts_data->m_radius_sample_resolution;
     const bool support_on_buildplate_only = config.support_on_build_plate_only.value;
     const size_t top_interface_layers = config.support_interface_top_layers.value;
+    const bool has_belt_floor = std::abs(m_slicing_params.belt_floor_shear_factor) > EPSILON;
     const size_t bottom_interface_layers = config.support_interface_bottom_layers.value < 0 ? top_interface_layers : config.support_interface_bottom_layers.value;
     SupportNode::diameter_angle_scale_factor = diameter_angle_scale_factor;
     float        DO_NOT_MOVER_UNDER_MM       = is_slim ? 0 : 5;                     // do not move contact points under 5mm
@@ -2677,15 +2693,20 @@ void TreeSupport::drop_nodes()
                         node_parent = p_node->parent ? p_node : neighbour;
                     // Make sure the next pass doesn't drop down either of these (since that already happened).
                     node_parent->merged_neighbours.push_front(node_parent == p_node ? neighbour : p_node);
-                    const bool to_buildplate = !is_inside_ex(get_collision(0, obj_layer_nr_next), next_position);
-                    SupportNode* next_node = m_ts_data->create_node(next_position, node_parent->distance_to_top + 1, obj_layer_nr_next, node_parent->support_roof_layers_below - 1, to_buildplate, node_parent,
-                        print_z_next, height_next);
-                    get_max_move_dist(next_node);
-                    m_ts_data->m_mutex.lock();
-                    contact_nodes[layer_nr_next].push_back(next_node);
+                    // Belt floor: don't drop merged node below belt surface.
+                    if (has_belt_floor && print_z_next <= belt_floor_print_z(next_position)) {
+                        node_parent->to_buildplate = true;
+                    } else {
+                        const bool to_buildplate = !is_inside_ex(get_collision(0, obj_layer_nr_next), next_position);
+                        SupportNode* next_node = m_ts_data->create_node(next_position, node_parent->distance_to_top + 1, obj_layer_nr_next, node_parent->support_roof_layers_below - 1, to_buildplate, node_parent,
+                            print_z_next, height_next);
+                        get_max_move_dist(next_node);
+                        m_ts_data->m_mutex.lock();
+                        contact_nodes[layer_nr_next].push_back(next_node);
+                        m_ts_data->m_mutex.unlock();
+                    }
                     neighbour->valid = false;
                     p_node->valid = false;
-                    m_ts_data->m_mutex.unlock();
                 }
                 else if (neighbours.size() > 1) //Don't merge leaf nodes because we would then incur movement greater than the maximum move distance.
                 {
@@ -2729,6 +2750,11 @@ void TreeSupport::drop_nodes()
                     ExPolygons overhangs_next = diff_clipped({ node.overhang }, get_collision(0, obj_layer_nr_next));
                     for(auto& overhang:overhangs_next) {
                         Point        next_pt     = overhang.contour.centroid();
+                        // Belt floor: don't drop polygon node below belt surface.
+                        if (has_belt_floor && print_z_next <= belt_floor_print_z(next_pt)) {
+                            p_node->to_buildplate = true;
+                            continue;
+                        }
                         SupportNode *next_node   = m_ts_data->create_node(next_pt, p_node->distance_to_top + 1, obj_layer_nr_next, p_node->support_roof_layers_below - 1,
                                                                           to_buildplate, p_node, print_z_next, height_next);
                         next_node->max_move_dist = 0;
@@ -2872,6 +2898,11 @@ void TreeSupport::drop_nodes()
                         is_outside             = move_out_expolys(avoidance_next, candidate_vertex, radius_sample_resolution + EPSILON, max_move_between_samples);
                         if (is_outside) { next_layer_vertex = candidate_vertex; }
                     }
+                }
+                // Belt floor: don't drop regular node below belt surface.
+                if (has_belt_floor && print_z_next <= belt_floor_print_z(next_layer_vertex)) {
+                    p_node->to_buildplate = true;
+                    return; // from parallel_for_each lambda
                 }
                 auto              next_collision = get_collision(0, obj_layer_nr_next);
                 const bool   to_buildplate  = !is_inside_ex(m_ts_data->m_layer_outlines[obj_layer_nr_next], next_layer_vertex);
@@ -3167,6 +3198,7 @@ void TreeSupport::generate_contact_points()
     bool       on_buildplate_only    = m_object_config->support_on_build_plate_only.value;
     const bool roof_enabled          = config.support_interface_top_layers.value > 0;
     const bool force_tip_to_roof = roof_enabled && m_support_params.soluble_interface;
+    const bool has_belt_floor = std::abs(m_slicing_params.belt_floor_shear_factor) > EPSILON;
 
     //First generate grid points to cover the entire area of the print.
     BoundingBox bounding_box = m_object->bounding_box();
@@ -3257,6 +3289,10 @@ void TreeSupport::generate_contact_points()
 
 
             auto insert_point = [&](Point pt, const ExPolygon& overhang, double radius, bool force_add = false, bool add_interface=true) {
+                // Belt floor: skip contact points whose bottom_z is at or below
+                // the belt floor at this XY position (overhang rests on the belt).
+                if (has_belt_floor && bottom_z <= belt_floor_print_z(pt))
+                    return (SupportNode*) nullptr;
                 Point        hash_pos = pt / ((radius_scaled + 1) / 1);
                 SupportNode* contact_node = nullptr;
                 if (force_add || !already_inserted.count(hash_pos)) {
@@ -3292,8 +3328,10 @@ void TreeSupport::generate_contact_points()
                             double       radius          = unscale_(overhang_bounds.radius());
                             Point        candidate       = overhang_bounds.center();
                             SupportNode *contact_node    = insert_point(candidate, overhang, radius, true, true);
-                            contact_node->type           = ePolygon;
-                            curr_nodes.emplace_back(contact_node);
+                            if (contact_node) {
+                                contact_node->type           = ePolygon;
+                                curr_nodes.emplace_back(contact_node);
+                            }
                         }
                     }else{
                         // otherwise, all nodes should be circle nodes
