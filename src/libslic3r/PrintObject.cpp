@@ -4133,17 +4133,29 @@ void PrintObject::_generate_support_material()
         tree_support.throw_on_cancel = [this]() { this->throw_if_canceled(); };
         tree_support.generate();
 
-        // Tree support computes Z heights from SlicingParameters (which don't include
-        // global_z_offset). Apply the offset now so tree support layers match object layers.
+        // Tree support non-raft layers derive Z from object layers (already include
+        // global_z_offset). Only raft layers (from SlicingParameters) need the offset.
+        // Raft/gap layers have print_z <= object_print_z_min.
         if (std::abs(m_belt_global_z_offset) > EPSILON) {
-            for (SupportLayer *sl : m_support_layers)
-                sl->print_z += m_belt_global_z_offset;
+            const double raft_z_threshold = m_slicing_params.object_print_z_min + EPSILON;
+            for (SupportLayer *sl : m_support_layers) {
+                if (sl->print_z <= raft_z_threshold)
+                    sl->print_z += m_belt_global_z_offset;
+            }
         }
     }
     else {
         PrintObjectSupportMaterial support_material(this, m_slicing_params);
         support_material.generate(*this);
-        // Normal support derives Z from object layers which already include global_z_offset.
+        // Normal support non-raft layers derive Z from object layers (already include
+        // global_z_offset). Raft layers need the offset added.
+        if (std::abs(m_belt_global_z_offset) > EPSILON) {
+            const double raft_z_threshold = m_slicing_params.object_print_z_min + EPSILON;
+            for (SupportLayer *sl : m_support_layers) {
+                if (sl->print_z <= raft_z_threshold)
+                    sl->print_z += m_belt_global_z_offset;
+            }
+        }
     }
 
     // Belt printer: clip support layers to the transformed build plate (belt floor).
@@ -4169,7 +4181,9 @@ void PrintObject::_generate_support_material()
         // Large bound for the clip rectangle (in scaled coordinates).
         const coord_t large_bound = scale_(1e4);  // 10 meters, well beyond any print
 
-        for (SupportLayer *support_layer : m_support_layers) {
+        const size_t n_support_layers = m_support_layers.size();
+        for (size_t layer_idx = 0; layer_idx < n_support_layers; ++layer_idx) {
+            SupportLayer *support_layer = m_support_layers[layer_idx];
             const double print_z = support_layer->print_z;
             // Subtract global_z_offset to get local Z (belt floor params are per-object).
             // Subtract center_on_axis to convert from model coords to slicing coords
@@ -4177,6 +4191,21 @@ void PrintObject::_generate_support_material()
             // but support polygons are in slicing coords shifted by -center_offset).
             const double cutoff = (print_z - global_z_off + z_offset) / shear_factor - center_on_axis;
             const coord_t cutoff_scaled = scale_(cutoff);
+
+            // Per-layer debug diagnostics for first/last 3 layers.
+            if (layer_idx < 3 || layer_idx >= n_support_layers - 3) {
+                BoundingBox islands_bb;
+                for (const auto &ep : support_layer->support_islands)
+                    islands_bb.merge(get_extents(ep));
+                const double islands_min = islands_bb.defined ? unscale<double>(from_axis == 0 ? islands_bb.min.x() : islands_bb.min.y()) : 0.0;
+                const double islands_max = islands_bb.defined ? unscale<double>(from_axis == 0 ? islands_bb.max.x() : islands_bb.max.y()) : 0.0;
+                BOOST_LOG_TRIVIAL(warning) << "  Belt clip layer " << layer_idx
+                    << ": print_z=" << print_z << " cutoff=" << cutoff
+                    << " cutoff_scaled=" << cutoff_scaled
+                    << " islands_range=[" << islands_min << ", " << islands_max << "]"
+                    << (islands_bb.defined && (shear_factor > 0 ? islands_min >= cutoff : islands_max <= cutoff) ? " FULLY_CLIPPED" :
+                       (islands_bb.defined && (shear_factor > 0 ? islands_max > cutoff : islands_min < cutoff) ? " PARTIAL_CLIP" : " NO_CLIP"));
+            }
 
             // Build a clip polygon representing the valid half-plane.
             // If shear_factor > 0: valid region is from_axis < cutoff

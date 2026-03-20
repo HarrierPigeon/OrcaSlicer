@@ -987,8 +987,9 @@ void PrintObject::slice()
             if (std::abs(global_z_offset) > EPSILON) {
                 for (Layer *layer : m_layers)
                     layer->print_z += global_z_offset;
-                for (SupportLayer *slayer : m_support_layers)
-                    slayer->print_z += global_z_offset;
+                // Note: support layers don't exist yet during slice() — they are
+                // created later in _generate_support_material(), which handles
+                // raft layer offsets itself.
             }
         }
     }
