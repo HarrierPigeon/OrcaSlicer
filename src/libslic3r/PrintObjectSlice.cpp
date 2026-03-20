@@ -983,6 +983,7 @@ void PrintObject::slice()
             BOOST_LOG_TRIVIAL(warning) << "Belt global: z_offset=" << global_z_offset
                 << " za.global=" << za.global << " za.mode=" << int(za.mode) << " za.from=" << za.from
                 << " (relative to min across " << this->print()->objects().size() << " objects)";
+            m_belt_global_z_offset = global_z_offset;
             if (std::abs(global_z_offset) > EPSILON) {
                 for (Layer *layer : m_layers)
                     layer->print_z += global_z_offset;

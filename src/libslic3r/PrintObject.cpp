@@ -4065,6 +4065,67 @@ void PrintObject::combine_infill()
     }
 }
 
+// Belt printer: clip an ExtrusionEntityCollection to a region defined by clip_expoly.
+// Handles ExtrusionPath, ExtrusionMultiPath, ExtrusionLoop, and nested ExtrusionEntityCollection.
+static void clip_support_fills(ExtrusionEntityCollection &fills, const ExPolygons &clip_region)
+{
+    ExtrusionEntitiesPtr new_entities;
+    for (ExtrusionEntity *entity : fills.entities) {
+        if (auto *path = dynamic_cast<ExtrusionPath *>(entity)) {
+            ExtrusionEntityCollection clipped;
+            path->intersect_expolygons(clip_region, &clipped);
+            if (!clipped.empty()) {
+                for (ExtrusionEntity *e : clipped.entities)
+                    new_entities.push_back(e->clone());
+            }
+            delete entity;
+        } else if (auto *multipath = dynamic_cast<ExtrusionMultiPath *>(entity)) {
+            ExtrusionPaths new_paths;
+            for (const ExtrusionPath &p : multipath->paths) {
+                ExtrusionEntityCollection clipped;
+                p.intersect_expolygons(clip_region, &clipped);
+                for (ExtrusionEntity *e : clipped.entities)
+                    if (auto *cp = dynamic_cast<ExtrusionPath *>(e))
+                        new_paths.push_back(std::move(*cp));
+            }
+            if (!new_paths.empty()) {
+                multipath->paths = std::move(new_paths);
+                new_entities.push_back(multipath);
+            } else {
+                delete entity;
+            }
+        } else if (auto *loop = dynamic_cast<ExtrusionLoop *>(entity)) {
+            ExtrusionPaths new_paths;
+            for (const ExtrusionPath &p : loop->paths) {
+                ExtrusionEntityCollection clipped;
+                p.intersect_expolygons(clip_region, &clipped);
+                for (ExtrusionEntity *e : clipped.entities)
+                    if (auto *cp = dynamic_cast<ExtrusionPath *>(e))
+                        new_paths.push_back(std::move(*cp));
+            }
+            if (!new_paths.empty()) {
+                // Loop is no longer a closed loop after clipping; emit as individual paths.
+                for (auto &p : new_paths)
+                    new_entities.push_back(new ExtrusionPath(std::move(p)));
+                delete entity;
+            } else {
+                delete entity;
+            }
+        } else if (auto *coll = dynamic_cast<ExtrusionEntityCollection *>(entity)) {
+            clip_support_fills(*coll, clip_region);
+            if (!coll->empty()) {
+                new_entities.push_back(coll);
+            } else {
+                delete entity;
+            }
+        } else {
+            // Unknown entity type — keep as-is.
+            new_entities.push_back(entity);
+        }
+    }
+    fills.entities = std::move(new_entities);
+}
+
 void PrintObject::_generate_support_material()
 {
     if (is_tree(m_config.support_type.value)) {
@@ -4085,13 +4146,13 @@ void PrintObject::_generate_support_material()
         const double shear_factor = m_slicing_params.belt_floor_shear_factor;
         const int    from_axis    = m_slicing_params.belt_floor_from_axis;  // 0=X, 1=Y
         const double z_offset     = m_slicing_params.belt_floor_z_offset;
-
         // Large bound for the clip rectangle (in scaled coordinates).
         const coord_t large_bound = scale_(1e4);  // 10 meters, well beyond any print
 
         for (SupportLayer *support_layer : m_support_layers) {
             const double print_z = support_layer->print_z;
-            // Compute the cutoff on the from_axis: from_axis_val = (print_z + z_offset) / shear_factor
+            // print_z already includes global_z_offset, and the belt floor plane
+            // is in the same global coordinate frame, so no offset subtraction needed.
             const double cutoff = (print_z + z_offset) / shear_factor;
             const coord_t cutoff_scaled = scale_(cutoff);
 
@@ -4139,6 +4200,7 @@ void PrintObject::_generate_support_material()
                 }
             }
             Polygons clip_polygons = { clip_poly };
+            ExPolygons clip_expoly = { ExPolygon(clip_poly) };
 
             // Clip support_islands (ExPolygons used for retraction suppression and visualization).
             if (!support_layer->support_islands.empty())
@@ -4147,7 +4209,39 @@ void PrintObject::_generate_support_material()
             // Clip tree support base_areas if present.
             if (!support_layer->base_areas.empty())
                 support_layer->base_areas = intersection_ex(support_layer->base_areas, clip_polygons);
+
+            // Clip tree support roof/floor areas.
+            if (!support_layer->roof_areas.empty())
+                support_layer->roof_areas = intersection_ex(support_layer->roof_areas, clip_polygons);
+            if (!support_layer->floor_areas.empty())
+                support_layer->floor_areas = intersection_ex(support_layer->floor_areas, clip_polygons);
+            if (!support_layer->roof_1st_layer.empty())
+                support_layer->roof_1st_layer = intersection_ex(support_layer->roof_1st_layer, clip_polygons);
+            if (!support_layer->roof_gap_areas.empty())
+                support_layer->roof_gap_areas = intersection_ex(support_layer->roof_gap_areas, clip_polygons);
+
+            // Clip support_fills (actual printed toolpaths).
+            if (!support_layer->support_fills.empty())
+                clip_support_fills(support_layer->support_fills, clip_expoly);
+
+            // area_groups holds pointers into the area ExPolygons we just clipped/reallocated,
+            // so clear it to avoid dangling pointers. It has already been consumed by generate().
+            support_layer->area_groups.clear();
         }
+
+        // Remove support layers that are now completely empty after clipping.
+        m_support_layers.erase(
+            std::remove_if(m_support_layers.begin(), m_support_layers.end(),
+                [](const SupportLayer *sl) {
+                    return sl->support_fills.empty()
+                        && sl->support_islands.empty()
+                        && sl->base_areas.empty()
+                        && sl->roof_areas.empty()
+                        && sl->floor_areas.empty()
+                        && sl->roof_1st_layer.empty()
+                        && sl->roof_gap_areas.empty();
+                }),
+            m_support_layers.end());
     }
 }
 

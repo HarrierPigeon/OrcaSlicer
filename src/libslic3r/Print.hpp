@@ -573,7 +573,10 @@ private:
 
     PrintObject*                            m_shared_object{ nullptr };
 
-    
+    // Belt printer: global Z offset applied to this object's layers for shear positioning.
+    double                                  m_belt_global_z_offset { 0.0 };
+
+
     // SoftFever
     // 
     // object id
