@@ -4132,28 +4132,50 @@ void PrintObject::_generate_support_material()
         TreeSupport tree_support(*this, m_slicing_params);
         tree_support.throw_on_cancel = [this]() { this->throw_if_canceled(); };
         tree_support.generate();
+
+        // Tree support computes Z heights from SlicingParameters (which don't include
+        // global_z_offset). Apply the offset now so tree support layers match object layers.
+        if (std::abs(m_belt_global_z_offset) > EPSILON) {
+            for (SupportLayer *sl : m_support_layers)
+                sl->print_z += m_belt_global_z_offset;
+        }
     }
     else {
         PrintObjectSupportMaterial support_material(this, m_slicing_params);
         support_material.generate(*this);
+        // Normal support derives Z from object layers which already include global_z_offset.
     }
 
     // Belt printer: clip support layers to the transformed build plate (belt floor).
-    // The belt floor in the slicing frame is: Z_floor = shear_factor * from_axis - z_offset
-    // At a given print_z, supports should only exist where Z_floor < print_z,
-    // i.e. where from_axis is on the valid side of the cutoff line.
+    // The belt floor in the object's slicing frame is:
+    //   Z_floor(from_axis) = shear_factor * from_axis_val - z_offset
+    // where z_offset = min_rz (min sheared Z of the mesh, in model coords).
+    // print_z includes global_z_offset, so subtract it to get local Z for the cutoff.
     if (std::abs(m_slicing_params.belt_floor_shear_factor) > EPSILON && !m_support_layers.empty()) {
         const double shear_factor = m_slicing_params.belt_floor_shear_factor;
         const int    from_axis    = m_slicing_params.belt_floor_from_axis;  // 0=X, 1=Y
         const double z_offset     = m_slicing_params.belt_floor_z_offset;
+        const double global_z_off = m_belt_global_z_offset;
+        const double center_on_axis = unscale<double>((from_axis == 0)
+            ? this->center_offset().x() : this->center_offset().y());
+
+        BOOST_LOG_TRIVIAL(warning) << "Belt floor clip: shear=" << shear_factor
+            << " from_axis=" << from_axis << " z_offset=" << z_offset
+            << " global_z_off=" << global_z_off << " center_on_axis=" << center_on_axis
+            << " support_layers=" << m_support_layers.size()
+            << " first_pz=" << (m_support_layers.empty() ? 0.0 : m_support_layers.front()->print_z)
+            << " last_pz=" << (m_support_layers.empty() ? 0.0 : m_support_layers.back()->print_z);
+
         // Large bound for the clip rectangle (in scaled coordinates).
         const coord_t large_bound = scale_(1e4);  // 10 meters, well beyond any print
 
         for (SupportLayer *support_layer : m_support_layers) {
             const double print_z = support_layer->print_z;
-            // print_z already includes global_z_offset, and the belt floor plane
-            // is in the same global coordinate frame, so no offset subtraction needed.
-            const double cutoff = (print_z + z_offset) / shear_factor;
+            // Subtract global_z_offset to get local Z (belt floor params are per-object).
+            // Subtract center_on_axis to convert from model coords to slicing coords
+            // (belt floor z_offset is computed from raw_bounding_box in model coords,
+            // but support polygons are in slicing coords shifted by -center_offset).
+            const double cutoff = (print_z - global_z_off + z_offset) / shear_factor - center_on_axis;
             const coord_t cutoff_scaled = scale_(cutoff);
 
             // Build a clip polygon representing the valid half-plane.
