@@ -321,6 +321,21 @@ static t_config_enum_values s_keys_map_BeltRemapAxis {
 };
 CONFIG_OPTION_ENUM_DEFINE_STATIC_MAPS(BeltRemapAxis)
 
+static t_config_enum_values s_keys_map_BeltSupportFloorMode {
+    { "none",           int(BeltSupportFloorMode::None) },
+    { "generator_only", int(BeltSupportFloorMode::GeneratorOnly) },
+    { "clip_only",      int(BeltSupportFloorMode::ClipOnly) },
+    { "both",           int(BeltSupportFloorMode::Both) },
+};
+CONFIG_OPTION_ENUM_DEFINE_STATIC_MAPS(BeltSupportFloorMode)
+
+static t_config_enum_values s_keys_map_BeltSupportZOffsetMode {
+    { "none",           int(BeltSupportZOffsetMode::None) },
+    { "unconditional",  int(BeltSupportZOffsetMode::Unconditional) },
+    { "raft_only",      int(BeltSupportZOffsetMode::RaftOnly) },
+};
+CONFIG_OPTION_ENUM_DEFINE_STATIC_MAPS(BeltSupportZOffsetMode)
+
 static t_config_enum_values s_keys_map_SupportMaterialPattern {
     { "rectilinear",        smpRectilinear },
     { "rectilinear-grid",   smpRectilinearGrid },
@@ -6103,6 +6118,45 @@ void PrintConfigDef::init_fff_params()
     add_belt_remap("belt_gcode_remap_x", "X", "Which slicing axis maps to machine X in G-code output.", BeltRemapAxis::PosX);
     add_belt_remap("belt_gcode_remap_y", "Y", "Which slicing axis maps to machine Y in G-code output.", BeltRemapAxis::PosY);
     add_belt_remap("belt_gcode_remap_z", "Z", "Which slicing axis maps to machine Z in G-code output.", BeltRemapAxis::PosZ);
+
+    // Belt support floor debug controls
+    def = this->add("belt_support_floor_offset", coFloat);
+    def->label = L("Floor Z offset");
+    def->category = L("Printable space");
+    def->tooltip = L("Shifts the computed belt floor up or down (mm). Negative values lower the floor, allowing more supports to survive. Use this to diagnose belt floor formula issues.");
+    def->sidetext = L("mm");
+    def->min = -500;
+    def->max = 500;
+    def->mode = comAdvanced;
+    def->set_default_value(new ConfigOptionFloat(0));
+
+    {
+        auto def = this->add("belt_support_floor_mode", coEnum);
+        def->label = L("Floor mode");
+        def->category = L("Printable space");
+        def->tooltip = L("Controls where belt floor awareness is applied. 'None' disables all belt floor logic for supports. "
+                         "'Generator only' only stops tree support branches at the belt floor. "
+                         "'Clip only' only clips support geometry in post-processing. "
+                         "'Both' applies both (default).");
+        def->enum_keys_map = &ConfigOptionEnum<BeltSupportFloorMode>::get_enum_values();
+        def->enum_values  = {"none", "generator_only", "clip_only", "both"};
+        def->enum_labels  = {L("None"), L("Generator only"), L("Clip only"), L("Both")};
+        def->mode = comAdvanced;
+        def->set_default_value(new ConfigOptionEnum<BeltSupportFloorMode>(BeltSupportFloorMode::Both));
+    }
+
+    {
+        auto def = this->add("belt_support_z_offset_mode", coEnum);
+        def->label = L("Z offset mode");
+        def->category = L("Printable space");
+        def->tooltip = L("How global Z offset is applied to support layers for belt printers with global shear. "
+                         "'None' = don't offset. 'Unconditional' = offset all layers. 'Raft only' = only offset raft layers.");
+        def->enum_keys_map = &ConfigOptionEnum<BeltSupportZOffsetMode>::get_enum_values();
+        def->enum_values  = {"none", "unconditional", "raft_only"};
+        def->enum_labels  = {L("None"), L("Unconditional"), L("Raft only")};
+        def->mode = comAdvanced;
+        def->set_default_value(new ConfigOptionEnum<BeltSupportZOffsetMode>(BeltSupportZOffsetMode::Unconditional));
+    }
 
     def = this->add("tree_support_branch_angle", coFloat);
     def->label = L("Tree support branch angle");

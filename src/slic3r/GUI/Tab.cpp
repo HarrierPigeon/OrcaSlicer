@@ -4437,6 +4437,13 @@ void TabPrinter::build_fff()
             line.append_option(optgroup->get_option("belt_gcode_remap_z"));
             optgroup->append_line(line);
         }
+        {
+            Line line = { L("Support floor"), L("Belt floor awareness for support generation and clipping") };
+            line.append_option(optgroup->get_option("belt_support_floor_mode"));
+            line.append_option(optgroup->get_option("belt_support_floor_offset"));
+            line.append_option(optgroup->get_option("belt_support_z_offset_mode"));
+            optgroup->append_line(line);
+        }
         option = optgroup->get_option("thumbnails");
         option.opt.full_width = true;
         optgroup->append_single_option_line(option, "printer_basic_information_advanced#g-code-thumbnails");
@@ -5315,6 +5322,8 @@ void TabPrinter::toggle_options()
 
         auto scz = m_config->option<ConfigOptionEnum<BeltScaleMode>>("belt_scale_z")->value;
         toggle_option("belt_scale_z_angle", is_belt && scz != BeltScaleMode::None);
+
+        toggle_line("belt_support_floor_mode", is_belt);
     }
     
 

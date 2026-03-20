@@ -4128,21 +4128,32 @@ static void clip_support_fills(ExtrusionEntityCollection &fills, const ExPolygon
 
 void PrintObject::_generate_support_material()
 {
+    const auto &pcfg = this->print()->config();
+    const auto z_offset_mode = pcfg.belt_support_z_offset_mode.value;
+    const auto floor_mode    = pcfg.belt_support_floor_mode.value;
+
     if (is_tree(m_config.support_type.value)) {
         TreeSupport tree_support(*this, m_slicing_params);
         tree_support.throw_on_cancel = [this]() { this->throw_if_canceled(); };
         tree_support.generate();
 
-        // Tree support layers use Z heights from plan_layer_heights() which may not
-        // include global_z_offset. Apply it unconditionally so support layers align
-        // with the offset'd object layers.
-        if (std::abs(m_belt_global_z_offset) > EPSILON) {
-            BOOST_LOG_TRIVIAL(warning) << "Belt tree support Z offset: applying " << m_belt_global_z_offset
+        // Apply global_z_offset to support layers based on the configured mode.
+        if (std::abs(m_belt_global_z_offset) > EPSILON && z_offset_mode != BeltSupportZOffsetMode::None) {
+            BOOST_LOG_TRIVIAL(warning) << "Belt tree support Z offset: mode=" << int(z_offset_mode)
+                << " applying " << m_belt_global_z_offset
                 << " to " << m_support_layers.size() << " layers"
                 << " (before: first=" << (m_support_layers.empty() ? 0.0 : m_support_layers.front()->print_z)
                 << " last=" << (m_support_layers.empty() ? 0.0 : m_support_layers.back()->print_z) << ")";
-            for (SupportLayer *sl : m_support_layers)
-                sl->print_z += m_belt_global_z_offset;
+            if (z_offset_mode == BeltSupportZOffsetMode::Unconditional) {
+                for (SupportLayer *sl : m_support_layers)
+                    sl->print_z += m_belt_global_z_offset;
+            } else { // RaftOnly
+                const double raft_z_threshold = m_slicing_params.object_print_z_min + EPSILON;
+                for (SupportLayer *sl : m_support_layers) {
+                    if (sl->print_z <= raft_z_threshold)
+                        sl->print_z += m_belt_global_z_offset;
+                }
+            }
             BOOST_LOG_TRIVIAL(warning) << "Belt tree support Z offset: after: first="
                 << (m_support_layers.empty() ? 0.0 : m_support_layers.front()->print_z)
                 << " last=" << (m_support_layers.empty() ? 0.0 : m_support_layers.back()->print_z);
@@ -4151,13 +4162,17 @@ void PrintObject::_generate_support_material()
     else {
         PrintObjectSupportMaterial support_material(this, m_slicing_params);
         support_material.generate(*this);
-        // Normal support non-raft layers derive Z from object layers (already include
-        // global_z_offset). Raft layers need the offset added.
-        if (std::abs(m_belt_global_z_offset) > EPSILON) {
-            const double raft_z_threshold = m_slicing_params.object_print_z_min + EPSILON;
-            for (SupportLayer *sl : m_support_layers) {
-                if (sl->print_z <= raft_z_threshold)
+        // Normal support: apply global_z_offset based on configured mode.
+        if (std::abs(m_belt_global_z_offset) > EPSILON && z_offset_mode != BeltSupportZOffsetMode::None) {
+            if (z_offset_mode == BeltSupportZOffsetMode::Unconditional) {
+                for (SupportLayer *sl : m_support_layers)
                     sl->print_z += m_belt_global_z_offset;
+            } else { // RaftOnly
+                const double raft_z_threshold = m_slicing_params.object_print_z_min + EPSILON;
+                for (SupportLayer *sl : m_support_layers) {
+                    if (sl->print_z <= raft_z_threshold)
+                        sl->print_z += m_belt_global_z_offset;
+                }
             }
         }
     }
@@ -4167,16 +4182,19 @@ void PrintObject::_generate_support_material()
     //   Z_floor(from_axis) = shear_factor * from_axis_val - z_offset
     // where z_offset = min_rz (min sheared Z of the mesh, in model coords).
     // print_z includes global_z_offset, so subtract it to get local Z for the cutoff.
-    if (std::abs(m_slicing_params.belt_floor_shear_factor) > EPSILON && !m_support_layers.empty()) {
+    const bool do_belt_clip = (floor_mode == BeltSupportFloorMode::ClipOnly || floor_mode == BeltSupportFloorMode::Both);
+    if (do_belt_clip && std::abs(m_slicing_params.belt_floor_shear_factor) > EPSILON && !m_support_layers.empty()) {
         const double shear_factor = m_slicing_params.belt_floor_shear_factor;
         const int    from_axis    = m_slicing_params.belt_floor_from_axis;  // 0=X, 1=Y
         const double z_offset     = m_slicing_params.belt_floor_z_offset;
         const double global_z_off = m_belt_global_z_offset;
+        const double floor_offset = pcfg.belt_support_floor_offset.value;
         const double center_on_axis = unscale<double>((from_axis == 0)
             ? this->center_offset().x() : this->center_offset().y());
 
         BOOST_LOG_TRIVIAL(warning) << "Belt floor clip: shear=" << shear_factor
             << " from_axis=" << from_axis << " z_offset=" << z_offset
+            << " floor_offset=" << floor_offset
             << " global_z_off=" << global_z_off << " center_on_axis=" << center_on_axis
             << " support_layers=" << m_support_layers.size()
             << " first_pz=" << (m_support_layers.empty() ? 0.0 : m_support_layers.front()->print_z)
@@ -4193,7 +4211,7 @@ void PrintObject::_generate_support_material()
             // Subtract center_on_axis to convert from model coords to slicing coords
             // (belt floor z_offset is computed from raw_bounding_box in model coords,
             // but support polygons are in slicing coords shifted by -center_offset).
-            const double cutoff = (print_z - global_z_off + z_offset) / shear_factor - center_on_axis;
+            const double cutoff = (print_z - global_z_off + z_offset - floor_offset) / shear_factor - center_on_axis;
             const coord_t cutoff_scaled = scale_(cutoff);
 
             // Per-layer debug diagnostics for first/last 3 layers.

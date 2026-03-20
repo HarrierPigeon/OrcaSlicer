@@ -303,6 +303,11 @@ bool Print::invalidate_state_by_config_options(const ConfigOptionResolver & /* n
             || opt_key == "belt_scale_z_angle") {
             osteps.emplace_back(posSlice);
         } else if (
+               opt_key == "belt_support_floor_offset"
+            || opt_key == "belt_support_floor_mode"
+            || opt_key == "belt_support_z_offset_mode") {
+            osteps.emplace_back(posSupportMaterial);
+        } else if (
                opt_key == "print_sequence"
             || opt_key == "filament_type"
             || opt_key == "chamber_temperature"
