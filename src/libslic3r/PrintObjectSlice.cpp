@@ -126,7 +126,8 @@ static std::vector<VolumeSlices> slice_volumes_inner(
     ModelVolumePtrs                                           model_volumes,
     const std::vector<PrintObjectRegions::LayerRangeRegions> &layer_ranges,
     const std::vector<float>                                 &zs,
-    const std::function<void()>                              &throw_on_cancel_callback)
+    const std::function<void()>                              &throw_on_cancel_callback,
+    double                                                   *out_belt_min_z = nullptr)
 {
     model_volumes_sort_by_id(model_volumes);
 
@@ -226,6 +227,8 @@ static std::vector<VolumeSlices> slice_volumes_inner(
                 z_shift.matrix()(2, 3) = belt_z_shift_val;
                 params_base.trafo = z_shift * params_base.trafo;
             }
+            if (out_belt_min_z)
+                *out_belt_min_z = (min_z != std::numeric_limits<double>::max()) ? min_z : 0.;
         }
     }
     //BBS: 0.0025mm is safe enough to simplify the data to speed slicing up for high-resolution model.
@@ -972,18 +975,14 @@ void PrintObject::slice()
             const auto &za = gaxes[2]; // Z row
             if (za.global && za.mode != BeltShearMode::None && za.from < 2) {
                 double factor = compute_shear_factor(za.mode, za.angle);
-                // The bottom of every object sits on the belt surface (Z=0
-                // plane, guaranteed by ensure_on_bed).  The belt surface
-                // height at any Y is Y * factor.  The front edge of the
-                // bounding box (physical min Y) is the lowest belt point
-                // for this object.  All other bottom-face points are at
-                // higher Y → higher Z on the belt, handled by the per-object
-                // belt shear.  This works for any mesh shape.
+                // The Z-shift brought the mesh's lowest sheared vertex to
+                // Z=0.  That vertex's physical Y determines the belt contact
+                // point.  With trafo_z preserved (ensure_on_bed offset),
+                // min_z = Y_at_contact * factor for bottom-face vertices,
+                // so: z_offset = center_Y * factor + min_z.
                 Point phys = inst_shift; // already has center_offset subtracted
                 double center_on_axis = (za.from == 0) ? unscale<double>(phys.x()) : unscale<double>(phys.y());
-                double half_ext = (za.from == 0) ? unscale<double>(this->size().x()) / 2.
-                                                 : unscale<double>(this->size().y()) / 2.;
-                global_z_offset += (center_on_axis - half_ext) * factor;
+                global_z_offset += center_on_axis * factor + m_belt_min_z;
             }
 
             BOOST_LOG_TRIVIAL(warning) << "Belt global: z_offset=" << global_z_offset
@@ -1308,7 +1307,8 @@ void PrintObject::slice_volumes()
     if (!slice_zs.empty()) {
         objSliceByVolume = slice_volumes_inner(
             print->config(), this->config(), this->trafo_centered(),
-            this->model_object()->volumes, m_shared_regions->layer_ranges, slice_zs, throw_on_cancel_callback);
+            this->model_object()->volumes, m_shared_regions->layer_ranges, slice_zs, throw_on_cancel_callback,
+            &m_belt_min_z);
     }
 
     //BBS: "model_part" volumes are grouded according to their connections
