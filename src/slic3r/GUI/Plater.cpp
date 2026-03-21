@@ -6900,7 +6900,7 @@ std::vector<size_t> Plater::priv::load_model_objects(const ModelObjectPtrs& mode
     // BBS: find an empty cell to put the copied object
     for (auto& instance : new_instances) {
         auto offset = instance->get_offset();
-        auto start_point = this->bed.build_volume().bounding_volume2d().center();
+        auto start_point = this->bed.build_volume().bed_center();
         bool plate_empty = partplate_list.get_curr_plate()->empty();
         Vec3d displacement;
         if (plate_empty)
