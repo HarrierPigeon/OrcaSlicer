@@ -154,8 +154,10 @@ static std::vector<PrintObjectTrafoAndInstances> print_objects_from_model_object
             trafo.trafo.data()[13] = 0;
             // Belt printer global mode: prevent instance grouping so each
             // copy gets its own PrintObject with independent layer Z values.
+            // Add a tiny unique perturbation to the existing Z (don't replace
+            // it — the Z translation from ensure_on_bed must be preserved).
             if (force_separate_instances)
-                trafo.trafo.data()[14] = 1e-10 * (++unique_counter);
+                trafo.trafo.data()[14] += 1e-10 * (++unique_counter);
             // Search or insert a trafo.
             auto it = trafos.emplace(trafo).first;
             const_cast<PrintObjectTrafoAndInstances&>(*it).instances.emplace_back(PrintInstance{ nullptr, model_instance, shift });
