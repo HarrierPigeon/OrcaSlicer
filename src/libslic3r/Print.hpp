@@ -575,6 +575,8 @@ private:
 
     // Belt printer: global Z offset applied to this object's layers for shear positioning.
     double                                  m_belt_global_z_offset { 0.0 };
+    // Belt printer: per-object Z-shift applied during slicing to bring mesh min_z to 0.
+    double                                  m_belt_z_shift { 0.0 };
 public:
     double belt_global_z_offset() const { return m_belt_global_z_offset; }
 private:

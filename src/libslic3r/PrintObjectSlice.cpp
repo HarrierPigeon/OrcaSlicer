@@ -126,7 +126,8 @@ static std::vector<VolumeSlices> slice_volumes_inner(
     ModelVolumePtrs                                           model_volumes,
     const std::vector<PrintObjectRegions::LayerRangeRegions> &layer_ranges,
     const std::vector<float>                                 &zs,
-    const std::function<void()>                              &throw_on_cancel_callback)
+    const std::function<void()>                              &throw_on_cancel_callback,
+    double                                                   *out_belt_z_shift = nullptr)
 {
     model_volumes_sort_by_id(model_volumes);
 
@@ -217,13 +218,16 @@ static std::vector<VolumeSlices> slice_volumes_inner(
                     min_z = std::min(min_z, pt.z());
                 }
             }
+            double belt_z_shift_val = (min_z < 0. && min_z != std::numeric_limits<double>::max()) ? -min_z : 0.;
             BOOST_LOG_TRIVIAL(warning) << "Belt Z-shift: min_z=" << min_z
-                << " z_shift=" << (min_z < 0. ? -min_z : 0.);
-            if (min_z < 0. && min_z != std::numeric_limits<double>::max()) {
+                << " z_shift=" << belt_z_shift_val;
+            if (belt_z_shift_val > 0.) {
                 Transform3d z_shift = Transform3d::Identity();
-                z_shift.matrix()(2, 3) = -min_z;
+                z_shift.matrix()(2, 3) = belt_z_shift_val;
                 params_base.trafo = z_shift * params_base.trafo;
             }
+            if (out_belt_z_shift)
+                *out_belt_z_shift = belt_z_shift_val;
         }
     }
     //BBS: 0.0025mm is safe enough to simplify the data to speed slicing up for high-resolution model.
@@ -970,22 +974,15 @@ void PrintObject::slice()
             const auto &za = gaxes[2]; // Z row
             if (za.global && za.mode != BeltShearMode::None && za.from < 2) {
                 double factor = compute_shear_factor(za.mode, za.angle);
-                // Use the front edge position (minimum Y/X of mesh on bed), not
-                // the center.  The per-object Z-shift brings the front edge to
-                // Z=0, so the global offset must measure from front edges too.
-                // front_edge = physical_center - half_extent_on_shear_axis.
-                auto get_front_edge = [&](const PrintObject *obj) {
-                    Point phys = obj->instances().front().shift - obj->center_offset();
-                    double center_val = (za.from == 0) ? unscale<double>(phys.x()) : unscale<double>(phys.y());
-                    double half_ext   = (za.from == 0) ? unscale<double>(obj->size().x()) / 2.
-                                                       : unscale<double>(obj->size().y()) / 2.;
-                    return center_val - half_ext;
-                };
-                double this_front = get_front_edge(this);
-                // Absolute offset: the belt surface at front_edge Y is at
-                // Z = front_edge * factor.  The per-object Z-shift already
-                // brought the front edge to Z=0, so add the full belt height.
-                global_z_offset += factor * this_front;
+                // The per-object Z-shift (m_belt_z_shift) brings the mesh's
+                // lowest sheared point to Z=0.  The belt surface height at
+                // that point's physical Y is:
+                //   z_offset = physical_center_Y * factor - z_shift
+                // This uses the actual mesh geometry (via z_shift) rather than
+                // bounding-box estimates, so it works for complex shapes.
+                Point phys = inst_shift; // already has center_offset subtracted
+                double center_on_axis = (za.from == 0) ? unscale<double>(phys.x()) : unscale<double>(phys.y());
+                global_z_offset += center_on_axis * factor - m_belt_z_shift;
             }
 
             BOOST_LOG_TRIVIAL(warning) << "Belt global: z_offset=" << global_z_offset
@@ -1310,7 +1307,8 @@ void PrintObject::slice_volumes()
     if (!slice_zs.empty()) {
         objSliceByVolume = slice_volumes_inner(
             print->config(), this->config(), this->trafo_centered(),
-            this->model_object()->volumes, m_shared_regions->layer_ranges, slice_zs, throw_on_cancel_callback);
+            this->model_object()->volumes, m_shared_regions->layer_ranges, slice_zs, throw_on_cancel_callback,
+            &m_belt_z_shift);
     }
 
     //BBS: "model_part" volumes are grouded according to their connections
