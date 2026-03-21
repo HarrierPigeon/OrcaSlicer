@@ -217,6 +217,8 @@ static std::vector<VolumeSlices> slice_volumes_inner(
                     min_z = std::min(min_z, pt.z());
                 }
             }
+            BOOST_LOG_TRIVIAL(warning) << "Belt Z-shift: min_z=" << min_z
+                << " z_shift=" << (min_z < 0. ? -min_z : 0.);
             if (min_z < 0. && min_z != std::numeric_limits<double>::max()) {
                 Transform3d z_shift = Transform3d::Identity();
                 z_shift.matrix()(2, 3) = -min_z;
@@ -947,7 +949,8 @@ void PrintObject::slice()
                 }
             };
 
-            Point inst_shift = this->instances().empty() ? Point(0, 0) : this->instances().front().shift;
+            Point inst_shift = this->instances().empty() ? Point(0, 0)
+                : this->instances().front().shift - this->center_offset();
             BOOST_LOG_TRIVIAL(warning) << "Belt global: object " << this->model_object()->name
                 << " instances=" << this->instances().size()
                 << " shift=(" << unscale<double>(inst_shift.x()) << ", " << unscale<double>(inst_shift.y()) << ")";
@@ -975,7 +978,7 @@ void PrintObject::slice()
                 double min_shift = this_shift;
                 for (const PrintObject *obj : this->print()->objects()) {
                     if (!obj->instances().empty())
-                        min_shift = std::min(min_shift, get_shift(obj->instances().front().shift));
+                        min_shift = std::min(min_shift, get_shift(obj->instances().front().shift - obj->center_offset()));
                 }
                 global_z_offset += factor * (this_shift - min_shift);
             }
@@ -987,9 +990,13 @@ void PrintObject::slice()
             if (std::abs(global_z_offset) > EPSILON) {
                 for (Layer *layer : m_layers)
                     layer->print_z += global_z_offset;
-                // Note: support layers don't exist yet during slice() — they are
-                // created later in _generate_support_material(), which handles
-                // raft layer offsets itself.
+            }
+            if (!m_layers.empty()) {
+                BOOST_LOG_TRIVIAL(warning) << "Belt global: first_layer_z=" << m_layers.front()->print_z
+                    << " last_layer_z=" << m_layers.back()->print_z
+                    << " num_layers=" << m_layers.size()
+                    << " center_offset=(" << unscale<double>(m_center_offset.x())
+                    << ", " << unscale<double>(m_center_offset.y()) << ")";
             }
         }
     }
