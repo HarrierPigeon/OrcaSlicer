@@ -970,17 +970,22 @@ void PrintObject::slice()
             const auto &za = gaxes[2]; // Z row
             if (za.global && za.mode != BeltShearMode::None && za.from < 2) {
                 double factor = compute_shear_factor(za.mode, za.angle);
-                auto get_shift = [&](const Point &s) {
-                    return (za.from == 0) ? unscale<double>(s.x()) : unscale<double>(s.y());
+                // Use the front edge position (minimum Y/X of mesh on bed), not
+                // the center.  The per-object Z-shift brings the front edge to
+                // Z=0, so the global offset must measure from front edges too.
+                // front_edge = physical_center - half_extent_on_shear_axis.
+                auto get_front_edge = [&](const PrintObject *obj) {
+                    Point phys = obj->instances().front().shift - obj->center_offset();
+                    double center_val = (za.from == 0) ? unscale<double>(phys.x()) : unscale<double>(phys.y());
+                    double half_ext   = (za.from == 0) ? unscale<double>(obj->size().x()) / 2.
+                                                       : unscale<double>(obj->size().y()) / 2.;
+                    return center_val - half_ext;
                 };
-                double this_shift = get_shift(inst_shift);
-                // Find minimum shift across all objects for relative offset.
-                double min_shift = this_shift;
-                for (const PrintObject *obj : this->print()->objects()) {
-                    if (!obj->instances().empty())
-                        min_shift = std::min(min_shift, get_shift(obj->instances().front().shift - obj->center_offset()));
-                }
-                global_z_offset += factor * (this_shift - min_shift);
+                double this_front = get_front_edge(this);
+                // Absolute offset: the belt surface at front_edge Y is at
+                // Z = front_edge * factor.  The per-object Z-shift already
+                // brought the front edge to Z=0, so add the full belt height.
+                global_z_offset += factor * this_front;
             }
 
             BOOST_LOG_TRIVIAL(warning) << "Belt global: z_offset=" << global_z_offset
