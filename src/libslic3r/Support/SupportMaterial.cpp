@@ -367,9 +367,14 @@ inline void layers_append(SupportGeneratorLayersPtr &dst, const SupportGenerator
 }
 
 // Support layer that is covered by some form of dense interface.
-static constexpr const std::initializer_list<SupporLayerType> support_types_interface { 
+static constexpr const std::initializer_list<SupporLayerType> support_types_interface {
     SupporLayerType::RaftInterface, SupporLayerType::BottomContact, SupporLayerType::BottomInterface, SupporLayerType::TopContact, SupporLayerType::TopInterface
 };
+
+// Forward declarations for belt floor helpers (defined later in this file).
+static Polygons belt_floor_valid_region_polygon(
+    const SlicingParameters &slicing_params, const PrintConfig &print_config,
+    const PrintObject &object, coordf_t print_z);
 
 void PrintObjectSupportMaterial::generate(PrintObject &object)
 {
@@ -507,6 +512,28 @@ void PrintObjectSupportMaterial::generate(PrintObject &object)
         this->clip_with_shape(base, shape);
     }
 */
+
+    // Belt floor: clip ALL support layer polygons to the valid region above the belt plane.
+    // This catches top contacts, bottom contacts, interfaces, base layers, etc.
+    if (std::abs(m_slicing_params.belt_floor_shear_factor) > EPSILON
+        && (m_print_config->belt_support_floor_mode.value == BeltSupportFloorMode::GeneratorOnly
+         || m_print_config->belt_support_floor_mode.value == BeltSupportFloorMode::Both)) {
+        auto clip_layers_to_belt = [this, &object](SupportGeneratorLayersPtr &layers) {
+            for (SupportGeneratorLayer *layer : layers) {
+                if (layer->polygons.empty())
+                    continue;
+                Polygons valid = belt_floor_valid_region_polygon(
+                    m_slicing_params, *m_print_config, object, layer->print_z);
+                if (! valid.empty())
+                    layer->polygons = intersection(layer->polygons, valid);
+            }
+        };
+        clip_layers_to_belt(top_contacts);
+        clip_layers_to_belt(bottom_contacts);
+        clip_layers_to_belt(intermediate_layers);
+        clip_layers_to_belt(interface_layers);
+        clip_layers_to_belt(base_interface_layers);
+    }
 
     BOOST_LOG_TRIVIAL(info) << "Support generator - Creating layers";
 
