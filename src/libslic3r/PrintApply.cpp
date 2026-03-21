@@ -1511,6 +1511,7 @@ Print::ApplyStatus Print::apply(const Model &model, DynamicPrintConfig new_full_
         PrintObjectPtrs print_objects_new;
         print_objects_new.reserve(std::max(m_objects.size(), m_model.objects.size()));
         bool new_objects = false;
+        bool belt_instances_shifted = false;
         // Walk over all new model objects and check, whether there are matching PrintObjects.
         for (ModelObject *model_object : m_model.objects) {
             ModelObjectStatus &model_object_status = const_cast<ModelObjectStatus&>(model_object_status_db.reuse(*model_object));
@@ -1567,6 +1568,7 @@ Print::ApplyStatus Print::apply(const Model &model, DynamicPrintConfig new_full_
                     if (status != PrintBase::APPLY_STATUS_UNCHANGED) {
                         size_t extruder_num = new_full_config.option<ConfigOptionFloats>("nozzle_diameter")->size();
                         update_apply_status(status == PrintBase::APPLY_STATUS_INVALIDATED);
+                        belt_instances_shifted = true;
                     }
 					print_objects_new.emplace_back((*it_old)->print_object);
 					const_cast<PrintObjectStatus*>(*it_old)->status = PrintObjectStatus::Reused;
@@ -1601,6 +1603,17 @@ Print::ApplyStatus Print::apply(const Model &model, DynamicPrintConfig new_full_
             if (/*object->config().adaptive_layer_height &&*/ ept_iter != print_diff.end()) {
                 update_apply_status(object->invalidate_step(posSlice));
             }
+        }
+
+        // Belt printer global mode: when any object's instances shifted,
+        // recompute m_belt_global_z_offset for ALL objects (it depends on
+        // min_shift across all objects, so one move affects everyone).
+        if (belt_instances_shifted
+            && m_config.belt_printer.value
+            && m_config.belt_shear_z_global.value
+            && m_config.belt_shear_z.value != BeltShearMode::None) {
+            for (PrintObject *object : m_objects)
+                update_apply_status(object->invalidate_step(posSlice));
         }
     }
 
