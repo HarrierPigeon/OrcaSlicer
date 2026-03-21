@@ -372,9 +372,15 @@ static constexpr const std::initializer_list<SupporLayerType> support_types_inte
 };
 
 // Forward declarations for belt floor helpers (defined later in this file).
+static Polygons belt_floor_surface_polygon(
+    const SlicingParameters &slicing_params, const PrintConfig &print_config,
+    const PrintObject &object, coordf_t print_z);
 static Polygons belt_floor_valid_region_polygon(
     const SlicingParameters &slicing_params, const PrintConfig &print_config,
     const PrintObject &object, coordf_t print_z);
+static void trim_support_layers_by_belt_floor(
+    const SlicingParameters &slicing_params, const PrintConfig &print_config,
+    const PrintObject &object, SupportGeneratorLayersPtr &support_layers);
 
 void PrintObjectSupportMaterial::generate(PrintObject &object)
 {
@@ -448,11 +454,12 @@ void PrintObjectSupportMaterial::generate(PrintObject &object)
         object, bottom_contacts, top_contacts, layer_storage);
 
     this->trim_support_layers_by_object(object, top_contacts, m_slicing_params.gap_support_object, m_slicing_params.gap_object_support, m_support_params.gap_xy);
+    trim_support_layers_by_belt_floor(m_slicing_params, *m_print_config, object, top_contacts);
 
 #ifdef SLIC3R_DEBUG
     for (const SupportGeneratorLayer *layer : top_contacts)
         Slic3r::SVG::export_expolygons(
-            debug_out_path("support-top-contacts-trimmed-by-object-%d-%lf.svg", iRun, layer->print_z), 
+            debug_out_path("support-top-contacts-trimmed-by-object-%d-%lf.svg", iRun, layer->print_z),
             union_ex(layer->polygons));
 #endif
 
@@ -512,28 +519,6 @@ void PrintObjectSupportMaterial::generate(PrintObject &object)
         this->clip_with_shape(base, shape);
     }
 */
-
-    // Belt floor: clip ALL support layer polygons to the valid region above the belt plane.
-    // This catches top contacts, bottom contacts, interfaces, base layers, etc.
-    if (std::abs(m_slicing_params.belt_floor_shear_factor) > EPSILON
-        && (m_print_config->belt_support_floor_mode.value == BeltSupportFloorMode::GeneratorOnly
-         || m_print_config->belt_support_floor_mode.value == BeltSupportFloorMode::Both)) {
-        auto clip_layers_to_belt = [this, &object](SupportGeneratorLayersPtr &layers) {
-            for (SupportGeneratorLayer *layer : layers) {
-                if (layer->polygons.empty())
-                    continue;
-                Polygons valid = belt_floor_valid_region_polygon(
-                    m_slicing_params, *m_print_config, object, layer->print_z);
-                if (! valid.empty())
-                    layer->polygons = intersection(layer->polygons, valid);
-            }
-        };
-        clip_layers_to_belt(top_contacts);
-        clip_layers_to_belt(bottom_contacts);
-        clip_layers_to_belt(intermediate_layers);
-        clip_layers_to_belt(interface_layers);
-        clip_layers_to_belt(base_interface_layers);
-    }
 
     BOOST_LOG_TRIVIAL(info) << "Support generator - Creating layers";
 
@@ -646,12 +631,14 @@ static Polygons belt_floor_surface_polygon(
 
     const int    from_axis    = slicing_params.belt_floor_from_axis;  // 0=X, 1=Y
     const double z_offset     = slicing_params.belt_floor_z_offset;
-    const double global_z_off = object.belt_global_z_offset();
     const double floor_offset = print_config.belt_support_floor_offset.value;
     const double center_on_axis = unscale<double>((from_axis == 0)
         ? object.center_offset().x() : object.center_offset().y());
 
-    const double cutoff = (print_z - global_z_off + z_offset - floor_offset) / shear_factor - center_on_axis;
+    // Note: no global_z_off subtraction here -- the generator operates in the local
+    // (pre-offset) frame.  The post-hoc clip in PrintObject.cpp subtracts it because
+    // support layer Z values have already been offset at that point.
+    const double cutoff = (print_z + z_offset - floor_offset) / shear_factor - center_on_axis;
     const coord_t cutoff_scaled = scale_(cutoff);
     const coord_t large_bound = scale_(1e4);
 
@@ -714,12 +701,12 @@ static Polygons belt_floor_valid_region_polygon(
 
     const int    from_axis    = slicing_params.belt_floor_from_axis;
     const double z_offset     = slicing_params.belt_floor_z_offset;
-    const double global_z_off = object.belt_global_z_offset();
     const double floor_offset = print_config.belt_support_floor_offset.value;
     const double center_on_axis = unscale<double>((from_axis == 0)
         ? object.center_offset().x() : object.center_offset().y());
 
-    const double cutoff = (print_z - global_z_off + z_offset - floor_offset) / shear_factor - center_on_axis;
+    // No global_z_off -- generator operates in local (pre-offset) frame.
+    const double cutoff = (print_z + z_offset - floor_offset) / shear_factor - center_on_axis;
     const coord_t cutoff_scaled = scale_(cutoff);
     const coord_t large_bound = scale_(1e4);
 
@@ -3008,6 +2995,7 @@ SupportGeneratorLayersPtr PrintObjectSupportMaterial::bottom_contact_layers_and_
 
     std::reverse(bottom_contacts.begin(), bottom_contacts.end());
     trim_support_layers_by_object(object, bottom_contacts, m_slicing_params.gap_support_object, m_slicing_params.gap_object_support, m_support_params.gap_xy);
+    trim_support_layers_by_belt_floor(m_slicing_params, *m_print_config, object, bottom_contacts);
     return bottom_contacts;
 }
 
@@ -3378,6 +3366,38 @@ void PrintObjectSupportMaterial::generate_base_layers(
 #endif /* SLIC3R_DEBUG */
 
     this->trim_support_layers_by_object(object, intermediate_layers, m_slicing_params.gap_support_object, m_slicing_params.gap_object_support, m_support_params.gap_xy);
+    trim_support_layers_by_belt_floor(m_slicing_params, *m_print_config, object, intermediate_layers);
+}
+
+// Belt printer: trim support layer polygons by the belt floor plane.
+// For each support layer, computes the belt floor half-plane at that layer's print_z
+// and subtracts it from the support polygons. This follows the same diff() pattern
+// as trim_support_layers_by_object() so that interface layers derived from trimmed
+// intermediates automatically inherit the belt floor trimming.
+static void trim_support_layers_by_belt_floor(
+    const SlicingParameters          &slicing_params,
+    const PrintConfig                &print_config,
+    const PrintObject                &object,
+    SupportGeneratorLayersPtr        &support_layers)
+{
+    if (std::abs(slicing_params.belt_floor_shear_factor) < EPSILON)
+        return;
+    if (print_config.belt_support_floor_mode.value != BeltSupportFloorMode::GeneratorOnly
+     && print_config.belt_support_floor_mode.value != BeltSupportFloorMode::Both)
+        return;
+
+    tbb::parallel_for(tbb::blocked_range<size_t>(0, support_layers.size()),
+        [&](const tbb::blocked_range<size_t> &range) {
+            for (size_t i = range.begin(); i < range.end(); ++ i) {
+                SupportGeneratorLayer *layer = support_layers[i];
+                if (layer->polygons.empty())
+                    continue;
+                Polygons belt_surface = belt_floor_surface_polygon(
+                    slicing_params, print_config, object, layer->print_z);
+                if (! belt_surface.empty())
+                    layer->polygons = diff(layer->polygons, belt_surface);
+            }
+        });
 }
 
 void PrintObjectSupportMaterial::trim_support_layers_by_object(
