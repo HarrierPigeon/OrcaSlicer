@@ -642,14 +642,12 @@ double TreeSupport::belt_floor_print_z(const Point &pos_slicing) const
     double sf = m_slicing_params.belt_floor_shear_factor;
     if (std::abs(sf) < EPSILON)
         return -std::numeric_limits<double>::max(); // no belt floor
-    int    from     = m_slicing_params.belt_floor_from_axis;
-    double bb_min_z = m_slicing_params.belt_floor_bb_min_z;
-    // The belt floor Z at a given slicing position.
-    // This is the inverse of the cutoff formula: given pos, compute Z_floor.
-    // cutoff = (Z + bb_min_z) / sf  →  Z = sf * pos - bb_min_z
+    int from = m_slicing_params.belt_floor_from_axis;
+    // Global belt floor line: Z = sf * Y, starting at origin.
+    // Inverse of the cutoff formula: cutoff = (Z - floor_offset) / sf  →  Z = sf * pos + floor_offset
     double pos = unscale<double>(from == 0 ? pos_slicing.x() : pos_slicing.y());
     double floor_offset = m_print_config->belt_support_floor_offset.value;
-    return sf * pos - bb_min_z + floor_offset;
+    return sf * pos + floor_offset;
 }
 
 #define SUPPORT_SURFACES_OFFSET_PARAMETERS ClipperLib::jtSquare, 0.
@@ -2462,7 +2460,7 @@ void TreeSupport::drop_nodes()
     const size_t top_interface_layers = config.support_interface_top_layers.value;
     const auto belt_floor_mode = m_print_config->belt_support_floor_mode.value;
     const bool has_belt_floor = std::abs(m_slicing_params.belt_floor_shear_factor) > EPSILON
-        && (belt_floor_mode == BeltSupportFloorMode::GeneratorOnly || belt_floor_mode == BeltSupportFloorMode::Both);
+        && belt_floor_mode == BeltSupportFloorMode::GeneratorOnly;
     const size_t bottom_interface_layers = config.support_interface_bottom_layers.value < 0 ? top_interface_layers : config.support_interface_bottom_layers.value;
     SupportNode::diameter_angle_scale_factor = diameter_angle_scale_factor;
     float        DO_NOT_MOVER_UNDER_MM       = is_slim ? 0 : 5;                     // do not move contact points under 5mm
@@ -3202,7 +3200,7 @@ void TreeSupport::generate_contact_points()
     const bool force_tip_to_roof = roof_enabled && m_support_params.soluble_interface;
     const auto belt_floor_mode = m_print_config->belt_support_floor_mode.value;
     const bool has_belt_floor = std::abs(m_slicing_params.belt_floor_shear_factor) > EPSILON
-        && (belt_floor_mode == BeltSupportFloorMode::GeneratorOnly || belt_floor_mode == BeltSupportFloorMode::Both);
+        && belt_floor_mode == BeltSupportFloorMode::GeneratorOnly;
 
     //First generate grid points to cover the entire area of the print.
     BoundingBox bounding_box = m_object->bounding_box();
