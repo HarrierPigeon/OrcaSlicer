@@ -454,7 +454,6 @@ void PrintObjectSupportMaterial::generate(PrintObject &object)
         object, bottom_contacts, top_contacts, layer_storage);
 
     this->trim_support_layers_by_object(object, top_contacts, m_slicing_params.gap_support_object, m_slicing_params.gap_object_support, m_support_params.gap_xy);
-    trim_support_layers_by_belt_floor(m_slicing_params, *m_print_config, object, top_contacts);
 
 #ifdef SLIC3R_DEBUG
     for (const SupportGeneratorLayer *layer : top_contacts)
@@ -2900,7 +2899,7 @@ SupportGeneratorLayersPtr PrintObjectSupportMaterial::bottom_contact_layers_and_
         if (! overhangs_for_bottom_contacts.empty())
             // Find the bottom contact layers above the top surfaces of this layer,
             // and also detect belt floor contacts if belt mode is active.
-            task_group.run([this, &object, &layer, &top_contacts, contact_idx, &layer_storage, &layer_support_areas, &bottom_contacts, &overhangs_for_bottom_contacts, has_belt_floor
+            task_group.run([this, &object, &layer, &top_contacts, contact_idx, &layer_storage, &layer_support_areas, &bottom_contacts, &overhangs_for_bottom_contacts
     #ifdef SLIC3R_DEBUG
                 , iRun, &polygons_new
     #endif // SLIC3R_DEBUG
@@ -2914,15 +2913,6 @@ SupportGeneratorLayersPtr PrintObjectSupportMaterial::bottom_contact_layers_and_
                     );
                     if (layer_new)
                         bottom_contacts.push_back(layer_new);
-                    // Belt floor: detect where support meets the belt plane.
-                    if (has_belt_floor) {
-                        SupportGeneratorLayer *belt_layer = detect_belt_floor_bottom_contacts(
-                            m_slicing_params, m_support_params, *m_print_config, object,
-                            layer, top_contacts, contact_idx, layer_storage,
-                            layer_support_areas, overhangs_for_bottom_contacts);
-                        if (belt_layer)
-                            bottom_contacts.push_back(belt_layer);
-                    }
                 });
 
         Polygons &layer_support_area = layer_support_areas[layer_id];
@@ -2961,25 +2951,6 @@ SupportGeneratorLayersPtr PrintObjectSupportMaterial::bottom_contact_layers_and_
 
         task_group.wait();
 
-        // Belt floor: clip all support geometry so nothing extends below the belt plane.
-        // This clips: (1) the downward-propagating projections (affects future layers),
-        // (2) this layer's support area (used by generate_base_layers to fill intermediates),
-        // and (3) enforcer areas.
-        if (has_belt_floor) {
-            Polygons valid_region = belt_floor_valid_region_polygon(
-                m_slicing_params, *m_print_config, object, layer.print_z);
-            if (! valid_region.empty()) {
-                if (! overhangs_projection.empty())
-                    overhangs_projection = intersection(overhangs_projection, valid_region);
-                if (! enforcers_projection.empty())
-                    enforcers_projection = intersection(enforcers_projection, valid_region);
-                if (! layer_support_area.empty())
-                    layer_support_area = intersection(layer_support_area, valid_region);
-                if (! layer_support_area_enforcers.empty())
-                    layer_support_area_enforcers = intersection(layer_support_area_enforcers, valid_region);
-            }
-        }
-
         if (! layer_support_area_enforcers.empty()) {
             if (layer_support_area.empty())
                 layer_support_area = std::move(layer_support_area_enforcers);
@@ -2990,7 +2961,6 @@ SupportGeneratorLayersPtr PrintObjectSupportMaterial::bottom_contact_layers_and_
 
     std::reverse(bottom_contacts.begin(), bottom_contacts.end());
     trim_support_layers_by_object(object, bottom_contacts, m_slicing_params.gap_support_object, m_slicing_params.gap_object_support, m_support_params.gap_xy);
-    trim_support_layers_by_belt_floor(m_slicing_params, *m_print_config, object, bottom_contacts);
     return bottom_contacts;
 }
 

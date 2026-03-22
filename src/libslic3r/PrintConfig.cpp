@@ -6134,15 +6134,13 @@ void PrintConfigDef::init_fff_params()
         auto def = this->add("belt_support_floor_mode", coEnum);
         def->label = L("Floor mode");
         def->category = L("Printable space");
-        def->tooltip = L("Controls where belt floor awareness is applied. 'None' disables all belt floor logic for supports. "
-                         "'Generator only' only stops tree support branches at the belt floor. "
-                         "'Clip only' only clips support geometry in post-processing. "
-                         "'Both' applies both (default).");
+        def->tooltip = L("Controls belt floor awareness for supports. 'None' disables belt floor logic. "
+                         "'Generator only' stops support generation at the belt floor plane.");
         def->enum_keys_map = &ConfigOptionEnum<BeltSupportFloorMode>::get_enum_values();
-        def->enum_values  = {"none", "generator_only", "clip_only", "both"};
-        def->enum_labels  = {L("None"), L("Generator only"), L("Clip only"), L("Both")};
+        def->enum_values  = {"none", "generator_only"};
+        def->enum_labels  = {L("None"), L("Generator only")};
         def->mode = comAdvanced;
-        def->set_default_value(new ConfigOptionEnum<BeltSupportFloorMode>(BeltSupportFloorMode::Both));
+        def->set_default_value(new ConfigOptionEnum<BeltSupportFloorMode>(BeltSupportFloorMode::GeneratorOnly));
     }
 
     {
