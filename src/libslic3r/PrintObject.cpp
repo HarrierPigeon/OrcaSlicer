@@ -4195,13 +4195,14 @@ void PrintObject::_generate_support_material()
         const double z_offset     = m_slicing_params.belt_floor_z_offset;
         const double global_z_off = m_belt_global_z_offset;
         const double floor_offset = pcfg.belt_support_floor_offset.value;
-        const double center_on_axis = unscale<double>((from_axis == 0)
-            ? this->center_offset().x() : this->center_offset().y());
+        // Use model bbox center (bed-position-independent) to match the
+        // generator-level belt floor formula in SupportMaterial.cpp.
+        const double model_center = m_slicing_params.belt_floor_model_center;
 
         BOOST_LOG_TRIVIAL(warning) << "Belt floor clip: shear=" << shear_factor
             << " from_axis=" << from_axis << " z_offset=" << z_offset
             << " floor_offset=" << floor_offset
-            << " global_z_off=" << global_z_off << " center_on_axis=" << center_on_axis
+            << " global_z_off=" << global_z_off << " model_center=" << model_center
             << " support_layers=" << m_support_layers.size()
             << " first_pz=" << (m_support_layers.empty() ? 0.0 : m_support_layers.front()->print_z)
             << " last_pz=" << (m_support_layers.empty() ? 0.0 : m_support_layers.back()->print_z);
@@ -4214,10 +4215,8 @@ void PrintObject::_generate_support_material()
             SupportLayer *support_layer = m_support_layers[layer_idx];
             const double print_z = support_layer->print_z;
             // Subtract global_z_offset to get local Z (belt floor params are per-object).
-            // Subtract center_on_axis to convert from model coords to slicing coords
-            // (belt floor z_offset is computed from raw_bounding_box in model coords,
-            // but support polygons are in slicing coords shifted by -center_offset).
-            const double cutoff = (print_z - global_z_off + z_offset - floor_offset) / shear_factor - center_on_axis;
+            // Use model_center (bed-position-independent) to convert from model to slicing coords.
+            const double cutoff = (print_z - global_z_off + z_offset - floor_offset) / shear_factor - model_center;
             const coord_t cutoff_scaled = scale_(cutoff);
 
             // Per-layer debug diagnostics for first/last 3 layers.
