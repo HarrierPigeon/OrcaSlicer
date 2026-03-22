@@ -629,14 +629,11 @@ static Polygons belt_floor_surface_polygon(
     if (std::abs(shear_factor) < EPSILON)
         return {};
 
-    const int    from_axis    = slicing_params.belt_floor_from_axis;  // 0=X, 1=Y
-    const double z_offset     = slicing_params.belt_floor_z_offset;
-    const double floor_offset = print_config.belt_support_floor_offset.value;
-    // Use model bbox center (bed-position-independent) for the XY conversion.
-    // Subtract global_z_off because layer print_z values include it when
-    // global shear is active, but belt_floor_z_offset is in local model coords.
-    const double model_center = slicing_params.belt_floor_model_center;
-    const double global_z_off = object.belt_global_z_offset();
+    const int    from_axis     = slicing_params.belt_floor_from_axis;  // 0=X, 1=Y
+    const double z_offset      = slicing_params.belt_floor_z_offset;
+    const double floor_offset  = print_config.belt_support_floor_offset.value;
+    const double model_center  = slicing_params.belt_floor_model_center;
+    const double global_z_off  = object.belt_global_z_offset();
 
     const double cutoff = (print_z - global_z_off + z_offset - floor_offset) / shear_factor - model_center;
     const coord_t cutoff_scaled = scale_(cutoff);
@@ -699,11 +696,11 @@ static Polygons belt_floor_valid_region_polygon(
     if (std::abs(shear_factor) < EPSILON)
         return {};
 
-    const int    from_axis    = slicing_params.belt_floor_from_axis;
-    const double z_offset     = slicing_params.belt_floor_z_offset;
-    const double floor_offset = print_config.belt_support_floor_offset.value;
-    const double model_center = slicing_params.belt_floor_model_center;
-    const double global_z_off = object.belt_global_z_offset();
+    const int    from_axis     = slicing_params.belt_floor_from_axis;
+    const double z_offset      = slicing_params.belt_floor_z_offset;
+    const double floor_offset  = print_config.belt_support_floor_offset.value;
+    const double model_center  = slicing_params.belt_floor_model_center;
+    const double global_z_off  = object.belt_global_z_offset();
 
     const double cutoff = (print_z - global_z_off + z_offset - floor_offset) / shear_factor - model_center;
     const coord_t cutoff_scaled = scale_(cutoff);

@@ -644,12 +644,9 @@ double TreeSupport::belt_floor_print_z(const Point &pos_slicing) const
         return -std::numeric_limits<double>::max(); // no belt floor
     int    from  = m_slicing_params.belt_floor_from_axis;
     double z_off = m_slicing_params.belt_floor_z_offset;
-    // Convert from slicing coords to model coords on the shear axis.
-    double center = unscale<double>(from == 0
-        ? m_object->center_offset().x() : m_object->center_offset().y());
-    double from_val = unscale<double>(from == 0 ? pos_slicing.x() : pos_slicing.y()) + center;
-    // Belt floor in local slicing frame (before global_z_offset).
-    // Apply user-configurable offset (negative = lower floor = more supports survive).
+    // Use model_center (bed-position-independent) to convert from slicing to model coords.
+    double model_center = m_slicing_params.belt_floor_model_center;
+    double from_val = unscale<double>(from == 0 ? pos_slicing.x() : pos_slicing.y()) + model_center;
     double floor_offset = m_print_config->belt_support_floor_offset.value;
     return sf * from_val - z_off + floor_offset;
 }

@@ -112,12 +112,12 @@ struct SlicingParameters
      coordf_t    object_shrinkage_compensation_z { 0 };
 
     // Belt printer: floor plane parameters for support clipping.
-    // The belt floor in the slicing frame is:  Z_floor(axis) = shear_factor * axis - z_offset
-    // Supports below this plane should be clipped.
+    // All values from raw_bounding_box() in model LOCAL coords (no bed placement).
+    // cutoff = (print_z - global_z_off + z_offset - floor_offset) / shear_factor - model_center
     double      belt_floor_shear_factor { 0.0 };  // shear factor (e.g. cot(45deg))
     int         belt_floor_from_axis { 1 };        // which axis the shear is from (0=X, 1=Y)
-    double      belt_floor_z_offset { 0.0 };       // the min_z used for Z-shift
-    double      belt_floor_model_center { 0.0 };   // model bbox center on from_axis (local coords, no bed placement)
+    double      belt_floor_z_offset { 0.0 };       // min(z + sf*y) over bbox corners (model local coords)
+    double      belt_floor_model_center { 0.0 };   // bbox center on from_axis (model local coords)
 };
 static_assert(IsTriviallyCopyable<SlicingParameters>::value, "SlicingParameters class is not POD (and it should be - see constructor).");
 

@@ -3440,10 +3440,6 @@ void PrintObject::update_slicing_parameters()
                               max_rz = std::max(max_rz, new_z);
                           }
                       object_height = max_rz - min_rz;
-                      // Store belt floor parameters for support clipping later.
-                      // The belt floor in slicing frame is: Z_floor(from_axis) = shear_factor * from_axis_val - min_rz
-                      // After Z-shift (subtracting min_rz), the floor becomes: Z = shear_factor * from_axis_val - min_rz
-                      // So at a given print_z, the cutoff on the from_axis is: from_axis_val = (print_z + min_rz) / shear_factor
                       belt_floor_shear_factor_out = shear_factor;
                       belt_floor_from_axis_out = from;
                       belt_floor_z_offset_out = min_rz;
@@ -4195,8 +4191,6 @@ void PrintObject::_generate_support_material()
         const double z_offset     = m_slicing_params.belt_floor_z_offset;
         const double global_z_off = m_belt_global_z_offset;
         const double floor_offset = pcfg.belt_support_floor_offset.value;
-        // Use model bbox center (bed-position-independent) to match the
-        // generator-level belt floor formula in SupportMaterial.cpp.
         const double model_center = m_slicing_params.belt_floor_model_center;
 
         BOOST_LOG_TRIVIAL(warning) << "Belt floor clip: shear=" << shear_factor
@@ -4214,8 +4208,7 @@ void PrintObject::_generate_support_material()
         for (size_t layer_idx = 0; layer_idx < n_support_layers; ++layer_idx) {
             SupportLayer *support_layer = m_support_layers[layer_idx];
             const double print_z = support_layer->print_z;
-            // Subtract global_z_offset to get local Z (belt floor params are per-object).
-            // Use model_center (bed-position-independent) to convert from model to slicing coords.
+            // Same formula as the generator-level belt floor in SupportMaterial.cpp.
             const double cutoff = (print_z - global_z_off + z_offset - floor_offset) / shear_factor - model_center;
             const coord_t cutoff_scaled = scale_(cutoff);
 
