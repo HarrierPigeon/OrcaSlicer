@@ -630,12 +630,12 @@ static Polygons belt_floor_surface_polygon(
         return {};
 
     const int    from_axis     = slicing_params.belt_floor_from_axis;  // 0=X, 1=Y
-    const double z_offset      = slicing_params.belt_floor_z_offset;
+    const double bb_min_z      = slicing_params.belt_floor_bb_min_z;
     const double floor_offset  = print_config.belt_support_floor_offset.value;
-    const double model_center  = slicing_params.belt_floor_model_center;
     const double global_z_off  = object.belt_global_z_offset();
 
-    const double cutoff = (print_z - global_z_off + z_offset - floor_offset) / shear_factor - model_center;
+    // The contact corner's Z and from_axis contributions cancel, leaving only bb.min.z().
+    const double cutoff = (print_z - global_z_off + bb_min_z - floor_offset) / shear_factor;
     const coord_t cutoff_scaled = scale_(cutoff);
     const coord_t large_bound = scale_(1e4);
 
@@ -697,12 +697,11 @@ static Polygons belt_floor_valid_region_polygon(
         return {};
 
     const int    from_axis     = slicing_params.belt_floor_from_axis;
-    const double z_offset      = slicing_params.belt_floor_z_offset;
+    const double bb_min_z      = slicing_params.belt_floor_bb_min_z;
     const double floor_offset  = print_config.belt_support_floor_offset.value;
-    const double model_center  = slicing_params.belt_floor_model_center;
     const double global_z_off  = object.belt_global_z_offset();
 
-    const double cutoff = (print_z - global_z_off + z_offset - floor_offset) / shear_factor - model_center;
+    const double cutoff = (print_z - global_z_off + bb_min_z - floor_offset) / shear_factor;
     const coord_t cutoff_scaled = scale_(cutoff);
     const coord_t large_bound = scale_(1e4);
 

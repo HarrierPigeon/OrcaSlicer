@@ -3395,8 +3395,7 @@ void PrintObject::update_slicing_parameters()
           // Belt floor parameters for support clipping (populated below if belt Z-shear is active).
           double belt_floor_shear_factor_out = 0.0;
           int    belt_floor_from_axis_out    = 1;
-          double belt_floor_z_offset_out     = 0.0;
-          double belt_floor_model_center_out = 0.0;
+          double belt_floor_bb_min_z_out     = 0.0;
           // Belt shear/scale may change the effective Z height.
           const auto &pcfg = this->print()->config();
           if (pcfg.belt_printer.value) {
@@ -3442,8 +3441,7 @@ void PrintObject::update_slicing_parameters()
                       object_height = max_rz - min_rz;
                       belt_floor_shear_factor_out = shear_factor;
                       belt_floor_from_axis_out = from;
-                      belt_floor_z_offset_out = min_rz;
-                      belt_floor_model_center_out = (bb.min(from) + bb.max(from)) / 2.0;
+                      belt_floor_bb_min_z_out = bb.min.z();
                   } else {
                       object_height *= scale_z;
                   }
@@ -3454,8 +3452,7 @@ void PrintObject::update_slicing_parameters()
           // Populate belt floor parameters into slicing params for support clipping.
           m_slicing_params.belt_floor_shear_factor = belt_floor_shear_factor_out;
           m_slicing_params.belt_floor_from_axis    = belt_floor_from_axis_out;
-          m_slicing_params.belt_floor_z_offset     = belt_floor_z_offset_out;
-          m_slicing_params.belt_floor_model_center = belt_floor_model_center_out;
+          m_slicing_params.belt_floor_bb_min_z     = belt_floor_bb_min_z_out;
       }
 }
 
@@ -3496,8 +3493,7 @@ SlicingParameters PrintObject::slicing_parameters(const DynamicPrintConfig &full
     // Belt floor parameters for support clipping (populated below if belt Z-shear is active).
     double belt_floor_shear_factor_out = 0.0;
     int    belt_floor_from_axis_out    = 1;
-    double belt_floor_z_offset_out     = 0.0;
-    double belt_floor_model_center_out = 0.0;
+    double belt_floor_bb_min_z_out     = 0.0;
 
     if (object_max_z <= 0.f) {
         BoundingBoxf3 bb = model_object.raw_bounding_box();
@@ -3545,8 +3541,7 @@ SlicingParameters PrintObject::slicing_parameters(const DynamicPrintConfig &full
                     object_max_z = (float)(max_rz - min_rz);
                     belt_floor_shear_factor_out = shear_factor;
                     belt_floor_from_axis_out = from;
-                    belt_floor_z_offset_out = min_rz;
-                    belt_floor_model_center_out = (bb.min(from) + bb.max(from)) / 2.0;
+                    belt_floor_bb_min_z_out = bb.min.z();
                 } else {
                     object_max_z *= (float)scale_z;
                 }
@@ -3556,8 +3551,7 @@ SlicingParameters PrintObject::slicing_parameters(const DynamicPrintConfig &full
     SlicingParameters params = SlicingParameters::create_from_config(print_config, object_config, object_max_z, object_extruders, object_shrinkage_compensation);
     params.belt_floor_shear_factor = belt_floor_shear_factor_out;
     params.belt_floor_from_axis    = belt_floor_from_axis_out;
-    params.belt_floor_z_offset     = belt_floor_z_offset_out;
-    params.belt_floor_model_center = belt_floor_model_center_out;
+    params.belt_floor_bb_min_z     = belt_floor_bb_min_z_out;
     return params;
 }
 
@@ -4188,15 +4182,14 @@ void PrintObject::_generate_support_material()
     if (do_belt_clip && std::abs(m_slicing_params.belt_floor_shear_factor) > EPSILON && !m_support_layers.empty()) {
         const double shear_factor = m_slicing_params.belt_floor_shear_factor;
         const int    from_axis    = m_slicing_params.belt_floor_from_axis;  // 0=X, 1=Y
-        const double z_offset     = m_slicing_params.belt_floor_z_offset;
+        const double bb_min_z     = m_slicing_params.belt_floor_bb_min_z;
         const double global_z_off = m_belt_global_z_offset;
         const double floor_offset = pcfg.belt_support_floor_offset.value;
-        const double model_center = m_slicing_params.belt_floor_model_center;
 
         BOOST_LOG_TRIVIAL(warning) << "Belt floor clip: shear=" << shear_factor
-            << " from_axis=" << from_axis << " z_offset=" << z_offset
+            << " from_axis=" << from_axis << " bb_min_z=" << bb_min_z
             << " floor_offset=" << floor_offset
-            << " global_z_off=" << global_z_off << " model_center=" << model_center
+            << " global_z_off=" << global_z_off
             << " support_layers=" << m_support_layers.size()
             << " first_pz=" << (m_support_layers.empty() ? 0.0 : m_support_layers.front()->print_z)
             << " last_pz=" << (m_support_layers.empty() ? 0.0 : m_support_layers.back()->print_z);
@@ -4209,7 +4202,7 @@ void PrintObject::_generate_support_material()
             SupportLayer *support_layer = m_support_layers[layer_idx];
             const double print_z = support_layer->print_z;
             // Same formula as the generator-level belt floor in SupportMaterial.cpp.
-            const double cutoff = (print_z - global_z_off + z_offset - floor_offset) / shear_factor - model_center;
+            const double cutoff = (print_z - global_z_off + bb_min_z - floor_offset) / shear_factor;
             const coord_t cutoff_scaled = scale_(cutoff);
 
             // Per-layer debug diagnostics for first/last 3 layers.
