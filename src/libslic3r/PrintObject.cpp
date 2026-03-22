@@ -3396,6 +3396,7 @@ void PrintObject::update_slicing_parameters()
           double belt_floor_shear_factor_out = 0.0;
           int    belt_floor_from_axis_out    = 1;
           double belt_floor_z_offset_out     = 0.0;
+          double belt_floor_model_center_out = 0.0;
           // Belt shear/scale may change the effective Z height.
           const auto &pcfg = this->print()->config();
           if (pcfg.belt_printer.value) {
@@ -3446,6 +3447,7 @@ void PrintObject::update_slicing_parameters()
                       belt_floor_shear_factor_out = shear_factor;
                       belt_floor_from_axis_out = from;
                       belt_floor_z_offset_out = min_rz;
+                      belt_floor_model_center_out = (bb.min(from) + bb.max(from)) / 2.0;
                   } else {
                       object_height *= scale_z;
                   }
@@ -3457,6 +3459,7 @@ void PrintObject::update_slicing_parameters()
           m_slicing_params.belt_floor_shear_factor = belt_floor_shear_factor_out;
           m_slicing_params.belt_floor_from_axis    = belt_floor_from_axis_out;
           m_slicing_params.belt_floor_z_offset     = belt_floor_z_offset_out;
+          m_slicing_params.belt_floor_model_center = belt_floor_model_center_out;
       }
 }
 
@@ -3498,6 +3501,7 @@ SlicingParameters PrintObject::slicing_parameters(const DynamicPrintConfig &full
     double belt_floor_shear_factor_out = 0.0;
     int    belt_floor_from_axis_out    = 1;
     double belt_floor_z_offset_out     = 0.0;
+    double belt_floor_model_center_out = 0.0;
 
     if (object_max_z <= 0.f) {
         BoundingBoxf3 bb = model_object.raw_bounding_box();
@@ -3546,6 +3550,7 @@ SlicingParameters PrintObject::slicing_parameters(const DynamicPrintConfig &full
                     belt_floor_shear_factor_out = shear_factor;
                     belt_floor_from_axis_out = from;
                     belt_floor_z_offset_out = min_rz;
+                    belt_floor_model_center_out = (bb.min(from) + bb.max(from)) / 2.0;
                 } else {
                     object_max_z *= (float)scale_z;
                 }
@@ -3556,6 +3561,7 @@ SlicingParameters PrintObject::slicing_parameters(const DynamicPrintConfig &full
     params.belt_floor_shear_factor = belt_floor_shear_factor_out;
     params.belt_floor_from_axis    = belt_floor_from_axis_out;
     params.belt_floor_z_offset     = belt_floor_z_offset_out;
+    params.belt_floor_model_center = belt_floor_model_center_out;
     return params;
 }
 

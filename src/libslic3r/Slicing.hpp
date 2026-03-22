@@ -117,6 +117,7 @@ struct SlicingParameters
     double      belt_floor_shear_factor { 0.0 };  // shear factor (e.g. cot(45deg))
     int         belt_floor_from_axis { 1 };        // which axis the shear is from (0=X, 1=Y)
     double      belt_floor_z_offset { 0.0 };       // the min_z used for Z-shift
+    double      belt_floor_model_center { 0.0 };   // model bbox center on from_axis (local coords, no bed placement)
 };
 static_assert(IsTriviallyCopyable<SlicingParameters>::value, "SlicingParameters class is not POD (and it should be - see constructor).");
 
