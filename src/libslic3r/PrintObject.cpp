@@ -3441,8 +3441,10 @@ void PrintObject::update_slicing_parameters()
                       object_height = max_rz - min_rz;
                       belt_floor_shear_factor_out = shear_factor;
                       belt_floor_from_axis_out = from;
-                      // Placeholder — exact z_shift is patched after slice_volumes() in posSlice.
-                      belt_floor_z_shift_out = (min_rz < 0.) ? -min_rz : 0.;
+                      // Belt contact surface starts at bb.min.z() pre-shear; add the
+                      // slicing Z-shift that keeps the mesh above Z=0.
+                      // Exact value is patched after slice_volumes() in posSlice.
+                      belt_floor_z_shift_out = bb.min.z() + ((min_rz < 0.) ? -min_rz : 0.);
                   } else {
                       object_height *= scale_z;
                   }
@@ -3542,7 +3544,7 @@ SlicingParameters PrintObject::slicing_parameters(const DynamicPrintConfig &full
                     object_max_z = (float)(max_rz - min_rz);
                     belt_floor_shear_factor_out = shear_factor;
                     belt_floor_from_axis_out = from;
-                    belt_floor_z_shift_out = (min_rz < 0.) ? -min_rz : 0.;
+                    belt_floor_z_shift_out = bb.min.z() + ((min_rz < 0.) ? -min_rz : 0.);
                 } else {
                     object_max_z *= (float)scale_z;
                 }
