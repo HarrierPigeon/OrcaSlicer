@@ -632,11 +632,12 @@ static Polygons belt_floor_surface_polygon(
     const int    from_axis     = slicing_params.belt_floor_from_axis;  // 0=X, 1=Y
     const double floor_offset  = print_config.belt_support_floor_offset.value;
 
-    // Global belt floor line: Y = Z / sf, starting at origin.
-    // Object layers are already at their final Z (global_z_offset applied during slicing),
-    // and center_offset is (0,0) for belt printers, so print_z / sf gives the
-    // global belt floor cutoff directly.
-    const double cutoff = (print_z - floor_offset) / shear_factor;
+    // Belt floor line in slicing coordinates: Z = sf * Y + z_shift.
+    // z_shift accounts for the upward shift applied when post-shear geometry
+    // extends below the bed (overhangs).  Solving for Y:
+    //   cutoff = (print_z - z_shift - floor_offset) / sf
+    const double z_shift = slicing_params.belt_floor_z_shift;
+    const double cutoff = (print_z - z_shift - floor_offset) / shear_factor;
     const coord_t cutoff_scaled = scale_(cutoff);
     const coord_t large_bound = scale_(1e4);
 
@@ -700,7 +701,8 @@ static Polygons belt_floor_valid_region_polygon(
     const int    from_axis     = slicing_params.belt_floor_from_axis;
     const double floor_offset  = print_config.belt_support_floor_offset.value;
 
-    const double cutoff = (print_z - floor_offset) / shear_factor;
+    const double z_shift = slicing_params.belt_floor_z_shift;
+    const double cutoff = (print_z - z_shift - floor_offset) / shear_factor;
     const coord_t cutoff_scaled = scale_(cutoff);
     const coord_t large_bound = scale_(1e4);
 

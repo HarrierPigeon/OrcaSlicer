@@ -892,6 +892,12 @@ void PrintObject::slice()
     m_layers = new_layers(this, generate_object_layers(m_slicing_params, layer_height_profile, m_config.precise_z_height.value));
     this->slice_volumes();
     m_print->throw_if_canceled();
+
+    // After slicing, m_belt_min_z holds the exact post-shear minimum Z.
+    // Patch the belt floor z-shift so support generation uses the real value.
+    if (std::abs(m_slicing_params.belt_floor_shear_factor) > EPSILON)
+        m_slicing_params.belt_floor_z_shift = (m_belt_min_z < 0.) ? -m_belt_min_z : 0.;
+
     int firstLayerReplacedBy = 0;
 
 #if 0

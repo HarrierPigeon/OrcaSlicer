@@ -643,11 +643,12 @@ double TreeSupport::belt_floor_print_z(const Point &pos_slicing) const
     if (std::abs(sf) < EPSILON)
         return -std::numeric_limits<double>::max(); // no belt floor
     int from = m_slicing_params.belt_floor_from_axis;
-    // Global belt floor line: Z = sf * Y, starting at origin.
-    // Inverse of the cutoff formula: cutoff = (Z - floor_offset) / sf  →  Z = sf * pos + floor_offset
+    // Belt floor in slicing coords: Z = sf * Y + z_shift + floor_offset.
+    // Inverse of cutoff = (Z - z_shift - floor_offset) / sf.
     double pos = unscale<double>(from == 0 ? pos_slicing.x() : pos_slicing.y());
     double floor_offset = m_print_config->belt_support_floor_offset.value;
-    return sf * pos + floor_offset;
+    double z_shift = m_slicing_params.belt_floor_z_shift;
+    return sf * pos + floor_offset + z_shift;
 }
 
 #define SUPPORT_SURFACES_OFFSET_PARAMETERS ClipperLib::jtSquare, 0.

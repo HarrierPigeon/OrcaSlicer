@@ -3395,7 +3395,7 @@ void PrintObject::update_slicing_parameters()
           // Belt floor parameters for support clipping (populated below if belt Z-shear is active).
           double belt_floor_shear_factor_out = 0.0;
           int    belt_floor_from_axis_out    = 1;
-          double belt_floor_bb_min_z_out     = 0.0;
+          double belt_floor_z_shift_out     = 0.0;
           // Belt shear/scale may change the effective Z height.
           const auto &pcfg = this->print()->config();
           if (pcfg.belt_printer.value) {
@@ -3441,7 +3441,8 @@ void PrintObject::update_slicing_parameters()
                       object_height = max_rz - min_rz;
                       belt_floor_shear_factor_out = shear_factor;
                       belt_floor_from_axis_out = from;
-                      belt_floor_bb_min_z_out = bb.min.z();
+                      // Placeholder — exact z_shift is patched after slice_volumes() in posSlice.
+                      belt_floor_z_shift_out = (min_rz < 0.) ? -min_rz : 0.;
                   } else {
                       object_height *= scale_z;
                   }
@@ -3452,7 +3453,7 @@ void PrintObject::update_slicing_parameters()
           // Populate belt floor parameters into slicing params for support clipping.
           m_slicing_params.belt_floor_shear_factor = belt_floor_shear_factor_out;
           m_slicing_params.belt_floor_from_axis    = belt_floor_from_axis_out;
-          m_slicing_params.belt_floor_bb_min_z     = belt_floor_bb_min_z_out;
+          m_slicing_params.belt_floor_z_shift     = belt_floor_z_shift_out;
       }
 }
 
@@ -3493,7 +3494,7 @@ SlicingParameters PrintObject::slicing_parameters(const DynamicPrintConfig &full
     // Belt floor parameters for support clipping (populated below if belt Z-shear is active).
     double belt_floor_shear_factor_out = 0.0;
     int    belt_floor_from_axis_out    = 1;
-    double belt_floor_bb_min_z_out     = 0.0;
+    double belt_floor_z_shift_out     = 0.0;
 
     if (object_max_z <= 0.f) {
         BoundingBoxf3 bb = model_object.raw_bounding_box();
@@ -3541,7 +3542,7 @@ SlicingParameters PrintObject::slicing_parameters(const DynamicPrintConfig &full
                     object_max_z = (float)(max_rz - min_rz);
                     belt_floor_shear_factor_out = shear_factor;
                     belt_floor_from_axis_out = from;
-                    belt_floor_bb_min_z_out = bb.min.z();
+                    belt_floor_z_shift_out = (min_rz < 0.) ? -min_rz : 0.;
                 } else {
                     object_max_z *= (float)scale_z;
                 }
@@ -3551,7 +3552,7 @@ SlicingParameters PrintObject::slicing_parameters(const DynamicPrintConfig &full
     SlicingParameters params = SlicingParameters::create_from_config(print_config, object_config, object_max_z, object_extruders, object_shrinkage_compensation);
     params.belt_floor_shear_factor = belt_floor_shear_factor_out;
     params.belt_floor_from_axis    = belt_floor_from_axis_out;
-    params.belt_floor_bb_min_z     = belt_floor_bb_min_z_out;
+    params.belt_floor_z_shift     = belt_floor_z_shift_out;
     return params;
 }
 
