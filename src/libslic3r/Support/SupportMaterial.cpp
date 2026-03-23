@@ -372,9 +372,9 @@ static constexpr const std::initializer_list<SupporLayerType> support_types_inte
 };
 
 // Forward declarations for belt floor helpers (defined later in this file).
-static Polygons belt_floor_surface_polygon(
-    const SlicingParameters &slicing_params, const PrintConfig &print_config,
-    const PrintObject &object, coordf_t print_z);
+// belt_floor_surface_polygon is declared in SupportCommon.hpp (non-static,
+// shared with TreeSupport.cpp).
+
 static Polygons belt_floor_valid_region_polygon(
     const SlicingParameters &slicing_params, const PrintConfig &print_config,
     const PrintObject &object, coordf_t print_z);
@@ -619,7 +619,7 @@ Polygons collect_region_slices_by_type(const Layer &layer, SurfaceType surface_t
 // This represents the region where the belt surface exists (the "phantom top surface").
 // Support that overlaps with this polygon should terminate with a bottom contact.
 // Returns empty if belt floor is not active.
-static Polygons belt_floor_surface_polygon(
+Polygons belt_floor_surface_polygon(
     const SlicingParameters &slicing_params,
     const PrintConfig       &print_config,
     const PrintObject       &object,

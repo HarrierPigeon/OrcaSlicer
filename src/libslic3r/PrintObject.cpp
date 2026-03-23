@@ -4141,11 +4141,16 @@ void PrintObject::_generate_support_material()
         PrintObjectSupportMaterial support_material(this, m_slicing_params);
         support_material.generate(*this);
     }
-    // NOTE: global_z_offset is NOT applied to support layers here.
-    // The support generator already uses object layers whose print_z
-    // includes global_z_offset (applied in posSlice), so support layers
-    // are already at the correct global Z.  Applying it again would
-    // double-count the offset.
+    // NOTE: global_z_offset is NOT applied to normal support layers here.
+    // The normal support generator uses object layers whose print_z includes
+    // global_z_offset (applied in posSlice), so those support layers are
+    // already at the correct global Z.
+    // Tree support generates its own layer heights independently and does NOT
+    // inherit the global offset, so it must be applied here.
+    if (is_tree(m_config.support_type.value) && std::abs(m_belt_global_z_offset) > EPSILON) {
+        for (SupportLayer *sl : m_support_layers)
+            sl->print_z += m_belt_global_z_offset;
+    }
 
 }
 
