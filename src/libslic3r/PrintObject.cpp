@@ -4132,53 +4132,20 @@ static void clip_support_fills(ExtrusionEntityCollection &fills, const ExPolygon
 
 void PrintObject::_generate_support_material()
 {
-    const auto &pcfg = this->print()->config();
-    const auto z_offset_mode = pcfg.belt_support_z_offset_mode.value;
-
     if (is_tree(m_config.support_type.value)) {
         TreeSupport tree_support(*this, m_slicing_params);
         tree_support.throw_on_cancel = [this]() { this->throw_if_canceled(); };
         tree_support.generate();
-
-        // Apply global_z_offset to support layers based on the configured mode.
-        if (std::abs(m_belt_global_z_offset) > EPSILON && z_offset_mode != BeltSupportZOffsetMode::None) {
-            BOOST_LOG_TRIVIAL(warning) << "Belt tree support Z offset: mode=" << int(z_offset_mode)
-                << " applying " << m_belt_global_z_offset
-                << " to " << m_support_layers.size() << " layers"
-                << " (before: first=" << (m_support_layers.empty() ? 0.0 : m_support_layers.front()->print_z)
-                << " last=" << (m_support_layers.empty() ? 0.0 : m_support_layers.back()->print_z) << ")";
-            if (z_offset_mode == BeltSupportZOffsetMode::Unconditional) {
-                for (SupportLayer *sl : m_support_layers)
-                    sl->print_z += m_belt_global_z_offset;
-            } else { // RaftOnly
-                const double raft_z_threshold = m_slicing_params.object_print_z_min + EPSILON;
-                for (SupportLayer *sl : m_support_layers) {
-                    if (sl->print_z <= raft_z_threshold)
-                        sl->print_z += m_belt_global_z_offset;
-                }
-            }
-            BOOST_LOG_TRIVIAL(warning) << "Belt tree support Z offset: after: first="
-                << (m_support_layers.empty() ? 0.0 : m_support_layers.front()->print_z)
-                << " last=" << (m_support_layers.empty() ? 0.0 : m_support_layers.back()->print_z);
-        }
     }
     else {
         PrintObjectSupportMaterial support_material(this, m_slicing_params);
         support_material.generate(*this);
-        // Normal support: apply global_z_offset based on configured mode.
-        if (std::abs(m_belt_global_z_offset) > EPSILON && z_offset_mode != BeltSupportZOffsetMode::None) {
-            if (z_offset_mode == BeltSupportZOffsetMode::Unconditional) {
-                for (SupportLayer *sl : m_support_layers)
-                    sl->print_z += m_belt_global_z_offset;
-            } else { // RaftOnly
-                const double raft_z_threshold = m_slicing_params.object_print_z_min + EPSILON;
-                for (SupportLayer *sl : m_support_layers) {
-                    if (sl->print_z <= raft_z_threshold)
-                        sl->print_z += m_belt_global_z_offset;
-                }
-            }
-        }
     }
+    // NOTE: global_z_offset is NOT applied to support layers here.
+    // The support generator already uses object layers whose print_z
+    // includes global_z_offset (applied in posSlice), so support layers
+    // are already at the correct global Z.  Applying it again would
+    // double-count the offset.
 
 }
 
