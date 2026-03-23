@@ -904,16 +904,6 @@ void PrintObject::slice()
     // in update_slicing_parameters() which needs that compensation.
     if (std::abs(m_slicing_params.belt_floor_shear_factor) > EPSILON) {
         m_slicing_params.belt_floor_z_shift = (m_belt_min_z < 0.) ? -m_belt_min_z : 0.;
-        BOOST_LOG_TRIVIAL(warning) << "Belt floor params (posSlice):"
-            << " shear_factor=" << m_slicing_params.belt_floor_shear_factor
-            << " from_axis=" << m_slicing_params.belt_floor_from_axis
-            << " z_shift=" << m_slicing_params.belt_floor_z_shift
-            << " m_belt_min_z=" << m_belt_min_z
-            << " bb_min_z=" << this->model_object()->raw_bounding_box().min.z()
-            << " trafo_z=" << this->trafo().matrix()(2, 3)
-            << " first_layer_z=" << (m_layers.empty() ? 0. : m_layers.front()->print_z)
-            << " last_layer_z=" << (m_layers.empty() ? 0. : m_layers.back()->print_z)
-            << " num_layers=" << m_layers.size();
     }
 
     int firstLayerReplacedBy = 0;
@@ -1026,9 +1016,7 @@ void PrintObject::slice()
                     << " last_layer_z=" << m_layers.back()->print_z
                     << " num_layers=" << m_layers.size()
                     << " center_offset=(" << unscale<double>(m_center_offset.x())
-                    << ", " << unscale<double>(m_center_offset.y()) << ")"
-                    << " FINAL_belt_floor_z_shift=" << m_slicing_params.belt_floor_z_shift
-                    << " FINAL_belt_floor_sf=" << m_slicing_params.belt_floor_shear_factor;
+                    << ", " << unscale<double>(m_center_offset.y()) << ")";
             }
         }
     }

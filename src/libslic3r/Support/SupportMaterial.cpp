@@ -638,11 +638,6 @@ static Polygons belt_floor_surface_polygon(
     //   cutoff = (print_z - z_shift - floor_offset) / sf
     const double z_shift = slicing_params.belt_floor_z_shift;
     const double cutoff = (print_z - z_shift - floor_offset) / shear_factor;
-    static int belt_surface_log_count = 0;
-    if (belt_surface_log_count++ < 20)
-        BOOST_LOG_TRIVIAL(warning) << "belt_floor_surface: print_z=" << print_z
-            << " z_shift=" << z_shift << " sf=" << shear_factor
-            << " cutoff=" << cutoff << " floor_offset=" << floor_offset;
     const coord_t cutoff_scaled = scale_(cutoff);
     const coord_t large_bound = scale_(1e4);
 
