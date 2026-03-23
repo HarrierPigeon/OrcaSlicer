@@ -1016,9 +1016,9 @@ void PrintObject::slice()
             if (std::abs(global_z_offset) > EPSILON) {
                 for (Layer *layer : m_layers)
                     layer->print_z += global_z_offset;
-                // Keep belt floor clipping in sync with the shifted print_z
-                // values — otherwise the cutoff drifts by global_z_offset/sf.
-                m_slicing_params.belt_floor_z_shift += global_z_offset;
+                // NOTE: do NOT add global_z_offset to belt_floor_z_shift here.
+                // The support layer print_z values used in belt floor clipping
+                // do not include the global offset, so z_shift should not either.
             }
             if (!m_layers.empty()) {
                 BOOST_LOG_TRIVIAL(warning) << "Belt global: first_layer_z=" << m_layers.front()->print_z
