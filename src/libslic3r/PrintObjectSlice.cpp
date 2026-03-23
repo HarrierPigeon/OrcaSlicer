@@ -893,12 +893,17 @@ void PrintObject::slice()
     this->slice_volumes();
     m_print->throw_if_canceled();
 
-    // After slicing, m_belt_min_z holds the exact post-shear minimum Z.
-    // The belt contact surface starts at the pre-shear bbox min Z; add the
-    // slicing Z-shift (max(0,-min_z)) to get the belt floor in slicing coords.
+    // After slicing, m_belt_min_z holds the exact post-shear minimum Z
+    // in trafo_centered space (which includes the ensure_on_bed Z offset).
+    // The belt surface is at Z=0 in trafo_centered space; after shear it
+    // becomes Z = sf*Y, and after the z-shift that keeps the mesh above
+    // Z=0 it becomes Z = sf*Y + z_shift_val.  So belt_floor_z_shift is
+    // simply the z-shift applied, i.e. max(0, -m_belt_min_z).
+    // NOTE: do NOT add raw_bounding_box().min.z() here — m_belt_min_z
+    // already includes the ensure_on_bed offset, unlike the min_rz used
+    // in update_slicing_parameters() which needs that compensation.
     if (std::abs(m_slicing_params.belt_floor_shear_factor) > EPSILON) {
-        double bb_min_z = this->model_object()->raw_bounding_box().min.z();
-        m_slicing_params.belt_floor_z_shift = bb_min_z + ((m_belt_min_z < 0.) ? -m_belt_min_z : 0.);
+        m_slicing_params.belt_floor_z_shift = (m_belt_min_z < 0.) ? -m_belt_min_z : 0.;
     }
 
     int firstLayerReplacedBy = 0;

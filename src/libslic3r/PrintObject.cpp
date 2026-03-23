@@ -1365,7 +1365,12 @@ bool PrintObject::invalidate_step(PrintObjectStep step)
     } else if (step == posSupportMaterial) {
         invalidated |= this->invalidate_steps({ posSimplifySupportPath });
         invalidated |= m_print->invalidate_steps({ psSkirtBrim });
-        m_slicing_params.valid = false;
+        // NOTE: do NOT set m_slicing_params.valid = false here.
+        // belt_floor_z_shift is patched to an exact value during posSlice
+        // (PrintObjectSlice.cpp, after slice_volumes).  Invalidating slicing
+        // params here causes update_slicing_parameters() to overwrite that
+        // exact value with a bounding-box approximation, while posSlice does
+        // not re-run to correct it — breaking belt support clipping.
     }
 
     // Wipe tower depends on the ordering of extruders, which in turn depends on everything.
