@@ -2155,6 +2155,47 @@ void TreeSupport::draw_circles()
                 base_areas = diff_ex(base_areas, ClipperUtils::clip_clipper_polygons_with_subject_bbox(roofs, get_extents(base_areas)));
                 base_areas = intersection_ex(base_areas, m_machine_border);
 
+                // Belt floor: clip tree support polygons by the belt surface plane.
+                // ts_layer->print_z is at LOCAL Z (global offset applied later in
+                // _generate_support_material), but belt_floor_z_shift includes
+                // global_z_offset — subtract it to get the cutoff in local coords.
+                if (std::abs(m_slicing_params.belt_floor_shear_factor) > EPSILON
+                    && m_print_config->belt_support_floor_mode.value == BeltSupportFloorMode::GeneratorOnly) {
+                    const double sf        = m_slicing_params.belt_floor_shear_factor;
+                    const int    from_axis = m_slicing_params.belt_floor_from_axis;
+                    const double floor_off = m_print_config->belt_support_floor_offset.value;
+                    const double z_shift_local = m_slicing_params.belt_floor_z_shift
+                                               - m_object->belt_global_z_offset();
+                    const double cutoff    = (ts_layer->print_z - z_shift_local - floor_off) / sf;
+                    static int tree_clip_log = 0;
+                    if (tree_clip_log++ < 10)
+                        BOOST_LOG_TRIVIAL(warning) << "Tree belt clip: layer=" << layer_nr
+                            << " print_z=" << ts_layer->print_z << " z_shift_local=" << z_shift_local
+                            << " sf=" << sf << " cutoff=" << cutoff
+                            << " base=" << base_areas.size() << " roof=" << roof_areas.size();
+                    const coord_t cutoff_sc = scale_(cutoff);
+                    const coord_t big       = scale_(1e4);
+
+                    Polygon belt_poly;
+                    if (from_axis == 0) {
+                        if (sf > 0)
+                            belt_poly.points = { {cutoff_sc,-big}, {big,-big}, {big,big}, {cutoff_sc,big} };
+                        else
+                            belt_poly.points = { {-big,-big}, {cutoff_sc,-big}, {cutoff_sc,big}, {-big,big} };
+                    } else {
+                        if (sf > 0)
+                            belt_poly.points = { {-big,cutoff_sc}, {big,cutoff_sc}, {big,big}, {-big,big} };
+                        else
+                            belt_poly.points = { {-big,-big}, {big,-big}, {big,cutoff_sc}, {-big,cutoff_sc} };
+                    }
+                    Polygons belt_surface = { belt_poly };
+                    base_areas     = diff_ex(base_areas,     belt_surface);
+                    roof_areas     = diff_ex(roof_areas,     belt_surface);
+                    roof_1st_layer = diff_ex(roof_1st_layer, belt_surface);
+                    floor_areas    = diff_ex(floor_areas,    belt_surface);
+                    roof_gap_areas = diff_ex(roof_gap_areas, belt_surface);
+                }
+
                 if (SQUARE_SUPPORT) {
                     // simplify support contours
                     ExPolygons base_areas_simplified;
