@@ -141,6 +141,27 @@ TreeModelVolumes::TreeModelVolumes(
         m_increase_until_radius = config.increase_radius_until_radius;
         m_radius_0 = config.getRadius(0);
         m_raft_layers = config.raft_layers;
+        // Belt printer: add virtual belt raft layers below the object, matching
+        // the extra layers added in generate_support_areas() so both use the
+        // same layer indexing.
+        {
+            const auto &sp2   = print_object.slicing_parameters();
+            const auto &pcfg2 = print_object.print()->config();
+            double belt_sf = sp2.belt_floor_shear_factor;
+            if (std::abs(belt_sf) > EPSILON && std::abs(print_object.belt_global_z_offset()) > EPSILON
+                && pcfg2.belt_support_floor_mode.value == BeltSupportFloorMode::GeneratorOnly) {
+                double bb_min_z    = std::abs(print_object.model_object()->raw_bounding_box().min.z());
+                double extra_depth = bb_min_z + 10.;
+                int    num_extra   = std::max(0, (int)std::ceil(extra_depth / sp2.layer_height));
+                if (num_extra > 0) {
+                    std::vector<coordf_t> belt_layers;
+                    belt_layers.reserve(num_extra);
+                    for (int i = num_extra; i >= 1; --i)
+                        belt_layers.push_back(sp2.first_object_layer_height - i * sp2.layer_height);
+                    m_raft_layers.insert(m_raft_layers.begin(), belt_layers.begin(), belt_layers.end());
+                }
+            }
+        }
         m_current_outline_idx = 0;
 
         m_layer_outlines.emplace_back(mesh_settings, std::vector<Polygons>{});

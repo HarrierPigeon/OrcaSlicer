@@ -3379,9 +3379,10 @@ static void generate_support_areas(Print &print, TreeSupport* tree_support, cons
                 // z_shift_local is the belt surface height at Y=0 in local coords.
                 // Extend below the belt so the base expansion and build-plate
                 // termination happen inside the belt region and get clipped.
-                // Cap at 10mm — enough for base expansion without blowing up memory.
-                double z_shift_local = sp.belt_floor_z_shift - po.belt_global_z_offset();
-                double extra_depth   = std::min(std::max(z_shift_local, 5.), 10.);
+                // Use the distance from the pre-shear bbox min Z to the part's
+                // post-shear min Z, plus 10mm for base expansion headroom.
+                double bb_min_z    = std::abs(po.model_object()->raw_bounding_box().min.z());
+                double extra_depth = bb_min_z + 10.;
                 int    num_extra     = std::max(0, (int)std::ceil(extra_depth / sp.layer_height));
                 if (num_extra > 0) {
                     // Insert belt raft layers at the front, from lowest Z to highest.
