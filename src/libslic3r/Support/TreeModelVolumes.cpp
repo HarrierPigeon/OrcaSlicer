@@ -94,6 +94,45 @@ TreeModelVolumes::TreeModelVolumes(
 #else
     {
         m_anti_overhang = print_object.slice_support_blockers();
+        // Belt floor: add belt surface polygons to anti_overhang so support
+        // is never generated inside the belt.  This makes branches terminate
+        // at the belt surface naturally, rather than growing to Z=0 and
+        // creating a horizontal build-plate base.
+        {
+            const auto &sp   = print_object.slicing_parameters();
+            const auto &pcfg = print_object.print()->config();
+            const double sf  = sp.belt_floor_shear_factor;
+            if (std::abs(sf) > EPSILON
+                && pcfg.belt_support_floor_mode.value == BeltSupportFloorMode::GeneratorOnly) {
+                const int    from_axis = sp.belt_floor_from_axis;
+                const double floor_off = pcfg.belt_support_floor_offset.value;
+                const double z_shift   = sp.belt_floor_z_shift - print_object.belt_global_z_offset();
+                size_t num_layers_needed = print_object.layer_count();
+                // Ensure m_anti_overhang is large enough.
+                if (m_anti_overhang.size() < num_layers_needed)
+                    m_anti_overhang.resize(num_layers_needed, Polygons{});
+                for (size_t layer_idx = 0; layer_idx < num_layers_needed; ++layer_idx) {
+                    double print_z = print_object.get_layer(layer_idx)->print_z
+                                   - print_object.belt_global_z_offset();
+                    double cutoff  = (print_z - z_shift - floor_off) / sf;
+                    coord_t cutoff_sc = scale_(cutoff);
+                    coord_t big       = scale_(1e4);
+                    Polygon belt_poly;
+                    if (from_axis == 0) {
+                        if (sf > 0)
+                            belt_poly.points = {{cutoff_sc,-big},{big,-big},{big,big},{cutoff_sc,big}};
+                        else
+                            belt_poly.points = {{-big,-big},{cutoff_sc,-big},{cutoff_sc,big},{-big,big}};
+                    } else {
+                        if (sf > 0)
+                            belt_poly.points = {{-big,cutoff_sc},{big,cutoff_sc},{big,big},{-big,big}};
+                        else
+                            belt_poly.points = {{-big,-big},{big,-big},{big,cutoff_sc},{-big,cutoff_sc}};
+                    }
+                    append(m_anti_overhang[layer_idx], Polygons{belt_poly});
+                }
+            }
+        }
         TreeSupportMeshGroupSettings mesh_settings(print_object);
         const TreeSupportSettings config{ mesh_settings, print_object.slicing_parameters() };
         m_current_min_xy_dist = config.xy_min_distance;
