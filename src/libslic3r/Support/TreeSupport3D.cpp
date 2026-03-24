@@ -3565,21 +3565,37 @@ static void generate_support_areas(Print &print, TreeSupport* tree_support, cons
         // fill) against the belt surface.  The branch slices were already clipped
         // in organic_draw_branches(), but intermediate layers generated between
         // branches and the build plate need clipping too.
-        if (!volumes.m_belt_floor.empty()) {
-            tbb::parallel_for_each(layers_sorted.begin(), layers_sorted.end(), [&](SupportGeneratorLayer *layer) {
-                if (!layer || layer->polygons.empty())
-                    return;
-                // Map this layer's print_z to a layer index for belt_floor lookup.
-                // Use the same index the layer was created at (stored in idx_object_layer_below + raft offset).
-                // Simpler: find the layer index from print_z using the slicing params.
-                const auto &sp = print_object.slicing_parameters();
-                LayerIndex layer_idx = LayerIndex(std::round(
-                    (layer->print_z - sp.first_object_layer_height - sp.object_print_z_min) / sp.layer_height))
-                    + LayerIndex(config.raft_layers.size());
-                layer_idx = std::clamp<LayerIndex>(layer_idx, 0, LayerIndex(volumes.m_belt_floor.size()) - 1);
-                if (!volumes.m_belt_floor[layer_idx].empty())
-                    layer->polygons = diff(layer->polygons, volumes.m_belt_floor[layer_idx]);
-            });
+        // Compute the belt floor polygon directly from each layer's print_z
+        // rather than mapping to a layer index (avoids index mismatch issues).
+        {
+            const auto &sp = print_object.slicing_parameters();
+            const double sf        = sp.belt_floor_shear_factor;
+            const double z_shift   = sp.belt_floor_z_shift - print_object.belt_global_z_offset();
+            const double floor_off = print_object.print()->config().belt_support_floor_offset.value;
+            const int    from_axis = sp.belt_floor_from_axis;
+            if (std::abs(sf) > EPSILON
+                && print_object.print()->config().belt_support_floor_mode.value == BeltSupportFloorMode::GeneratorOnly) {
+                tbb::parallel_for_each(layers_sorted.begin(), layers_sorted.end(), [&](SupportGeneratorLayer *layer) {
+                    if (!layer || layer->polygons.empty())
+                        return;
+                    double    cutoff    = (layer->print_z - z_shift - floor_off) / sf;
+                    coord_t   cutoff_sc = scale_(cutoff);
+                    coord_t   big       = scale_(1e4);
+                    Polygon belt_poly;
+                    if (from_axis == 0) {
+                        if (sf > 0)
+                            belt_poly.points = {{cutoff_sc,-big},{big,-big},{big,big},{cutoff_sc,big}};
+                        else
+                            belt_poly.points = {{-big,-big},{cutoff_sc,-big},{cutoff_sc,big},{-big,big}};
+                    } else {
+                        if (sf > 0)
+                            belt_poly.points = {{-big,cutoff_sc},{big,cutoff_sc},{big,big},{-big,big}};
+                        else
+                            belt_poly.points = {{-big,-big},{big,-big},{big,cutoff_sc},{-big,cutoff_sc}};
+                    }
+                    layer->polygons = diff(layer->polygons, Polygons{belt_poly});
+                });
+            }
         }
 
         print.set_status(69, _L("Generating support"));
