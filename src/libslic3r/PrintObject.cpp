@@ -9,6 +9,7 @@
 #include "MutablePolygon.hpp"
 #include "PrintConfig.hpp"
 #include "Support/SupportMaterial.hpp"
+#include "Support/SupportCommon.hpp"
 #include "Support/SupportSpotsGenerator.hpp"
 #include "Support/TreeSupport.hpp"
 #include "Surface.hpp"
@@ -4150,6 +4151,29 @@ void PrintObject::_generate_support_material()
     if (is_tree(m_config.support_type.value) && std::abs(m_belt_global_z_offset) > EPSILON) {
         for (SupportLayer *sl : m_support_layers)
             sl->print_z += m_belt_global_z_offset;
+    }
+
+    // Belt floor: clip tree support polygons by the belt surface plane.
+    // This runs AFTER the global Z offset is applied so print_z and
+    // belt_floor_z_shift are in the same coordinate space.
+    if (is_tree(m_config.support_type.value)
+        && std::abs(m_slicing_params.belt_floor_shear_factor) > EPSILON
+        && this->print()->config().belt_support_floor_mode.value == BeltSupportFloorMode::GeneratorOnly) {
+        const auto &pcfg = this->print()->config();
+        tbb::parallel_for(tbb::blocked_range<size_t>(0, m_support_layers.size()),
+            [&](const tbb::blocked_range<size_t> &range) {
+                for (size_t i = range.begin(); i < range.end(); ++i) {
+                    SupportLayer *sl = m_support_layers[i];
+                    Polygons belt_surface = belt_floor_surface_polygon(
+                        m_slicing_params, pcfg, *this, sl->print_z);
+                    if (!belt_surface.empty()) {
+                        sl->base_areas     = diff_ex(sl->base_areas,     belt_surface);
+                        sl->roof_areas     = diff_ex(sl->roof_areas,     belt_surface);
+                        sl->roof_1st_layer = diff_ex(sl->roof_1st_layer, belt_surface);
+                        sl->floor_areas    = diff_ex(sl->floor_areas,    belt_surface);
+                    }
+                }
+            });
     }
 
 }

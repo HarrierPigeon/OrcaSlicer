@@ -2155,20 +2155,6 @@ void TreeSupport::draw_circles()
                 base_areas = diff_ex(base_areas, ClipperUtils::clip_clipper_polygons_with_subject_bbox(roofs, get_extents(base_areas)));
                 base_areas = intersection_ex(base_areas, m_machine_border);
 
-                // Belt floor: clip tree support polygons by the belt surface plane.
-                if (std::abs(m_slicing_params.belt_floor_shear_factor) > EPSILON
-                    && m_print_config->belt_support_floor_mode.value == BeltSupportFloorMode::GeneratorOnly) {
-                    Polygons belt_surface = belt_floor_surface_polygon(
-                        m_slicing_params, *m_print_config, *m_object, ts_layer->print_z);
-                    if (!belt_surface.empty()) {
-                        base_areas     = diff_ex(base_areas,     belt_surface);
-                        roof_areas     = diff_ex(roof_areas,     belt_surface);
-                        roof_1st_layer = diff_ex(roof_1st_layer, belt_surface);
-                        floor_areas    = diff_ex(floor_areas,    belt_surface);
-                        roof_gap_areas = diff_ex(roof_gap_areas, belt_surface);
-                    }
-                }
-
                 if (SQUARE_SUPPORT) {
                     // simplify support contours
                     ExPolygons base_areas_simplified;
