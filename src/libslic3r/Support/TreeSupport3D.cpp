@@ -3377,10 +3377,12 @@ static void generate_support_areas(Print &print, TreeSupport* tree_support, cons
             if (std::abs(sf) > EPSILON && std::abs(po.belt_global_z_offset()) > EPSILON
                 && pcfg.belt_support_floor_mode.value == BeltSupportFloorMode::GeneratorOnly) {
                 // z_shift_local is the belt surface height at Y=0 in local coords.
-                // We need layers from Z=0 down to Z=-z_shift_local so the base
-                // expansion happens well below the belt and gets fully clipped.
+                // Extend below the belt so the base expansion and build-plate
+                // termination happen inside the belt region and get clipped.
+                // Cap at 10mm — enough for base expansion without blowing up memory.
                 double z_shift_local = sp.belt_floor_z_shift - po.belt_global_z_offset();
-                int    num_extra     = std::max(0, (int)std::ceil(z_shift_local / sp.layer_height));
+                double extra_depth   = std::min(std::max(z_shift_local, 5.), 10.);
+                int    num_extra     = std::max(0, (int)std::ceil(extra_depth / sp.layer_height));
                 if (num_extra > 0) {
                     // Insert belt raft layers at the front, from lowest Z to highest.
                     std::vector<coordf_t> belt_layers;
