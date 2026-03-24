@@ -168,6 +168,9 @@ public:
     }
 
     Polygon m_bed_area;
+    // Belt floor polygons per layer — used for post-generation clipping
+    // in organic_draw_branches(). Public so the organic pipeline can access it.
+    std::vector<Polygons> m_belt_floor;
 
 private:
     // Caching polygons for a range of layers.
@@ -480,11 +483,6 @@ private:
      * \brief Storage for areas that should be avoided, like support blocker or previous generated trees.
      */
     std::vector<Polygons> m_anti_overhang;
-    /*!
-     * \brief Belt floor collision areas per layer. On belt printers, the belt
-     *        surface is a tilted plane — branches must not cross it.
-     */
-    std::vector<Polygons> m_belt_floor;
     /*!
      * \brief Radii that can be ignored by ceilRadius as they will never be requested, sorted.
      */

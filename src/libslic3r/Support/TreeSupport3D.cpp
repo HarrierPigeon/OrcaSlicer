@@ -3816,6 +3816,10 @@ void organic_draw_branches(
                     for (LayerIndex i = 0; i < LayerIndex(slices.size()); ++i) {
                         slices[i] = diff_clipped(slices[i], volumes.getCollision(0, layer_begin + i, true)); // FIXME parent_uses_min || draw_area.element->state.use_min_xy_dist);
                         slices[i] = intersection(slices[i], volumes.m_bed_area);
+                        // Belt floor: clip branch slices against the belt surface plane.
+                        LayerIndex belt_idx = layer_begin + i;
+                        if (belt_idx < LayerIndex(volumes.m_belt_floor.size()) && !volumes.m_belt_floor[belt_idx].empty())
+                            slices[i] = diff(slices[i], volumes.m_belt_floor[belt_idx]);
                     }
                     size_t num_empty = 0;
                     if (slices.front().empty()) {
@@ -3850,6 +3854,9 @@ void organic_draw_branches(
                                 //double                          support_area_min = 0.1 * support_area_min_radius;
                                 for (LayerIndex layer_idx = layer_begin - 1; layer_idx >= layer_bottommost; -- layer_idx) {
                                     rest_support = diff_clipped(rest_support.empty() ? slices.front() : rest_support, volumes.getCollision(0, layer_idx, false));
+                                    // Belt floor: clip propagated support at belt surface.
+                                    if (layer_idx < LayerIndex(volumes.m_belt_floor.size()) && !volumes.m_belt_floor[layer_idx].empty())
+                                        rest_support = diff(rest_support, volumes.m_belt_floor[layer_idx]);
                                     double rest_support_area = area(rest_support);
                                     if (rest_support_area < support_area_stop)
                                         // Don't propagate a fraction of the tree contact surface.
