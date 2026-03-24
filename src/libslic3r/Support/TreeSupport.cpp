@@ -2736,8 +2736,10 @@ void TreeSupport::drop_nodes()
                     // Make sure the next pass doesn't drop down either of these (since that already happened).
                     node_parent->merged_neighbours.push_front(node_parent == p_node ? neighbour : p_node);
                     // Belt floor: don't drop merged node below belt surface.
+                    // Treat as object-surface termination (not buildplate) so
+                    // the node gets floor/interface areas instead of base pads.
                     if (has_belt_floor && print_z_next <= belt_floor_print_z(next_position)) {
-                        node_parent->to_buildplate = true;
+                        node_parent->to_buildplate = false;
                     } else {
                         const bool to_buildplate = !is_inside_ex(get_collision(0, obj_layer_nr_next), next_position);
                         SupportNode* next_node = m_ts_data->create_node(next_position, node_parent->distance_to_top + 1, obj_layer_nr_next, node_parent->support_roof_layers_below - 1, to_buildplate, node_parent,
@@ -2793,8 +2795,9 @@ void TreeSupport::drop_nodes()
                     for(auto& overhang:overhangs_next) {
                         Point        next_pt     = overhang.contour.centroid();
                         // Belt floor: don't drop polygon node below belt surface.
+                        // Treat as object-surface termination (not buildplate).
                         if (has_belt_floor && print_z_next <= belt_floor_print_z(next_pt)) {
-                            p_node->to_buildplate = true;
+                            p_node->to_buildplate = false;
                             continue;
                         }
                         SupportNode *next_node   = m_ts_data->create_node(next_pt, p_node->distance_to_top + 1, obj_layer_nr_next, p_node->support_roof_layers_below - 1,
@@ -2942,8 +2945,9 @@ void TreeSupport::drop_nodes()
                     }
                 }
                 // Belt floor: don't drop regular node below belt surface.
+                // Treat as object-surface termination (not buildplate).
                 if (has_belt_floor && print_z_next <= belt_floor_print_z(next_layer_vertex)) {
-                    p_node->to_buildplate = true;
+                    p_node->to_buildplate = false;
                     return; // from parallel_for_each lambda
                 }
                 auto              next_collision = get_collision(0, obj_layer_nr_next);
