@@ -481,6 +481,11 @@ private:
      */
     std::vector<Polygons> m_anti_overhang;
     /*!
+     * \brief Belt floor collision areas per layer. On belt printers, the belt
+     *        surface is a tilted plane — branches must not cross it.
+     */
+    std::vector<Polygons> m_belt_floor;
+    /*!
      * \brief Radii that can be ignored by ceilRadius as they will never be requested, sorted.
      */
     std::vector<coord_t> m_ignorable_radii;

@@ -2167,12 +2167,6 @@ void TreeSupport::draw_circles()
                     const double z_shift_local = m_slicing_params.belt_floor_z_shift
                                                - m_object->belt_global_z_offset();
                     const double cutoff    = (ts_layer->print_z - z_shift_local - floor_off) / sf;
-                    static int tree_clip_log = 0;
-                    if (tree_clip_log++ < 10)
-                        BOOST_LOG_TRIVIAL(warning) << "Tree belt clip: layer=" << layer_nr
-                            << " print_z=" << ts_layer->print_z << " z_shift_local=" << z_shift_local
-                            << " sf=" << sf << " cutoff=" << cutoff
-                            << " base=" << base_areas.size() << " roof=" << roof_areas.size();
                     const coord_t cutoff_sc = scale_(cutoff);
                     const coord_t big       = scale_(1e4);
 

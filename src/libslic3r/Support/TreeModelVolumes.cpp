@@ -114,6 +114,44 @@ TreeModelVolumes::TreeModelVolumes(
             for (size_t layer_idx = range.begin(); layer_idx < range.end(); ++ layer_idx)
                 outlines[layer_idx] = polygons_simplify(to_polygons(print_object.get_layer(layer_idx - num_raft_layers)->lslices), mesh_settings.resolution, polygons_strictly_simple);
         });
+
+        // Belt floor: pre-compute belt surface polygon per-layer for collision.
+        // Branches that would cross the belt surface will be treated as collisions,
+        // causing the organic algorithm to naturally avoid generating support below the belt.
+        const auto &slicing_params = print_object.slicing_parameters();
+        const auto &pcfg = print_object.print()->config();
+        const double sf = slicing_params.belt_floor_shear_factor;
+        if (std::abs(sf) > EPSILON
+            && pcfg.belt_support_floor_mode.value == BeltSupportFloorMode::GeneratorOnly) {
+            const int    from_axis = slicing_params.belt_floor_from_axis;
+            const double floor_off = pcfg.belt_support_floor_offset.value;
+            const double z_shift   = slicing_params.belt_floor_z_shift;
+            m_belt_floor.assign(num_layers, Polygons{});
+            BOOST_LOG_TRIVIAL(warning) << "TreeModelVolumes: belt floor collision enabled"
+                << " sf=" << sf << " from_axis=" << from_axis << " z_shift=" << z_shift
+                << " floor_off=" << floor_off << " num_layers=" << num_layers;
+            for (size_t layer_idx = 0; layer_idx < num_layers; ++layer_idx) {
+                double print_z = (layer_idx >= num_raft_layers)
+                    ? print_object.get_layer(layer_idx - num_raft_layers)->print_z
+                    : 0.;
+                double cutoff = (print_z - z_shift - floor_off) / sf;
+                coord_t cutoff_sc = scale_(cutoff);
+                coord_t big = scale_(1e4);
+                Polygon belt_poly;
+                if (from_axis == 0) {
+                    if (sf > 0)
+                        belt_poly.points = {{cutoff_sc,-big},{big,-big},{big,big},{cutoff_sc,big}};
+                    else
+                        belt_poly.points = {{-big,-big},{cutoff_sc,-big},{cutoff_sc,big},{-big,big}};
+                } else {
+                    if (sf > 0)
+                        belt_poly.points = {{-big,cutoff_sc},{big,cutoff_sc},{big,big},{-big,big}};
+                    else
+                        belt_poly.points = {{-big,-big},{big,-big},{big,cutoff_sc},{-big,cutoff_sc}};
+                }
+                m_belt_floor[layer_idx] = { belt_poly };
+            }
+        }
     }
 #endif
 
@@ -469,9 +507,9 @@ void TreeModelVolumes::calculateCollision(const coord_t radius, const LayerIndex
             });
 
             // 2) Sum over top / bottom ranges.
-            const bool processing_last_mesh = outline_idx == layer_outline_indices.size();
+            const bool processing_last_mesh = outline_idx == layer_outline_indices.back();
             tbb::parallel_for(tbb::blocked_range<LayerIndex>(data.begin(), data.end()),
-                [&collision_areas_offsetted, &outlines, &machine_border = m_machine_border, &anti_overhang = m_anti_overhang, radius, 
+                [&collision_areas_offsetted, &outlines, &machine_border = m_machine_border, &anti_overhang = m_anti_overhang, &belt_floor = m_belt_floor, radius,
                     xy_distance, z_distance_bottom_layers, z_distance_top_layers, min_resolution = m_min_resolution, &data, processing_last_mesh, &throw_on_cancel]
                 (const tbb::blocked_range<LayerIndex>& range) {
                     for (LayerIndex layer_idx = range.begin(); layer_idx != range.end(); ++ layer_idx) {
@@ -517,9 +555,13 @@ void TreeModelVolumes::calculateCollision(const coord_t radius, const LayerIndex
                                     // not support an overhang<90 degree than to risk fusing to it.
                                 append(collisions, offset(union_ex(collision_areas_original), radius + required_range_x, ClipperLib::jtMiter, 1.2));
                             }
-                        collisions = processing_last_mesh && layer_idx < int(anti_overhang.size()) ? 
-                                union_(collisions, offset(union_ex(anti_overhang[layer_idx]), radius, ClipperLib::jtMiter, 1.2)) : 
-                                union_(collisions);
+                        if (processing_last_mesh) {
+                            if (layer_idx < int(anti_overhang.size()))
+                                append(collisions, offset(union_ex(anti_overhang[layer_idx]), radius, ClipperLib::jtMiter, 1.2));
+                            if (layer_idx < int(belt_floor.size()) && !belt_floor[layer_idx].empty())
+                                append(collisions, offset(union_ex(belt_floor[layer_idx]), radius, ClipperLib::jtMiter, 1.2));
+                        }
+                        collisions = union_(collisions);
                         auto &dst = data[layer_idx];
                         if (processing_last_mesh) {
                             if (! dst.empty())
