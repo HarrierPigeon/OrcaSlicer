@@ -3561,6 +3561,27 @@ static void generate_support_areas(Print &print, TreeSupport* tree_support, cons
             if (layer) layer->polygons = intersection(layer->polygons, volumes.m_bed_area);
         });
 
+        // Belt floor: clip ALL organic support layers (including intermediate/base
+        // fill) against the belt surface.  The branch slices were already clipped
+        // in organic_draw_branches(), but intermediate layers generated between
+        // branches and the build plate need clipping too.
+        if (!volumes.m_belt_floor.empty()) {
+            tbb::parallel_for_each(layers_sorted.begin(), layers_sorted.end(), [&](SupportGeneratorLayer *layer) {
+                if (!layer || layer->polygons.empty())
+                    return;
+                // Map this layer's print_z to a layer index for belt_floor lookup.
+                // Use the same index the layer was created at (stored in idx_object_layer_below + raft offset).
+                // Simpler: find the layer index from print_z using the slicing params.
+                const auto &sp = print_object.slicing_parameters();
+                LayerIndex layer_idx = LayerIndex(std::round(
+                    (layer->print_z - sp.first_object_layer_height - sp.object_print_z_min) / sp.layer_height))
+                    + LayerIndex(config.raft_layers.size());
+                layer_idx = std::clamp<LayerIndex>(layer_idx, 0, LayerIndex(volumes.m_belt_floor.size()) - 1);
+                if (!volumes.m_belt_floor[layer_idx].empty())
+                    layer->polygons = diff(layer->polygons, volumes.m_belt_floor[layer_idx]);
+            });
+        }
+
         print.set_status(69, _L("Generating support"));
         generate_support_toolpaths(print_object.support_layers(), print_object.config(), support_params, print_object.slicing_parameters(),
             raft_layers, bottom_contacts, top_contacts, intermediate_layers, interface_layers, base_interface_layers);

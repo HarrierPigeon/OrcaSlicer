@@ -115,9 +115,10 @@ TreeModelVolumes::TreeModelVolumes(
                 outlines[layer_idx] = polygons_simplify(to_polygons(print_object.get_layer(layer_idx - num_raft_layers)->lslices), mesh_settings.resolution, polygons_strictly_simple);
         });
 
-        // Belt floor: pre-compute belt surface polygon per-layer for collision.
-        // Branches that would cross the belt surface will be treated as collisions,
-        // causing the organic algorithm to naturally avoid generating support below the belt.
+        // Belt floor: pre-compute belt surface polygon per-layer for clipping.
+        // Branches grow toward the belt and their slices are clipped at the belt
+        // surface in organic_draw_branches().  The organic pipeline works in LOCAL
+        // Z (no global_z_offset), so use local z_shift and local print_z.
         const auto &slicing_params = print_object.slicing_parameters();
         const auto &pcfg = print_object.print()->config();
         const double sf = slicing_params.belt_floor_shear_factor;
@@ -125,11 +126,16 @@ TreeModelVolumes::TreeModelVolumes(
             && pcfg.belt_support_floor_mode.value == BeltSupportFloorMode::GeneratorOnly) {
             const int    from_axis = slicing_params.belt_floor_from_axis;
             const double floor_off = pcfg.belt_support_floor_offset.value;
-            const double z_shift   = slicing_params.belt_floor_z_shift;
+            // Subtract global_z_offset to get the LOCAL z_shift — the organic
+            // pipeline's Z coordinates don't include the global offset.
+            const double z_shift   = slicing_params.belt_floor_z_shift
+                                   - print_object.belt_global_z_offset();
             m_belt_floor.assign(num_layers, Polygons{});
             for (size_t layer_idx = 0; layer_idx < num_layers; ++layer_idx) {
+                // Use local print_z (subtract global offset from object layer).
                 double print_z = (layer_idx >= num_raft_layers)
                     ? print_object.get_layer(layer_idx - num_raft_layers)->print_z
+                      - print_object.belt_global_z_offset()
                     : 0.;
                 double cutoff = (print_z - z_shift - floor_off) / sf;
                 coord_t cutoff_sc = scale_(cutoff);
