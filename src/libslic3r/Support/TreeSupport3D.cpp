@@ -3366,6 +3366,33 @@ static void generate_support_areas(Print &print, TreeSupport* tree_support, cons
         // this struct is used to easy retrieve setting. No other function except those in TreeModelVolumes and generate_initial_areas() have knowledge of the existence of multiple meshes being processed.
         //FIXME this is a copy
         // Contains config settings to avoid loading them in every function. This was done to improve readability of the code.
+        // Belt printer: add virtual "belt raft" layers below the object so
+        // organic branches can extend below the model's first layer and
+        // terminate at the belt surface instead of creating a flat base at Z=0.
+        {
+            PrintObject &po = *print.get_object(processing.second.front());
+            const auto &sp  = po.slicing_parameters();
+            const auto &pcfg = po.print()->config();
+            const double sf  = sp.belt_floor_shear_factor;
+            if (std::abs(sf) > EPSILON && std::abs(po.belt_global_z_offset()) > EPSILON
+                && pcfg.belt_support_floor_mode.value == BeltSupportFloorMode::GeneratorOnly) {
+                // z_shift_local is the belt surface height at Y=0 in local coords.
+                // We need layers from Z=0 down to Z=-z_shift_local so the base
+                // expansion happens well below the belt and gets fully clipped.
+                double z_shift_local = sp.belt_floor_z_shift - po.belt_global_z_offset();
+                int    num_extra     = std::max(0, (int)std::ceil(z_shift_local / sp.layer_height));
+                if (num_extra > 0) {
+                    // Insert belt raft layers at the front, from lowest Z to highest.
+                    std::vector<coordf_t> belt_layers;
+                    belt_layers.reserve(num_extra);
+                    for (int i = num_extra; i >= 1; --i)
+                        belt_layers.push_back(sp.first_object_layer_height - i * sp.layer_height);
+                    // Prepend to existing raft_layers (if any).
+                    auto &rl = processing.first.raft_layers;
+                    rl.insert(rl.begin(), belt_layers.begin(), belt_layers.end());
+                }
+            }
+        }
         const TreeSupportSettings &config = processing.first;
         BOOST_LOG_TRIVIAL(info) << "Processing support tree mesh group " << counter + 1 << " of " << grouped_meshes.size() << " containing " << grouped_meshes[counter].second.size() << " meshes.";
         auto t_start = std::chrono::high_resolution_clock::now();
