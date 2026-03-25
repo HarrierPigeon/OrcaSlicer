@@ -2730,11 +2730,9 @@ void TreeSupport::drop_nodes()
                     // Make sure the next pass doesn't drop down either of these (since that already happened).
                     node_parent->merged_neighbours.push_front(node_parent == p_node ? neighbour : p_node);
                     // Belt floor: don't drop merged node below belt surface.
-                    // Treat as object-surface termination (not buildplate) so
-                    // the node gets floor/interface areas instead of base pads.
-                    if (has_belt_floor && print_z_next <= belt_floor_print_z(next_position)) {
-                        node_parent->to_buildplate = false;
-                    } else {
+                    // Belt floor is in m_layer_outlines as a collision surface,
+                    // so get_collision() already prevents nodes from entering the belt.
+                    {
                         const bool to_buildplate = !is_inside_ex(get_collision(0, obj_layer_nr_next), next_position);
                         SupportNode* next_node = m_ts_data->create_node(next_position, node_parent->distance_to_top + 1, obj_layer_nr_next, node_parent->support_roof_layers_below - 1, to_buildplate, node_parent,
                             print_z_next, height_next);
@@ -2788,12 +2786,7 @@ void TreeSupport::drop_nodes()
                     ExPolygons overhangs_next = diff_clipped({ node.overhang }, get_collision(0, obj_layer_nr_next));
                     for(auto& overhang:overhangs_next) {
                         Point        next_pt     = overhang.contour.centroid();
-                        // Belt floor: don't drop polygon node below belt surface.
-                        // Treat as object-surface termination (not buildplate).
-                        if (has_belt_floor && print_z_next <= belt_floor_print_z(next_pt)) {
-                            p_node->to_buildplate = false;
-                            continue;
-                        }
+                        // Belt floor is in m_layer_outlines — collision prevents entry.
                         SupportNode *next_node   = m_ts_data->create_node(next_pt, p_node->distance_to_top + 1, obj_layer_nr_next, p_node->support_roof_layers_below - 1,
                                                                           to_buildplate, p_node, print_z_next, height_next);
                         next_node->max_move_dist = 0;
@@ -2939,11 +2932,7 @@ void TreeSupport::drop_nodes()
                     }
                 }
                 // Belt floor: don't drop regular node below belt surface.
-                // Treat as object-surface termination (not buildplate).
-                if (has_belt_floor && print_z_next <= belt_floor_print_z(next_layer_vertex)) {
-                    p_node->to_buildplate = false;
-                    return; // from parallel_for_each lambda
-                }
+                // Belt floor is in m_layer_outlines — collision prevents entry.
                 auto              next_collision = get_collision(0, obj_layer_nr_next);
                 const bool   to_buildplate  = !is_inside_ex(m_ts_data->m_layer_outlines[obj_layer_nr_next], next_layer_vertex);
                 SupportNode *     next_node     = m_ts_data->create_node(next_layer_vertex, node.distance_to_top + 1, obj_layer_nr_next, node.support_roof_layers_below - 1, to_buildplate, p_node,
@@ -3162,6 +3151,29 @@ std::vector<LayerHeightData> TreeSupport::plan_layer_heights()
             while (obj_layer_nr < obj_layer_zs.size() && obj_layer_zs[obj_layer_nr] < print_z - height / 2) obj_layer_nr++;
             layer_heights[i]       = {print_z, height, obj_layer_nr};
 
+        }
+    }
+
+    // Belt printer global shear: add extra layers below the object so support
+    // can extend below the first layer to reach the belt surface diagonally.
+    {
+        const auto &sp   = m_object->slicing_parameters();
+        const auto &pcfg = m_object->print()->config();
+        const double sf  = sp.belt_floor_shear_factor;
+        if (std::abs(sf) > EPSILON && std::abs(m_object->belt_global_z_offset()) > EPSILON
+            && pcfg.belt_support_floor_mode.value == BeltSupportFloorMode::GeneratorOnly
+            && !layer_heights.empty()) {
+            double bb_min_z    = std::abs(m_object->model_object()->raw_bounding_box().min.z());
+            double extra_depth = bb_min_z + 10.;
+            int    num_extra   = std::max(0, (int)std::ceil(extra_depth / sp.layer_height));
+            if (num_extra > 0) {
+                double first_z = layer_heights.front().print_z;
+                std::vector<LayerHeightData> belt_layers;
+                belt_layers.reserve(num_extra);
+                for (int i = num_extra; i >= 1; --i)
+                    belt_layers.push_back({first_z - i * sp.layer_height, sp.layer_height, size_t(0)});
+                layer_heights.insert(layer_heights.begin(), belt_layers.begin(), belt_layers.end());
+            }
         }
     }
 
@@ -3498,6 +3510,35 @@ TreeSupportData::TreeSupportData(const PrintObject &object, coordf_t xy_distance
         ExPolygons& outline = m_layer_outlines.back();
         for (const ExPolygon& poly : layer->lslices) {
             poly.simplify(scale_(m_radius_sample_resolution), &outline);
+        }
+
+        // Belt floor: add belt surface polygon to layer outlines so the
+        // collision system treats the belt as a physical surface.
+        const auto &sp   = object.slicing_parameters();
+        const auto &pcfg = object.print()->config();
+        const double sf  = sp.belt_floor_shear_factor;
+        if (std::abs(sf) > EPSILON
+            && pcfg.belt_support_floor_mode.value == BeltSupportFloorMode::GeneratorOnly) {
+            const int    from_axis = sp.belt_floor_from_axis;
+            const double floor_off = pcfg.belt_support_floor_offset.value;
+            const double z_shift   = sp.belt_floor_z_shift - object.belt_global_z_offset();
+            double print_z = layer->print_z - object.belt_global_z_offset();
+            double cutoff  = (print_z - z_shift - floor_off) / sf;
+            coord_t cutoff_sc = scale_(cutoff);
+            coord_t big       = scale_(1e4);
+            Polygon belt_poly;
+            if (from_axis == 0) {
+                if (sf > 0)
+                    belt_poly.points = {{cutoff_sc,-big},{big,-big},{big,big},{cutoff_sc,big}};
+                else
+                    belt_poly.points = {{-big,-big},{cutoff_sc,-big},{cutoff_sc,big},{-big,big}};
+            } else {
+                if (sf > 0)
+                    belt_poly.points = {{-big,cutoff_sc},{big,cutoff_sc},{big,big},{-big,big}};
+                else
+                    belt_poly.points = {{-big,-big},{big,-big},{big,cutoff_sc},{-big,cutoff_sc}};
+            }
+            outline.emplace_back(ExPolygon(belt_poly));
         }
 
         if (layer_nr == 0)
