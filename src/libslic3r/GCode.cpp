@@ -1745,13 +1745,15 @@ std::vector<GCode::LayerToPrint> GCode::collect_layers_to_print(const PrintObjec
 
         // Check that there are extrusions on the very first layer. The case with empty
         // first layer may result in skirt/brim in the air and maybe other issues.
-        // Skip this check for belt printer objects with global Z offset, where the
-        // first layer legitimately starts above Z=0 on the tilted build surface.
+        // Skip this check for belt printers.  The shear transform tilts the
+        // model so the first horizontal layer plane intersects only a thin
+        // sliver of the model (width ≈ first_layer_height / shear_factor).
+        // This sliver is often narrower than the nozzle diameter, producing
+        // zero perimeters and an empty first layer — which is expected, not
+        // an error.  In global shear mode the object may also start above
+        // Z=0 on the tilted belt surface.
         if (layers_to_print.size() == 1u) {
-            bool skip_empty_check = object.print()->config().belt_printer.value && (
-                object.print()->config().belt_shear_x_global.value ||
-                object.print()->config().belt_shear_y_global.value ||
-                object.print()->config().belt_shear_z_global.value);
+            bool skip_empty_check = object.print()->config().belt_printer.value;
             if (!has_extrusions && !skip_empty_check)
                 throw Slic3r::SlicingError(_(L("One object has an empty first layer and can't be printed. Please Cut the bottom or enable supports.")), object.id().id);
         }

@@ -95,14 +95,15 @@ TreeModelVolumes::TreeModelVolumes(
     {
         m_anti_overhang = print_object.slice_support_blockers();
         // Belt floor: add belt surface polygons to anti_overhang so support
-        // is never generated inside the belt.  This makes branches terminate
-        // at the belt surface naturally, rather than growing to Z=0 and
-        // creating a horizontal build-plate base.
+        // is never generated inside the belt.  Only in global shear mode —
+        // in local mode the belt floor clipping handles everything and
+        // anti_overhang at the bottom layers would block all support.
         {
             const auto &sp   = print_object.slicing_parameters();
             const auto &pcfg = print_object.print()->config();
             const double sf  = sp.belt_floor_shear_factor;
             if (std::abs(sf) > EPSILON
+                && std::abs(print_object.belt_global_z_offset()) > EPSILON
                 && pcfg.belt_support_floor_mode.value == BeltSupportFloorMode::GeneratorOnly) {
                 const int    from_axis = sp.belt_floor_from_axis;
                 const double floor_off = pcfg.belt_support_floor_offset.value;
