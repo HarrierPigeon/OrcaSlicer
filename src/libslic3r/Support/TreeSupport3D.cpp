@@ -3610,7 +3610,7 @@ static void generate_support_areas(Print &print, TreeSupport* tree_support, cons
                         return;
                     double    cutoff    = (layer->print_z - z_shift - floor_off) / sf;
                     coord_t   cutoff_sc = scale_(cutoff);
-                    coord_t   big       = scale_(1e4);
+                    coord_t   big       = scale_(1e3);
                     Polygon belt_poly;
                     if (from_axis == 0) {
                         if (sf > 0)

@@ -1733,6 +1733,92 @@ void TreeSupport::generate()
 
 
 
+    // Belt floor: extend support below the object's first layer by creating
+    // additional support layers with geometry copied from the lowest content
+    // layer and clipped at the belt surface.  These layers bypass the tree
+    // algorithm entirely — they're pure geometry added after draw_circles().
+    {
+        const auto &sp   = m_slicing_params;
+        const auto &pcfg = *m_print_config;
+        const double sf  = sp.belt_floor_shear_factor;
+        if (std::abs(sf) > EPSILON
+            && pcfg.belt_support_floor_mode.value == BeltSupportFloorMode::GeneratorOnly
+            && m_object->support_layer_count() > 0) {
+            const int    from_axis = sp.belt_floor_from_axis;
+            const double floor_off = pcfg.belt_support_floor_offset.value;
+            const double z_shift_local = sp.belt_floor_z_shift - m_object->belt_global_z_offset();
+            // Find the lowest non-empty, non-brim support layer.
+            ExPolygons source_areas;
+            double source_z = 0;
+            int layers_with_content = 0;
+            for (size_t i = 0; i < m_object->support_layer_count(); ++i) {
+                SupportLayer *sl = m_object->get_support_layer(i);
+                if (sl && !sl->base_areas.empty()) {
+                    layers_with_content++;
+                    if (layers_with_content >= 2) {
+                        source_areas = sl->base_areas;
+                        source_z = sl->print_z;
+                        break;
+                    }
+                }
+            }
+            // Fallback to first content layer.
+            if (source_areas.empty()) {
+                for (size_t i = 0; i < m_object->support_layer_count(); ++i) {
+                    SupportLayer *sl = m_object->get_support_layer(i);
+                    if (sl && !sl->base_areas.empty()) {
+                        source_areas = sl->base_areas;
+                        source_z = sl->print_z;
+                        break;
+                    }
+                }
+            }
+            if (!source_areas.empty()) {
+                BoundingBoxf3 bb = m_object->model_object()->raw_bounding_box();
+                double from_extent = std::abs(bb.min(from_axis));
+                double first_z = m_object->get_support_layer(0)->print_z;
+                double extra_depth = std::min(from_extent + 10., std::max(0., first_z));
+                int num_extra = std::min(50, std::max(0, (int)std::ceil(extra_depth / sp.layer_height)));
+                ExPolygons prev_areas = source_areas;
+                // Build belt extension layers (lowest Z first).
+                SupportLayerPtrs belt_ext_layers;
+                for (int i = num_extra; i >= 1 && !prev_areas.empty(); --i) {
+                    double print_z = first_z - i * sp.layer_height;
+                    if (print_z < -sp.layer_height) continue;
+                    double cutoff = (print_z - z_shift_local - floor_off) / sf;
+                    coord_t cutoff_sc = scale_(cutoff);
+                    coord_t big = scale_(1e3);
+                    Polygon belt_poly;
+                    if (from_axis == 0) {
+                        if (sf > 0) belt_poly.points = {{cutoff_sc,-big},{big,-big},{big,big},{cutoff_sc,big}};
+                        else        belt_poly.points = {{-big,-big},{cutoff_sc,-big},{cutoff_sc,big},{-big,big}};
+                    } else {
+                        if (sf > 0) belt_poly.points = {{-big,cutoff_sc},{big,cutoff_sc},{big,big},{-big,big}};
+                        else        belt_poly.points = {{-big,-big},{big,-big},{big,cutoff_sc},{-big,cutoff_sc}};
+                    }
+                    ExPolygons clipped = diff_ex(source_areas, Polygons{belt_poly});
+                    if (clipped.empty()) continue;
+                    SupportLayer *sl = new SupportLayer(0, 0, m_object, sp.layer_height, print_z, -1);
+                    sl->base_areas = clipped;
+                    // Populate area_groups — generate_toolpaths() iterates these,
+                    // not base_areas directly.
+                    for (auto &expoly : sl->base_areas)
+                        sl->area_groups.emplace_back(&expoly, SupportLayer::BaseType, 0);
+                    sl->lslices = clipped;
+                    sl->lslices_bboxes.reserve(clipped.size());
+                    for (const ExPolygon &ep : clipped)
+                        sl->lslices_bboxes.emplace_back(get_extents(ep));
+                    belt_ext_layers.push_back(sl);
+                }
+                // Insert at the front of support_layers (they're already in Z order).
+                if (!belt_ext_layers.empty()) {
+                    auto &sl_vec = m_object->support_layers();
+                    sl_vec.insert(sl_vec.begin(), belt_ext_layers.begin(), belt_ext_layers.end());
+                }
+            }
+        }
+    }
+
     profiler.stage_start(STAGE_GENERATE_TOOLPATHS);
     m_object->print()->set_status(70, _u8L("Generating support"));
     generate_toolpaths();
@@ -2168,7 +2254,7 @@ void TreeSupport::draw_circles()
                                                - m_object->belt_global_z_offset();
                     const double cutoff    = (ts_layer->print_z - z_shift_local - floor_off) / sf;
                     const coord_t cutoff_sc = scale_(cutoff);
-                    const coord_t big       = scale_(1e4);
+                    const coord_t big       = scale_(1e3);
 
                     Polygon belt_poly;
                     if (from_axis == 0) {
@@ -2270,64 +2356,6 @@ void TreeSupport::draw_circles()
 
             }
         });
-
-        // Belt floor: propagate support downward through belt raft layers.
-        // The collision system can't handle these (all share obj_layer_nr=0),
-        // so we copy base_areas from above and clip at the correct belt floor
-        // polygon for each layer's actual Z.
-        if (m_belt_raft_layers > 0) {
-            const double sf        = m_slicing_params.belt_floor_shear_factor;
-            const int    from_axis = m_slicing_params.belt_floor_from_axis;
-            const double floor_off = m_print_config->belt_support_floor_offset.value;
-            const double z_shift_local = m_slicing_params.belt_floor_z_shift
-                                       - m_object->belt_global_z_offset();
-            // Find the first layer with support content (the lowest object layer with nodes).
-            int first_content_layer = -1;
-            for (int i = m_belt_raft_layers; i < (int)m_ts_data->layer_heights.size(); ++i) {
-                SupportLayer *sl = m_object->get_support_layer(i + m_raft_layers);
-                if (sl && !sl->base_areas.empty()) { first_content_layer = i; break; }
-            }
-            if (first_content_layer >= 0 && std::abs(sf) > EPSILON) {
-                ExPolygons prev_areas;
-                {
-                    SupportLayer *src = m_object->get_support_layer(first_content_layer + m_raft_layers);
-                    if (src) prev_areas = src->base_areas;
-                }
-                // Propagate downward through belt raft layers.
-                for (int i = first_content_layer - 1; i >= 0; --i) {
-                    SupportLayer *sl = m_object->get_support_layer(i + m_raft_layers);
-                    if (!sl || prev_areas.empty()) break;
-                    double print_z = m_ts_data->layer_heights[i].print_z;
-                    double cutoff  = (print_z - z_shift_local - floor_off) / sf;
-                    coord_t cutoff_sc = scale_(cutoff);
-                    coord_t big       = scale_(1e4);
-                    Polygon belt_poly;
-                    if (from_axis == 0) {
-                        if (sf > 0)
-                            belt_poly.points = {{cutoff_sc,-big},{big,-big},{big,big},{cutoff_sc,big}};
-                        else
-                            belt_poly.points = {{-big,-big},{cutoff_sc,-big},{cutoff_sc,big},{-big,big}};
-                    } else {
-                        if (sf > 0)
-                            belt_poly.points = {{-big,cutoff_sc},{big,cutoff_sc},{big,big},{-big,big}};
-                        else
-                            belt_poly.points = {{-big,-big},{big,-big},{big,cutoff_sc},{-big,cutoff_sc}};
-                    }
-                    ExPolygons clipped = diff_ex(prev_areas, Polygons{belt_poly});
-                    if (clipped.empty()) break;
-                    sl->base_areas = clipped;
-                    sl->print_z = print_z;
-                    sl->height = m_ts_data->layer_heights[i].height;
-                    // Update lslices for this layer.
-                    sl->lslices = clipped;
-                    sl->lslices_bboxes.clear();
-                    sl->lslices_bboxes.reserve(clipped.size());
-                    for (const ExPolygon &ep : clipped)
-                        sl->lslices_bboxes.emplace_back(get_extents(ep));
-                    prev_areas = clipped;
-                }
-            }
-        }
 
         if (with_lightning_infill)
         {
@@ -3211,34 +3239,11 @@ std::vector<LayerHeightData> TreeSupport::plan_layer_heights()
         }
     }
 
-    // Belt printer: add extra layers below the object so the diagonal belt
-    // floor clip can extend below the first layer.  Depth = min of
-    // (pre-shear bbox from-axis extent + 10mm) or distance to build plate.
+    // No belt raft layers for non-organic tree support.  The belt floor in
+    // m_layer_outlines handles diagonal termination within the object's layer
+    // range.  The gap at the first layer is ~first_layer_height (≈0.2mm).
     m_belt_raft_layers = 0;
     {
-        const auto &sp   = m_object->slicing_parameters();
-        const auto &pcfg = m_object->print()->config();
-        const double sf  = sp.belt_floor_shear_factor;
-        if (std::abs(sf) > EPSILON
-            && pcfg.belt_support_floor_mode.value == BeltSupportFloorMode::GeneratorOnly
-            && !layer_heights.empty()) {
-            const int from_axis = sp.belt_floor_from_axis;
-            BoundingBoxf3 bb = m_object->model_object()->raw_bounding_box();
-            double from_extent = std::abs(bb.min(from_axis));
-            double first_z = layer_heights.front().print_z;
-            // Distance to build plate (can't go below Z=0 in local coords).
-            double dist_to_plate = std::max(0., first_z);
-            double extra_depth = std::min(from_extent + 10., dist_to_plate);
-            int num_extra = std::max(0, (int)std::ceil(extra_depth / sp.layer_height));
-            if (num_extra > 0) {
-                std::vector<LayerHeightData> belt_layers;
-                belt_layers.reserve(num_extra);
-                for (int i = num_extra; i >= 1; --i)
-                    belt_layers.push_back({first_z - i * sp.layer_height, sp.layer_height, size_t(0)});
-                layer_heights.insert(layer_heights.begin(), belt_layers.begin(), belt_layers.end());
-                m_belt_raft_layers = num_extra;
-            }
-        }
     }
 
     // add support layers according to layer_heights
@@ -3589,7 +3594,7 @@ TreeSupportData::TreeSupportData(const PrintObject &object, coordf_t xy_distance
             double print_z = layer->print_z - object.belt_global_z_offset();
             double cutoff  = (print_z - z_shift - floor_off) / sf;
             coord_t cutoff_sc = scale_(cutoff);
-            coord_t big       = scale_(1e4);
+            coord_t big       = scale_(1e3);
             Polygon belt_poly;
             if (from_axis == 0) {
                 if (sf > 0)

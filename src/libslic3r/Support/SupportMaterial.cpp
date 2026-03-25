@@ -639,7 +639,7 @@ Polygons belt_floor_surface_polygon(
     const double z_shift = slicing_params.belt_floor_z_shift;
     const double cutoff = (print_z - z_shift - floor_offset) / shear_factor;
     const coord_t cutoff_scaled = scale_(cutoff);
-    const coord_t large_bound = scale_(1e4);
+    const coord_t large_bound = scale_(1e3);
 
     // Build the belt-side half-plane (inverted from the valid region).
     // If shear_factor > 0: valid region is from_axis < cutoff, so belt surface is from_axis >= cutoff.
@@ -704,7 +704,7 @@ static Polygons belt_floor_valid_region_polygon(
     const double z_shift = slicing_params.belt_floor_z_shift;
     const double cutoff = (print_z - z_shift - floor_offset) / shear_factor;
     const coord_t cutoff_scaled = scale_(cutoff);
-    const coord_t large_bound = scale_(1e4);
+    const coord_t large_bound = scale_(1e3);
 
     // Valid region: the complement of the belt surface polygon.
     Polygon valid_poly;
