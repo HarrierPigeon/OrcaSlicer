@@ -428,6 +428,7 @@ private:
     // Various precomputed support parameters to be shared with external functions.
     SupportParameters   m_support_params;
     size_t          m_raft_layers = 0;  // number of raft layers, including raft base, raft interface, raft gap
+    int             m_belt_raft_layers = 0;  // extra layers below object for belt floor diagonal extension
     size_t          m_highest_overhang_layer = 0;
     std::vector<std::vector<MinimumSpanningTree>> m_spanning_trees;
     std::vector< std::unordered_map<Line, bool, LineHash>> m_mst_line_x_layer_contour_caches;
