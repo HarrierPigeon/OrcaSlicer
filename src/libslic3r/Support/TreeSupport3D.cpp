@@ -3605,20 +3605,10 @@ static void generate_support_areas(Print &print, TreeSupport* tree_support, cons
             const int    from_axis = sp.belt_floor_from_axis;
             if (std::abs(sf) > EPSILON
                 && print_object.print()->config().belt_support_floor_mode.value == BeltSupportFloorMode::GeneratorOnly) {
-                static int clip_log = 0;
-                if (clip_log++ < 5)
-                    BOOST_LOG_TRIVIAL(warning) << "Organic belt layers_sorted clip: sf=" << sf
-                        << " z_shift=" << z_shift << " belt_z_shift=" << sp.belt_floor_z_shift
-                        << " global_offset=" << print_object.belt_global_z_offset()
-                        << " layers=" << layers_sorted.size();
                 tbb::parallel_for_each(layers_sorted.begin(), layers_sorted.end(), [&](SupportGeneratorLayer *layer) {
                     if (!layer || layer->polygons.empty())
                         return;
                     double    cutoff    = (layer->print_z - z_shift - floor_off) / sf;
-                    static int layer_log = 0;
-                    if (layer_log++ < 10)
-                        BOOST_LOG_TRIVIAL(warning) << "  clip layer print_z=" << layer->print_z
-                            << " cutoff=" << cutoff << " polys_before=" << layer->polygons.size();
                     coord_t   cutoff_sc = scale_(cutoff);
                     coord_t   big       = scale_(1e4);
                     Polygon belt_poly;
