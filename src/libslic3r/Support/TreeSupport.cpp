@@ -1785,7 +1785,7 @@ void TreeSupport::generate()
                 // distance) + 10mm safety margin.  The 10mm is a bodge to avoid
                 // small cutoff artifacts — ideally computed exactly from belt geometry.
                 double extra_depth = std::min(from_extent + bb_min_z + 10., std::max(0., first_z));
-                int num_extra = std::min(50, std::max(0, (int)std::ceil(extra_depth / sp.layer_height)));
+                int num_extra = std::max(0, (int)std::ceil(extra_depth / sp.layer_height));
                 ExPolygons prev_areas = source_areas;
                 // Build belt extension layers (lowest Z first).
                 SupportLayerPtrs belt_ext_layers;
