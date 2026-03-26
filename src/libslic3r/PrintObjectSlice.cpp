@@ -143,6 +143,60 @@ static std::vector<VolumeSlices> slice_volumes_inner(
     params_base.extra_offset   = 0;
     params_base.trafo          = object_trafo;
     if (print_config.belt_printer.value) {
+        // --- Pre-slice axis remap ---
+        // Permutes/negates model axes before slicing so the slicer's coordinate
+        // system matches the physical bed orientation (e.g. XZ bed instead of XY).
+        {
+            int pre_rx = int(print_config.belt_preslice_remap_x.value);
+            int pre_ry = int(print_config.belt_preslice_remap_y.value);
+            int pre_rz = int(print_config.belt_preslice_remap_z.value);
+
+            bool has_preslice_remap = (pre_rx != int(BeltRemapAxis::PosX) ||
+                                       pre_ry != int(BeltRemapAxis::PosY) ||
+                                       pre_rz != int(BeltRemapAxis::PosZ));
+
+            if (has_preslice_remap) {
+                // Build volume extents for Rev mode.
+                BoundingBoxf bbox_bed(print_config.printable_area.values);
+                Vec3d vol_max(bbox_bed.max.x(), bbox_bed.max.y(),
+                              print_config.printable_height.value);
+
+                // Each remap value selects a source axis and sign.
+                // The column vector tells the matrix which input axis feeds this output.
+                auto remap_column = [](int r) -> Vec3d {
+                    int axis = r % 3;
+                    Vec3d col = Vec3d::Zero();
+                    if (r < 3)      col[axis] =  1.0;  // +axis
+                    else if (r < 6) col[axis] = -1.0;  // -axis
+                    else            col[axis] = -1.0;  // Rev: max - pos = -(pos - max)
+                    return col;
+                };
+
+                Matrix3d remap_lin;
+                remap_lin.col(0) = remap_column(pre_rx);
+                remap_lin.col(1) = remap_column(pre_ry);
+                remap_lin.col(2) = remap_column(pre_rz);
+
+                // Translation for Rev modes: output = max[src] - input[src].
+                Vec3d remap_trans = Vec3d::Zero();
+                auto add_rev_offset = [&](int r, int out_axis) {
+                    if (r >= 6) {
+                        int src_axis = r % 3;
+                        remap_trans[out_axis] = vol_max[src_axis];
+                    }
+                };
+                add_rev_offset(pre_rx, 0);
+                add_rev_offset(pre_ry, 1);
+                add_rev_offset(pre_rz, 2);
+
+                Transform3d pre_remap = Transform3d::Identity();
+                pre_remap.linear() = remap_lin;
+                pre_remap.translation() = remap_trans;
+
+                params_base.trafo = pre_remap * params_base.trafo;
+            }
+        }
+
         // Build per-axis shear matrix from 3 independent axis configs.
         auto compute_shear_factor = [](BeltShearMode mode, double angle_deg) -> double {
             double angle_rad = Geometry::deg2rad(angle_deg);

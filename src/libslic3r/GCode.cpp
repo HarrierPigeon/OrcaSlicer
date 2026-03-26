@@ -2546,6 +2546,9 @@ void GCode::_do_export(Print& print, GCodeOutputStream &file, ThumbnailsGenerato
             file.write_format("; belt_scale_y_angle = %.1f\n", print.config().belt_scale_y_angle.value);
             file.write_format("; belt_scale_z = %s\n",       full_cfg.opt_serialize("belt_scale_z").c_str());
             file.write_format("; belt_scale_z_angle = %.1f\n", print.config().belt_scale_z_angle.value);
+            file.write_format("; belt_preslice_remap_x = %s\n", full_cfg.opt_serialize("belt_preslice_remap_x").c_str());
+            file.write_format("; belt_preslice_remap_y = %s\n", full_cfg.opt_serialize("belt_preslice_remap_y").c_str());
+            file.write_format("; belt_preslice_remap_z = %s\n", full_cfg.opt_serialize("belt_preslice_remap_z").c_str());
         }
         if (is_bbl_printers)
             file.write_format(";%s\n", GCodeProcessor::reserved_tag(GCodeProcessor::ETags::Estimated_Printing_Time_Placeholder).c_str());

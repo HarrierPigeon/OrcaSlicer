@@ -3128,6 +3128,28 @@ void GCodeProcessor::process_tags(const std::string_view comment, bool producers
         if (boost::starts_with(comment, " belt_scale_z_angle = ")) {
             try { m_result.belt_scale_z_angle = std::stof(std::string(comment.substr(22))); } catch (...) {} return;
         }
+        // Pre-slice axis remap
+        auto parse_remap_axis = [](const std::string &s) -> BeltRemapAxis {
+            if (s == "pos_x") return BeltRemapAxis::PosX;
+            if (s == "pos_y") return BeltRemapAxis::PosY;
+            if (s == "pos_z") return BeltRemapAxis::PosZ;
+            if (s == "neg_x") return BeltRemapAxis::NegX;
+            if (s == "neg_y") return BeltRemapAxis::NegY;
+            if (s == "neg_z") return BeltRemapAxis::NegZ;
+            if (s == "rev_x") return BeltRemapAxis::RevX;
+            if (s == "rev_y") return BeltRemapAxis::RevY;
+            if (s == "rev_z") return BeltRemapAxis::RevZ;
+            return BeltRemapAxis::PosX;
+        };
+        if (boost::starts_with(comment, " belt_preslice_remap_x = ")) {
+            m_result.belt_preslice_remap_x = parse_remap_axis(trim(std::string(comment.substr(25)))); return;
+        }
+        if (boost::starts_with(comment, " belt_preslice_remap_y = ")) {
+            m_result.belt_preslice_remap_y = parse_remap_axis(trim(std::string(comment.substr(25)))); return;
+        }
+        if (boost::starts_with(comment, " belt_preslice_remap_z = ")) {
+            m_result.belt_preslice_remap_z = parse_remap_axis(trim(std::string(comment.substr(25)))); return;
+        }
     }
     // wipe start tag
     if (boost::starts_with(comment, reserved_tag(ETags::Wipe_Start))) {

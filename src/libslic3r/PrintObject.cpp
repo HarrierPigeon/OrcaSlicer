@@ -3402,9 +3402,39 @@ void PrintObject::update_slicing_parameters()
           double belt_floor_shear_factor_out = 0.0;
           int    belt_floor_from_axis_out    = 1;
           double belt_floor_z_shift_out     = 0.0;
-          // Belt shear/scale may change the effective Z height.
+          // Belt shear/scale/pre-remap may change the effective Z height.
           const auto &pcfg = this->print()->config();
           if (pcfg.belt_printer.value) {
+              BoundingBoxf3 bb = this->model_object()->raw_bounding_box();
+
+              // Pre-slice remap may change which model axis is slicer-Z.
+              int pre_rx = int(pcfg.belt_preslice_remap_x.value);
+              int pre_ry = int(pcfg.belt_preslice_remap_y.value);
+              int pre_rz = int(pcfg.belt_preslice_remap_z.value);
+              bool has_preslice_remap = (pre_rx != int(BeltRemapAxis::PosX) ||
+                                         pre_ry != int(BeltRemapAxis::PosY) ||
+                                         pre_rz != int(BeltRemapAxis::PosZ));
+              if (has_preslice_remap) {
+                  auto remap_coord = [](int r, const Vec3d &v) -> double {
+                      int axis = r % 3;
+                      if (r < 3) return v[axis];
+                      return -v[axis];  // Neg and Rev both negate (Rev translation irrelevant for extents)
+                  };
+                  Vec3d mn = bb.min.cast<double>();
+                  Vec3d mx = bb.max.cast<double>();
+                  BoundingBoxf3 rbb;
+                  for (int i = 0; i < 8; ++i) {
+                      Vec3d c((i & 1) ? mx.x() : mn.x(),
+                              (i & 2) ? mx.y() : mn.y(),
+                              (i & 4) ? mx.z() : mn.z());
+                      Vec3d rc(remap_coord(pre_rx, c), remap_coord(pre_ry, c), remap_coord(pre_rz, c));
+                      if (i == 0) rbb = BoundingBoxf3(rc, rc);
+                      else rbb.merge(rc);
+                  }
+                  bb = rbb;
+                  object_height = bb.size().z();
+              }
+
               bool has_z_shear = pcfg.belt_shear_z.value != BeltShearMode::None;
               bool has_z_scale = pcfg.belt_scale_z.value != BeltScaleMode::None;
               if (has_z_shear || has_z_scale) {
@@ -3435,7 +3465,6 @@ void PrintObject::update_slicing_parameters()
                   double scale_z = compute_scale_factor(pcfg.belt_scale_z.value, pcfg.belt_scale_z_angle.value);
                   if (has_z_shear && std::abs(shear_factor) > EPSILON) {
                       int from = int(pcfg.belt_shear_z_from.value);
-                      BoundingBoxf3 bb = this->model_object()->raw_bounding_box();
                       double min_rz = std::numeric_limits<double>::max();
                       double max_rz = std::numeric_limits<double>::lowest();
                       for (double vz : {bb.min.z(), bb.max.z()})
@@ -3507,8 +3536,36 @@ SlicingParameters PrintObject::slicing_parameters(const DynamicPrintConfig &full
     if (object_max_z <= 0.f) {
         BoundingBoxf3 bb = model_object.raw_bounding_box();
         object_max_z = (float)bb.size().z();
-        // Belt shear/scale may change the effective Z height.
+        // Belt pre-remap/shear/scale may change the effective Z height.
         if (print_config.belt_printer.value) {
+            // Pre-slice remap may change which model axis is slicer-Z.
+            int pre_rx = int(print_config.belt_preslice_remap_x.value);
+            int pre_ry = int(print_config.belt_preslice_remap_y.value);
+            int pre_rz = int(print_config.belt_preslice_remap_z.value);
+            bool has_preslice_remap = (pre_rx != int(BeltRemapAxis::PosX) ||
+                                       pre_ry != int(BeltRemapAxis::PosY) ||
+                                       pre_rz != int(BeltRemapAxis::PosZ));
+            if (has_preslice_remap) {
+                auto remap_coord = [](int r, const Vec3d &v) -> double {
+                    int axis = r % 3;
+                    if (r < 3) return v[axis];
+                    return -v[axis];
+                };
+                Vec3d mn = bb.min.cast<double>();
+                Vec3d mx = bb.max.cast<double>();
+                BoundingBoxf3 rbb;
+                for (int i = 0; i < 8; ++i) {
+                    Vec3d c((i & 1) ? mx.x() : mn.x(),
+                            (i & 2) ? mx.y() : mn.y(),
+                            (i & 4) ? mx.z() : mn.z());
+                    Vec3d rc(remap_coord(pre_rx, c), remap_coord(pre_ry, c), remap_coord(pre_rz, c));
+                    if (i == 0) rbb = BoundingBoxf3(rc, rc);
+                    else rbb.merge(rc);
+                }
+                bb = rbb;
+                object_max_z = (float)bb.size().z();
+            }
+
             bool has_z_shear = print_config.belt_shear_z.value != BeltShearMode::None;
             bool has_z_scale = print_config.belt_scale_z.value != BeltScaleMode::None;
             if (has_z_shear || has_z_scale) {

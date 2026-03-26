@@ -4431,7 +4431,17 @@ void TabPrinter::build_fff()
             optgroup->append_line(line);
         }
         {
-            Line line = { L("G-code axis remap"), L("Remap slicing-frame axes to machine axes in G-code output") };
+            Line line = { L("Pre-slice axis remap"),
+                          L("Remap model axes before slicing so the slicer's coordinate system matches "
+                            "the physical bed orientation. For belt printers whose bed is NOT in the XY plane, "
+                            "use this to swap axes so layers are stacked in the correct physical direction.") };
+            line.append_option(optgroup->get_option("belt_preslice_remap_x"));
+            line.append_option(optgroup->get_option("belt_preslice_remap_y"));
+            line.append_option(optgroup->get_option("belt_preslice_remap_z"));
+            optgroup->append_line(line);
+        }
+        {
+            Line line = { L("G-code axis remap (post-slice)"), L("Remap slicing-frame axes to machine axes in G-code output. Applied AFTER slicing, during G-code generation.") };
             line.append_option(optgroup->get_option("belt_gcode_remap_x"));
             line.append_option(optgroup->get_option("belt_gcode_remap_y"));
             line.append_option(optgroup->get_option("belt_gcode_remap_z"));
@@ -5296,6 +5306,7 @@ void TabPrinter::toggle_options()
         toggle_line("belt_printer_infinite_y", is_belt);
         for (auto el : {"belt_shear_x", "belt_shear_y", "belt_shear_z",
                         "belt_scale_x", "belt_scale_y", "belt_scale_z",
+                        "belt_preslice_remap_x",
                         "belt_gcode_remap_x", "belt_gcode_back_transform"})
             toggle_line(el, is_belt);
 

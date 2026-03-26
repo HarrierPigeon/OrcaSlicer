@@ -300,7 +300,10 @@ bool Print::invalidate_state_by_config_options(const ConfigOptionResolver & /* n
             || opt_key == "belt_scale_y"
             || opt_key == "belt_scale_y_angle"
             || opt_key == "belt_scale_z"
-            || opt_key == "belt_scale_z_angle") {
+            || opt_key == "belt_scale_z_angle"
+            || opt_key == "belt_preslice_remap_x"
+            || opt_key == "belt_preslice_remap_y"
+            || opt_key == "belt_preslice_remap_z") {
             osteps.emplace_back(posSlice);
         } else if (
                opt_key == "belt_support_floor_offset"

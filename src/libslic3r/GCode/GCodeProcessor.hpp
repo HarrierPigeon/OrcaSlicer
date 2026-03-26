@@ -246,6 +246,9 @@ class Print;
         float         belt_scale_y_angle{ 45.f };
         BeltScaleMode belt_scale_z{ BeltScaleMode::None };
         float         belt_scale_z_angle{ 45.f };
+        BeltRemapAxis belt_preslice_remap_x{ BeltRemapAxis::PosX };
+        BeltRemapAxis belt_preslice_remap_y{ BeltRemapAxis::PosY };
+        BeltRemapAxis belt_preslice_remap_z{ BeltRemapAxis::PosZ };
         SettingsIds settings_ids;
         size_t filaments_count;
         bool backtrace_enabled;
@@ -321,6 +324,9 @@ class Print;
             belt_scale_y_angle = other.belt_scale_y_angle;
             belt_scale_z = other.belt_scale_z;
             belt_scale_z_angle = other.belt_scale_z_angle;
+            belt_preslice_remap_x = other.belt_preslice_remap_x;
+            belt_preslice_remap_y = other.belt_preslice_remap_y;
+            belt_preslice_remap_z = other.belt_preslice_remap_z;
 #if ENABLE_GCODE_VIEWER_STATISTICS
             time = other.time;
 #endif

@@ -6115,9 +6115,29 @@ void PrintConfigDef::init_fff_params()
         def->set_default_value(new ConfigOptionEnum<BeltRemapAxis>(default_axis));
     };
 
-    add_belt_remap("belt_gcode_remap_x", "X", "Which slicing axis maps to machine X in G-code output.", BeltRemapAxis::PosX);
-    add_belt_remap("belt_gcode_remap_y", "Y", "Which slicing axis maps to machine Y in G-code output.", BeltRemapAxis::PosY);
-    add_belt_remap("belt_gcode_remap_z", "Z", "Which slicing axis maps to machine Z in G-code output.", BeltRemapAxis::PosZ);
+    add_belt_remap("belt_preslice_remap_x", "X",
+        "Before slicing, which model-space axis becomes the slicer's X axis. "
+        "Use this to re-orient the coordinate system so the slicer's XY plane matches "
+        "your belt printer's physical bed plane. For a printer whose bed is in the XZ plane, "
+        "set Y to +Z and Z to +Y (or -Y) to swap the vertical and belt-travel axes. "
+        "Default +X: no change.",
+        BeltRemapAxis::PosX);
+    add_belt_remap("belt_preslice_remap_y", "Y",
+        "Before slicing, which model-space axis becomes the slicer's Y axis. "
+        "The slicer treats Y as one of the two horizontal bed axes. If your physical "
+        "belt surface runs along the Z axis, map Y to +Z here so the slicer slices "
+        "along the correct plane. Default +Y: no change.",
+        BeltRemapAxis::PosY);
+    add_belt_remap("belt_preslice_remap_z", "Z",
+        "Before slicing, which model-space axis becomes the slicer's Z axis (layer stacking direction). "
+        "The slicer builds layers upward along this axis. If your printer's layer-stacking "
+        "direction is the physical Y axis, map Z to +Y (or -Y for inverted direction). "
+        "Rev mode mirrors relative to the build volume maximum. Default +Z: no change.",
+        BeltRemapAxis::PosZ);
+
+    add_belt_remap("belt_gcode_remap_x", "X", "Which slicing axis maps to machine X in G-code output. Applied AFTER slicing, during G-code generation.", BeltRemapAxis::PosX);
+    add_belt_remap("belt_gcode_remap_y", "Y", "Which slicing axis maps to machine Y in G-code output. Applied AFTER slicing, during G-code generation.", BeltRemapAxis::PosY);
+    add_belt_remap("belt_gcode_remap_z", "Z", "Which slicing axis maps to machine Z in G-code output. Applied AFTER slicing, during G-code generation.", BeltRemapAxis::PosZ);
 
     def = this->add("belt_gcode_back_transform", coBool);
     def->label = L("G-code back-transform");

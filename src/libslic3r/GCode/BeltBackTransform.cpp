@@ -38,18 +38,62 @@ static double compute_scale_factor(BeltScaleMode mode, double angle_deg)
 bool BeltBackTransform::init_from_config(const PrintConfig &config)
 {
     m_active  = false;
-    m_inverse = Matrix3d::Identity();
+    m_inverse = Transform3d::Identity();
 
     if (!config.belt_printer.value || !config.belt_gcode_back_transform.value)
         return false;
 
-    // Require at least one shear axis with global mode enabled.
-    if (!config.belt_shear_x_global.value &&
-        !config.belt_shear_y_global.value &&
-        !config.belt_shear_z_global.value)
+    // --- Pre-slice axis remap (same as PrintObjectSlice.cpp) ---
+    int pre_rx = int(config.belt_preslice_remap_x.value);
+    int pre_ry = int(config.belt_preslice_remap_y.value);
+    int pre_rz = int(config.belt_preslice_remap_z.value);
+
+    bool has_preslice_remap = (pre_rx != int(BeltRemapAxis::PosX) ||
+                               pre_ry != int(BeltRemapAxis::PosY) ||
+                               pre_rz != int(BeltRemapAxis::PosZ));
+
+    // Require at least one active transform to proceed.
+    bool has_global_shear = config.belt_shear_x_global.value ||
+                            config.belt_shear_y_global.value ||
+                            config.belt_shear_z_global.value;
+    if (!has_global_shear && !has_preslice_remap)
         return false;
 
-    // Build per-axis shear matrix (same as PrintObjectSlice.cpp lines 160-177).
+    // Build pre-slice remap matrix.
+    Transform3d pre_remap = Transform3d::Identity();
+    if (has_preslice_remap) {
+        auto remap_column = [](int r) -> Vec3d {
+            int axis = r % 3;
+            Vec3d col = Vec3d::Zero();
+            if (r < 3)      col[axis] =  1.0;
+            else if (r < 6) col[axis] = -1.0;
+            else            col[axis] = -1.0;  // Rev: max - pos
+            return col;
+        };
+
+        Matrix3d remap_lin;
+        remap_lin.col(0) = remap_column(pre_rx);
+        remap_lin.col(1) = remap_column(pre_ry);
+        remap_lin.col(2) = remap_column(pre_rz);
+        pre_remap.linear() = remap_lin;
+
+        // Rev mode translation (needs build volume extents).
+        Vec3d remap_trans = Vec3d::Zero();
+        if (pre_rx >= 6 || pre_ry >= 6 || pre_rz >= 6) {
+            BoundingBoxf bbox_bed(config.printable_area.values);
+            Vec3d vol_max(bbox_bed.max.x(), bbox_bed.max.y(),
+                          config.printable_height.value);
+            auto add_rev = [&](int r, int out) {
+                if (r >= 6) remap_trans[out] = vol_max[r % 3];
+            };
+            add_rev(pre_rx, 0);
+            add_rev(pre_ry, 1);
+            add_rev(pre_rz, 2);
+        }
+        pre_remap.translation() = remap_trans;
+    }
+
+    // Build per-axis shear matrix (same as PrintObjectSlice.cpp).
     struct AxisShear { BeltShearMode mode; double angle; int from; };
     AxisShear axes[3] = {
         { config.belt_shear_x.value, config.belt_shear_x_angle.value, int(config.belt_shear_x_from.value) },
@@ -69,7 +113,7 @@ bool BeltBackTransform::init_from_config(const PrintConfig &config)
         }
     }
 
-    // Build per-axis scale diagonal matrix (same as PrintObjectSlice.cpp lines 194-204).
+    // Build per-axis scale diagonal matrix (same as PrintObjectSlice.cpp).
     double sx = compute_scale_factor(config.belt_scale_x.value, config.belt_scale_x_angle.value);
     double sy = compute_scale_factor(config.belt_scale_y.value, config.belt_scale_y_angle.value);
     double sz = compute_scale_factor(config.belt_scale_z.value, config.belt_scale_z_angle.value);
@@ -84,11 +128,13 @@ bool BeltBackTransform::init_from_config(const PrintConfig &config)
         scale(2, 2) = sz;
     }
 
-    if (!has_shear && !has_scale)
+    if (!has_shear && !has_scale && !has_preslice_remap)
         return false;
 
-    // combined = scale * shear  (same order as PrintObjectSlice.cpp line 208).
-    Matrix3d combined = scale * shear;
+    // Forward pipeline: scale * shear * pre_remap  (same order as PrintObjectSlice.cpp).
+    Transform3d combined = Transform3d::Identity();
+    combined.linear() = scale * shear;
+    combined = combined * pre_remap;
     m_inverse = combined.inverse();
     m_active  = true;
     return true;
