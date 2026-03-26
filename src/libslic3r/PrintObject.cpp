@@ -3918,9 +3918,16 @@ void PrintObject::update_slicing_parameters()
           double belt_floor_shear_factor_out = 0.0;
           int    belt_floor_from_axis_out    = 1;
           double belt_floor_z_shift_out     = 0.0;
-          // Belt shear/scale may change the effective Z height.
+          // Belt shear/scale/pre-remap may change the effective Z height.
           const auto &pcfg = this->print()->config();
           if (pcfg.belt_printer.value) {
+              BoundingBoxf3 bb = belt_remapped_bbox(*this->model_object(), pcfg);
+              bool has_preslice_remap = (int(pcfg.belt_preslice_remap_x.value) != int(BeltRemapAxis::PosX) ||
+                                         int(pcfg.belt_preslice_remap_y.value) != int(BeltRemapAxis::PosY) ||
+                                         int(pcfg.belt_preslice_remap_z.value) != int(BeltRemapAxis::PosZ));
+              if (has_preslice_remap)
+                  object_height = bb.size().z();
+
               bool has_z_shear = pcfg.belt_shear_z.value != BeltShearMode::None;
               bool has_z_scale = pcfg.belt_scale_z.value != BeltScaleMode::None;
               if (has_z_shear || has_z_scale) {
@@ -3951,7 +3958,6 @@ void PrintObject::update_slicing_parameters()
                   double scale_z = compute_scale_factor(pcfg.belt_scale_z.value, pcfg.belt_scale_z_angle.value);
                   if (has_z_shear && std::abs(shear_factor) > EPSILON) {
                       int from = int(pcfg.belt_shear_z_from.value);
-                      BoundingBoxf3 bb = this->model_object()->raw_bounding_box();
                       double min_rz = std::numeric_limits<double>::max();
                       double max_rz = std::numeric_limits<double>::lowest();
                       for (double vz : {bb.min.z(), bb.max.z()})
@@ -4026,8 +4032,15 @@ SlicingParameters PrintObject::slicing_parameters(const DynamicPrintConfig &full
     if (object_max_z <= 0.f) {
         BoundingBoxf3 bb = model_object.raw_bounding_box();
         object_max_z = (float)bb.size().z();
-        // Belt shear/scale may change the effective Z height.
+        // Belt pre-remap/shear/scale may change the effective Z height.
         if (print_config.belt_printer.value) {
+            bb = belt_remapped_bbox(model_object, print_config);
+            bool has_preslice_remap = (int(print_config.belt_preslice_remap_x.value) != int(BeltRemapAxis::PosX) ||
+                                       int(print_config.belt_preslice_remap_y.value) != int(BeltRemapAxis::PosY) ||
+                                       int(print_config.belt_preslice_remap_z.value) != int(BeltRemapAxis::PosZ));
+            if (has_preslice_remap)
+                object_max_z = (float)bb.size().z();
+
             bool has_z_shear = print_config.belt_shear_z.value != BeltShearMode::None;
             bool has_z_scale = print_config.belt_scale_z.value != BeltScaleMode::None;
             if (has_z_shear || has_z_scale) {

@@ -7216,9 +7216,63 @@ void PrintConfigDef::init_fff_params()
         def->set_default_value(new ConfigOptionEnum<BeltRemapAxis>(default_axis));
     };
 
-    add_belt_remap("belt_gcode_remap_x", "X", "Which slicing axis maps to machine X in G-code output.", BeltRemapAxis::PosX);
-    add_belt_remap("belt_gcode_remap_y", "Y", "Which slicing axis maps to machine Y in G-code output.", BeltRemapAxis::PosY);
-    add_belt_remap("belt_gcode_remap_z", "Z", "Which slicing axis maps to machine Z in G-code output.", BeltRemapAxis::PosZ);
+    add_belt_remap("belt_preslice_remap_x", "X",
+        "Before slicing, which model-space axis becomes the slicer's X axis. "
+        "Use this to re-orient the coordinate system so the slicer's XY plane matches "
+        "your belt printer's physical bed plane. For a printer whose bed is in the XZ plane, "
+        "set Y to +Z and Z to +Y (or -Y) to swap the vertical and belt-travel axes. "
+        "Default +X: no change.",
+        BeltRemapAxis::PosX);
+    add_belt_remap("belt_preslice_remap_y", "Y",
+        "Before slicing, which model-space axis becomes the slicer's Y axis. "
+        "The slicer treats Y as one of the two horizontal bed axes. If your physical "
+        "belt surface runs along the Z axis, map Y to +Z here so the slicer slices "
+        "along the correct plane. Default +Y: no change.",
+        BeltRemapAxis::PosY);
+    add_belt_remap("belt_preslice_remap_z", "Z",
+        "Before slicing, which model-space axis becomes the slicer's Z axis (layer stacking direction). "
+        "The slicer builds layers upward along this axis. If your printer's layer-stacking "
+        "direction is the physical Y axis, map Z to +Y (or -Y for inverted direction). "
+        "Rev mode mirrors relative to the build volume maximum. Default +Z: no change.",
+        BeltRemapAxis::PosZ);
+
+    add_belt_remap("belt_gcode_remap_x", "X", "Which slicing axis maps to machine X in G-code output. Applied AFTER slicing, during G-code generation.", BeltRemapAxis::PosX);
+    add_belt_remap("belt_gcode_remap_y", "Y", "Which slicing axis maps to machine Y in G-code output. Applied AFTER slicing, during G-code generation.", BeltRemapAxis::PosY);
+    add_belt_remap("belt_gcode_remap_z", "Z", "Which slicing axis maps to machine Z in G-code output. Applied AFTER slicing, during G-code generation.", BeltRemapAxis::PosZ);
+
+    def = this->add("belt_gcode_back_transform", coBool);
+    def->label = L("G-code back-transform");
+    def->category = L("Printable space");
+    def->tooltip = L("Reverse the shear/scale transform applied during slicing so G-code "
+                      "coordinates are in the machine's physical coordinate space. "
+                      "Requires at least one shear axis with global mode enabled.");
+    def->mode = comAdvanced;
+    def->set_default_value(new ConfigOptionBool(false));
+
+    auto add_belt_origin_snap = [this](const char *key_snap, const char *key_offset,
+                                        const char *axis_label) {
+        auto def = this->add(key_snap, coBool);
+        def->label = L(axis_label);
+        def->category = L("Printable space");
+        std::string tip = std::string("Shift G-code output so the object's bounding box minimum on machine ")
+                          + axis_label + " equals the offset value.";
+        def->tooltip = L(tip);
+        def->mode = comAdvanced;
+        def->set_default_value(new ConfigOptionBool(false));
+
+        def = this->add(key_offset, coFloat);
+        def->label = L("Offset");
+        def->category = L("Printable space");
+        def->tooltip = L("Target coordinate for the bounding box minimum on this machine axis.");
+        def->sidetext = L("mm");
+        def->min = -10000;
+        def->max = 10000;
+        def->mode = comAdvanced;
+        def->set_default_value(new ConfigOptionFloat(0));
+    };
+    add_belt_origin_snap("belt_origin_snap_x", "belt_origin_offset_x", "X");
+    add_belt_origin_snap("belt_origin_snap_y", "belt_origin_offset_y", "Y");
+    add_belt_origin_snap("belt_origin_snap_z", "belt_origin_offset_z", "Z");
 
     // Belt support floor debug controls
     def = this->add("belt_support_floor_offset", coFloat);

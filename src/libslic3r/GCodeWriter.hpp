@@ -9,6 +9,7 @@
 #include "Polygon.hpp"
 #include "PrintConfig.hpp"
 #include "GCode/CoolingBuffer.hpp"
+#include "GCode/BeltBackTransform.hpp"
 
 namespace Slic3r {
 
@@ -143,6 +144,10 @@ public:
     void set_axis_remap(int rx, int ry, int rz);
     // Set build volume extents for Rev remap mode (max X, Y, Z).
     void set_build_volume_max(const Vec3d &max);
+    // Initialize the belt back-transform that undoes slicing shear/scale.
+    void set_belt_back_transform(const PrintConfig &config);
+    // Set per-axis origin snap: shifts G-code so bbox min on this axis = offset.
+    void set_origin_snap(int axis, bool enable, double offset, double bbox_min);
     // Transform a point from the slicing frame to machine coordinates.
     Vec3d to_machine_coords(const Vec3d &pos) const;
 
@@ -215,6 +220,10 @@ public:
     int             m_remap_y = 1;
     int             m_remap_z = 2;
     Vec3d           m_build_vol_max = Vec3d::Zero();
+    BeltBackTransform m_belt_back_transform;
+    bool            m_origin_snap[3]     = {false, false, false};
+    double          m_origin_offset[3]   = {0., 0., 0.};   // target coord for bbox min
+    double          m_origin_bbox_min[3] = {0., 0., 0.};   // computed bbox min in machine space
     double          m_current_speed;
     bool            m_is_first_layer = true;
 

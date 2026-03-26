@@ -1790,6 +1790,99 @@ void TreeSupport::generate()
 
 
 
+    // Belt floor: extend support below the object's first layer by creating
+    // additional support layers with geometry copied from the lowest content
+    // layer and clipped at the belt surface.  These layers bypass the tree
+    // algorithm entirely — they're pure geometry added after draw_circles().
+    {
+        const auto &sp   = m_slicing_params;
+        const auto &pcfg = *m_print_config;
+        const double sf  = sp.belt_floor_shear_factor;
+        if (std::abs(sf) > EPSILON
+            && pcfg.belt_support_floor_mode.value == BeltSupportFloorMode::GeneratorOnly
+            && m_object->support_layer_count() > 0) {
+            const int    from_axis = sp.belt_floor_from_axis;
+            const double floor_off = pcfg.belt_support_floor_offset.value;
+            // Support layer print_z values are in GLOBAL Z (non-organic inherits
+            // from object layers which include global_z_offset).  Use the GLOBAL
+            // belt_floor_z_shift to match.
+            const double z_shift = sp.belt_floor_z_shift;
+            // Find the lowest non-empty, non-brim support layer.
+            ExPolygons source_areas;
+            double source_z = 0;
+            int layers_with_content = 0;
+            for (size_t i = 0; i < m_object->support_layer_count(); ++i) {
+                SupportLayer *sl = m_object->get_support_layer(i);
+                if (sl && !sl->base_areas.empty()) {
+                    layers_with_content++;
+                    if (layers_with_content >= 2) {
+                        source_areas = sl->base_areas;
+                        source_z = sl->print_z;
+                        break;
+                    }
+                }
+            }
+            // Fallback to first content layer.
+            if (source_areas.empty()) {
+                for (size_t i = 0; i < m_object->support_layer_count(); ++i) {
+                    SupportLayer *sl = m_object->get_support_layer(i);
+                    if (sl && !sl->base_areas.empty()) {
+                        source_areas = sl->base_areas;
+                        source_z = sl->print_z;
+                        break;
+                    }
+                }
+            }
+            if (!source_areas.empty()) {
+                BoundingBoxf3 bb = belt_remapped_bbox(*m_object->model_object(), m_object->print()->config());
+                double from_extent = std::abs(bb.min(from_axis));
+                double bb_min_z    = std::abs(bb.min.z());
+                double first_z = m_object->get_support_layer(0)->print_z;
+                // Depth = from-axis extent + pre-shear bbox Z offset (ensure_on_bed
+                // distance) + 10mm safety margin.  The 10mm is a bodge to avoid
+                // small cutoff artifacts — ideally computed exactly from belt geometry.
+                double extra_depth = std::min(from_extent + bb_min_z + 10., std::max(0., first_z));
+                int num_extra = std::max(0, (int)std::ceil(extra_depth / sp.layer_height));
+                ExPolygons prev_areas = source_areas;
+                // Build belt extension layers (lowest Z first).
+                SupportLayerPtrs belt_ext_layers;
+                for (int i = num_extra; i >= 1 && !prev_areas.empty(); --i) {
+                    double print_z = first_z - i * sp.layer_height;
+                    if (print_z < -sp.layer_height) continue;
+                    double cutoff = (print_z - z_shift - floor_off) / sf;
+                    coord_t cutoff_sc = scale_(cutoff);
+                    coord_t big = scale_(1e3);
+                    Polygon belt_poly;
+                    if (from_axis == 0) {
+                        if (sf > 0) belt_poly.points = {{cutoff_sc,-big},{big,-big},{big,big},{cutoff_sc,big}};
+                        else        belt_poly.points = {{-big,-big},{cutoff_sc,-big},{cutoff_sc,big},{-big,big}};
+                    } else {
+                        if (sf > 0) belt_poly.points = {{-big,cutoff_sc},{big,cutoff_sc},{big,big},{-big,big}};
+                        else        belt_poly.points = {{-big,-big},{big,-big},{big,cutoff_sc},{-big,cutoff_sc}};
+                    }
+                    ExPolygons clipped = diff_ex(source_areas, Polygons{belt_poly});
+                    if (clipped.empty()) continue;
+                    SupportLayer *sl = new SupportLayer(0, 0, m_object, sp.layer_height, print_z, -1);
+                    sl->base_areas = clipped;
+                    // Populate area_groups — generate_toolpaths() iterates these,
+                    // not base_areas directly.
+                    for (auto &expoly : sl->base_areas)
+                        sl->area_groups.emplace_back(&expoly, SupportLayer::BaseType, 0);
+                    sl->lslices = clipped;
+                    sl->lslices_bboxes.reserve(clipped.size());
+                    for (const ExPolygon &ep : clipped)
+                        sl->lslices_bboxes.emplace_back(get_extents(ep));
+                    belt_ext_layers.push_back(sl);
+                }
+                // Insert at the front of support_layers (they're already in Z order).
+                if (!belt_ext_layers.empty()) {
+                    auto &sl_vec = m_object->support_layers();
+                    sl_vec.insert(sl_vec.begin(), belt_ext_layers.begin(), belt_ext_layers.end());
+                }
+            }
+        }
+    }
+
     profiler.stage_start(STAGE_GENERATE_TOOLPATHS);
     m_object->print()->set_status(70, _u8L("Generating support"));
     generate_toolpaths();

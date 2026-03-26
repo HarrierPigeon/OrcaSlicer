@@ -108,6 +108,9 @@ bool Print::invalidate_state_by_config_options(const ConfigOptionResolver & /* n
         "belt_gcode_remap_x",
         "belt_gcode_remap_y",
         "belt_gcode_remap_z",
+        "belt_origin_snap_x", "belt_origin_offset_x",
+        "belt_origin_snap_y", "belt_origin_offset_y",
+        "belt_origin_snap_z", "belt_origin_offset_z",
         //BBS
         "additional_cooling_fan_speed",
         "reduce_crossing_wall",
@@ -308,6 +311,9 @@ bool Print::invalidate_state_by_config_options(const ConfigOptionResolver & /* n
             // In Spiral Vase mode, holes are closed and only the largest area contour is kept at each layer.
             // Therefore toggling the Spiral Vase on / off requires complete reslicing.
             || opt_key == "spiral_mode"
+            // Build plate tilt changes slicing plane orientation.
+            || opt_key == "build_plate_tilt_x"
+            || opt_key == "build_plate_tilt_y"
             // Belt printer transform options change the mesh geometry before slicing.
             || opt_key == "belt_printer"
             || opt_key == "belt_printer_angle"
@@ -328,7 +334,10 @@ bool Print::invalidate_state_by_config_options(const ConfigOptionResolver & /* n
             || opt_key == "belt_scale_y"
             || opt_key == "belt_scale_y_angle"
             || opt_key == "belt_scale_z"
-            || opt_key == "belt_scale_z_angle") {
+            || opt_key == "belt_scale_z_angle"
+            || opt_key == "belt_preslice_remap_x"
+            || opt_key == "belt_preslice_remap_y"
+            || opt_key == "belt_preslice_remap_z") {
             osteps.emplace_back(posSlice);
         } else if (
                opt_key == "belt_support_floor_offset"

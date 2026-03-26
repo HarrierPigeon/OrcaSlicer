@@ -2934,6 +2934,16 @@ void GCode::_do_export(Print& print, GCodeOutputStream &file, ThumbnailsGenerato
         // Build volume extents for Rev remap mode.
         BoundingBoxf bbox_bed(print.config().printable_area.values);
         m_writer.set_build_volume_max(Vec3d(bbox_bed.max.x(), bbox_bed.max.y(), print.config().printable_height.value));
+        // Initialize the back-transform that undoes slicing shear/scale.
+        m_writer.set_belt_back_transform(print.config());
+        // Per-axis origin snap: store config; actual snap is computed
+        // per-instance in update_origin_snap() called from set_origin().
+        m_origin_snap[0] = print.config().belt_origin_snap_x.value;
+        m_origin_snap[1] = print.config().belt_origin_snap_y.value;
+        m_origin_snap[2] = print.config().belt_origin_snap_z.value;
+        m_origin_snap_offset[0] = print.config().belt_origin_offset_x.value;
+        m_origin_snap_offset[1] = print.config().belt_origin_offset_y.value;
+        m_origin_snap_offset[2] = print.config().belt_origin_offset_z.value;
     }
 
     // How many times will be change_layer() called?
@@ -3049,6 +3059,9 @@ void GCode::_do_export(Print& print, GCodeOutputStream &file, ThumbnailsGenerato
             file.write_format("; belt_scale_y_angle = %.1f\n", print.config().belt_scale_y_angle.value);
             file.write_format("; belt_scale_z = %s\n",       full_cfg.opt_serialize("belt_scale_z").c_str());
             file.write_format("; belt_scale_z_angle = %.1f\n", print.config().belt_scale_z_angle.value);
+            file.write_format("; belt_preslice_remap_x = %s\n", full_cfg.opt_serialize("belt_preslice_remap_x").c_str());
+            file.write_format("; belt_preslice_remap_y = %s\n", full_cfg.opt_serialize("belt_preslice_remap_y").c_str());
+            file.write_format("; belt_preslice_remap_z = %s\n", full_cfg.opt_serialize("belt_preslice_remap_z").c_str());
         }
         if (is_bbl_printers)
             file.write_format(";%s\n", GCodeProcessor::reserved_tag(GCodeProcessor::ETags::Estimated_Printing_Time_Placeholder).c_str());
@@ -3879,6 +3892,8 @@ void GCode::_do_export(Print& print, GCodeOutputStream &file, ThumbnailsGenerato
                 }
                 print.throw_if_canceled();
                 this->set_origin(unscale((*print_object_instance_sequential_active)->shift));
+                this->update_origin_snap((*print_object_instance_sequential_active)->print_object,
+                                         (*print_object_instance_sequential_active)->shift);
 
                 // BBS: prime extruder if extruder change happens before this object instance
                 bool prime_extruder = false;
@@ -6467,6 +6482,7 @@ LayerResult GCode::process_layer(
                     m_avoid_crossing_perimeters.use_external_mp_once();
                 m_last_obj_copy = this_object_copy;
                 this->set_origin(unscale(offset));
+                this->update_origin_snap(&instance_to_print.print_object, offset);
                 if (visit.first_visit && instance_to_print.object_by_extruder.support != nullptr) {
                     m_layer = layers[instance_to_print.layer_id].support_layer;
                     m_object_layer_over_raft = false;
@@ -6478,6 +6494,7 @@ LayerResult GCode::process_layer(
                         m_avoid_crossing_perimeters.use_external_mp_once();
                     m_last_obj_copy = this_object_copy;
                     this->set_origin(unscale(offset));
+                    this->update_origin_snap(&instance_to_print.print_object, offset);
                     ExtrusionEntityCollection support_eec;
 
                     // BBS
@@ -6545,6 +6562,7 @@ LayerResult GCode::process_layer(
                         m_avoid_crossing_perimeters.use_external_mp_once();
                     m_last_obj_copy = this_object_copy;
                     this->set_origin(unscale(offset));
+                    this->update_origin_snap(&instance_to_print.print_object, offset);
                     //FIXME the following code prints regions in the order they are defined, the path is not optimized in any way.
 
                     auto has_infill = [](const std::vector<ObjectByExtruder::Island::Region> &by_region) {
@@ -6818,6 +6836,130 @@ void GCode::set_origin(const Vec2d &pointf)
     m_last_pos += translate;
     m_wipe.path.translate(translate.to_point());
     m_origin = pointf;
+}
+
+void GCode::update_origin_snap(const PrintObject *obj, const Point &inst_shift)
+{
+    if (!m_origin_snap[0] && !m_origin_snap[1] && !m_origin_snap[2])
+        return;
+
+    // Clear existing snap so to_machine_coords gives raw machine coords for bbox computation.
+    for (int a = 0; a < 3; ++a)
+        m_writer.set_origin_snap(a, false, 0., 0.);
+
+    // Reconstruct the belt pipeline transform for this object (same as
+    // PrintObjectSlice.cpp: z_shift * scale * shear * pre_remap).
+    const auto &cfg = m_config;
+    Transform3d belt = Transform3d::Identity();
+
+    // Pre-slice remap
+    int pre_rx = int(cfg.belt_preslice_remap_x.value);
+    int pre_ry = int(cfg.belt_preslice_remap_y.value);
+    int pre_rz = int(cfg.belt_preslice_remap_z.value);
+    if (pre_rx != int(BeltRemapAxis::PosX) ||
+        pre_ry != int(BeltRemapAxis::PosY) ||
+        pre_rz != int(BeltRemapAxis::PosZ)) {
+        auto remap_col = [](int r) -> Vec3d {
+            int a = r % 3; Vec3d c = Vec3d::Zero();
+            c[a] = (r < 3) ? 1.0 : -1.0;
+            return c;
+        };
+        Matrix3d lin;
+        lin.col(0) = remap_col(pre_rx);
+        lin.col(1) = remap_col(pre_ry);
+        lin.col(2) = remap_col(pre_rz);
+        Transform3d pre = Transform3d::Identity();
+        pre.linear() = lin;
+        if (pre_rx >= 6 || pre_ry >= 6 || pre_rz >= 6) {
+            BoundingBoxf bb(cfg.printable_area.values);
+            Vec3d vm(bb.max.x(), bb.max.y(), cfg.printable_height.value);
+            Vec3d tr = Vec3d::Zero();
+            if (pre_rx >= 6) tr[0] = vm[pre_rx % 3];
+            if (pre_ry >= 6) tr[1] = vm[pre_ry % 3];
+            if (pre_rz >= 6) tr[2] = vm[pre_rz % 3];
+            pre.translation() = tr;
+        }
+        belt = pre * belt;
+    }
+
+    // Shear
+    auto shear_f = [](BeltShearMode m, double a) -> double {
+        double r = Geometry::deg2rad(a), s = std::sin(r), c = std::cos(r);
+        switch (m) {
+        case BeltShearMode::PosCot: return (s > EPSILON) ?  c/s : 0.;
+        case BeltShearMode::NegCot: return (s > EPSILON) ? -c/s : 0.;
+        case BeltShearMode::PosTan: return (c > EPSILON) ?  s/c : 0.;
+        case BeltShearMode::NegTan: return (c > EPSILON) ? -s/c : 0.;
+        default: return 0.;
+        }
+    };
+    struct AS { BeltShearMode m; double a; int f; };
+    AS axes[3] = {
+        {cfg.belt_shear_x.value, cfg.belt_shear_x_angle.value, int(cfg.belt_shear_x_from.value)},
+        {cfg.belt_shear_y.value, cfg.belt_shear_y_angle.value, int(cfg.belt_shear_y_from.value)},
+        {cfg.belt_shear_z.value, cfg.belt_shear_z_angle.value, int(cfg.belt_shear_z_from.value)},
+    };
+    Transform3d shear = Transform3d::Identity();
+    for (int i = 0; i < 3; ++i)
+        if (axes[i].m != BeltShearMode::None) {
+            double f = shear_f(axes[i].m, axes[i].a);
+            if (std::abs(f) > EPSILON)
+                shear.matrix()(i, axes[i].f) += f;
+        }
+
+    // Scale
+    auto scale_f = [](BeltScaleMode m, double a) -> double {
+        if (m == BeltScaleMode::None) return 1.;
+        double r = Geometry::deg2rad(a), s = std::sin(r), c = std::cos(r);
+        switch (m) {
+        case BeltScaleMode::InvSin: return (s > EPSILON) ? 1./s : 1.;
+        case BeltScaleMode::InvCos: return (c > EPSILON) ? 1./c : 1.;
+        case BeltScaleMode::Sin:    return s;
+        case BeltScaleMode::Cos:    return c;
+        default: return 1.;
+        }
+    };
+    Transform3d sc = Transform3d::Identity();
+    sc.matrix()(0,0) = scale_f(cfg.belt_scale_x.value, cfg.belt_scale_x_angle.value);
+    sc.matrix()(1,1) = scale_f(cfg.belt_scale_y.value, cfg.belt_scale_y_angle.value);
+    sc.matrix()(2,2) = scale_f(cfg.belt_scale_z.value, cfg.belt_scale_z_angle.value);
+
+    belt = sc * shear * belt;
+
+    // Z-shift
+    double zs = (obj->belt_min_z() < 0.) ? -obj->belt_min_z() : 0.;
+    if (zs > 0.) {
+        Transform3d zsh = Transform3d::Identity();
+        zsh.matrix()(2, 3) = zs;
+        belt = zsh * belt;
+    }
+
+    // Full transform: belt * trafo_centered
+    Transform3d full = belt * obj->trafo_centered();
+
+    // Instance shift in slicer space + global Z offset
+    Vec3d shift(unscale<double>(inst_shift.x()),
+                unscale<double>(inst_shift.y()),
+                obj->belt_global_z_offset());
+
+    // Compute this instance's machine-space bbox min
+    BoundingBoxf3 bb = obj->model_object()->raw_bounding_box();
+    Vec3d mn = bb.min.cast<double>(), mx = bb.max.cast<double>();
+    Vec3d inst_min(std::numeric_limits<double>::max(),
+                   std::numeric_limits<double>::max(),
+                   std::numeric_limits<double>::max());
+    for (int i = 0; i < 8; ++i) {
+        Vec3d c((i & 1) ? mx.x() : mn.x(),
+                (i & 2) ? mx.y() : mn.y(),
+                (i & 4) ? mx.z() : mn.z());
+        Vec3d mc = m_writer.to_machine_coords(full * c + shift);
+        for (int a = 0; a < 3; ++a)
+            inst_min[a] = std::min(inst_min[a], mc[a]);
+    }
+
+    // Update writer snap for each enabled axis
+    for (int a = 0; a < 3; ++a)
+        m_writer.set_origin_snap(a, m_origin_snap[a], m_origin_snap_offset[a], inst_min[a]);
 }
 
 std::string GCode::preamble()

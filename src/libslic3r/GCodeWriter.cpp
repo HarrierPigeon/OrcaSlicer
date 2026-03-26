@@ -41,18 +41,40 @@ void GCodeWriter::set_build_volume_max(const Vec3d &max)
     m_build_vol_max = max;
 }
 
+void GCodeWriter::set_belt_back_transform(const PrintConfig &config)
+{
+    m_belt_back_transform.init_from_config(config);
+}
+
+void GCodeWriter::set_origin_snap(int axis, bool enable, double offset, double bbox_min)
+{
+    if (axis >= 0 && axis < 3) {
+        m_origin_snap[axis]     = enable;
+        m_origin_offset[axis]   = offset;
+        m_origin_bbox_min[axis] = bbox_min;
+    }
+}
+
 Vec3d GCodeWriter::to_machine_coords(const Vec3d &pos) const
 {
     if (!is_belt_printer())
         return pos;
+    // Step 1: Undo the shear/scale applied during slicing.
+    Vec3d p = m_belt_back_transform.apply(pos);
+    // Step 2: Apply axis remapping for the machine's coordinate convention.
     // BeltRemapAxis: 0-2 = +X/+Y/+Z, 3-5 = -X/-Y/-Z, 6-8 = Rev X/Y/Z
-    auto remap = [this, &pos](int r) -> double {
+    auto remap = [this, &p](int r) -> double {
         int axis = r % 3;
-        if (r < 3) return pos[axis];
-        if (r < 6) return -pos[axis];
-        return m_build_vol_max[axis] - pos[axis];
+        if (r < 3) return p[axis];
+        if (r < 6) return -p[axis];
+        return m_build_vol_max[axis] - p[axis];
     };
-    return { remap(m_remap_x), remap(m_remap_y), remap(m_remap_z) };
+    Vec3d result = { remap(m_remap_x), remap(m_remap_y), remap(m_remap_z) };
+    // Per-axis origin snap: shift so bbox min on each enabled axis = offset.
+    for (int i = 0; i < 3; ++i)
+        if (m_origin_snap[i])
+            result[i] -= (m_origin_bbox_min[i] - m_origin_offset[i]);
+    return result;
 }
 
 bool GCodeWriter::supports_separate_travel_acceleration(GCodeFlavor flavor)

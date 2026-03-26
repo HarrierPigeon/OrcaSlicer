@@ -197,6 +197,36 @@ class ConstSupportLayerPtrsAdaptor : public ConstVectorOfPtrsAdaptor<SupportLaye
     ConstSupportLayerPtrsAdaptor(const SupportLayerPtrs *data) : ConstVectorOfPtrsAdaptor<SupportLayer>(data) {}
 };
 
+// Returns the model's raw bounding box with pre-slice axis remap applied.
+// When no remap is active, returns the unmodified raw_bounding_box().
+inline BoundingBoxf3 belt_remapped_bbox(const ModelObject &model_object, const PrintConfig &config)
+{
+    BoundingBoxf3 bb = model_object.raw_bounding_box();
+    int pre_rx = int(config.belt_preslice_remap_x.value);
+    int pre_ry = int(config.belt_preslice_remap_y.value);
+    int pre_rz = int(config.belt_preslice_remap_z.value);
+    if (pre_rx == int(BeltRemapAxis::PosX) &&
+        pre_ry == int(BeltRemapAxis::PosY) &&
+        pre_rz == int(BeltRemapAxis::PosZ))
+        return bb;  // Identity remap, no change.
+    auto remap_coord = [](int r, const Vec3d &v) -> double {
+        int axis = r % 3;
+        if (r < 3) return v[axis];
+        return -v[axis];
+    };
+    Vec3d mn = bb.min.cast<double>(), mx = bb.max.cast<double>();
+    BoundingBoxf3 rbb;
+    for (int i = 0; i < 8; ++i) {
+        Vec3d c((i & 1) ? mx.x() : mn.x(),
+                (i & 2) ? mx.y() : mn.y(),
+                (i & 4) ? mx.z() : mn.z());
+        Vec3d rc(remap_coord(pre_rx, c), remap_coord(pre_ry, c), remap_coord(pre_rz, c));
+        if (i == 0) rbb = BoundingBoxf3(rc, rc);
+        else rbb.merge(rc);
+    }
+    return rbb;
+}
+
 // Single instance of a PrintObject.
 // As multiple PrintObjects may be generated for a single ModelObject (their instances differ in rotation around Z),
 // ModelObject's instancess will be distributed among these multiple PrintObjects.
@@ -592,6 +622,7 @@ private:
     double                                  m_belt_min_z { 0.0 };
 public:
     double belt_global_z_offset() const { return m_belt_global_z_offset; }
+    double belt_min_z() const { return m_belt_min_z; }
 private:
 
 
