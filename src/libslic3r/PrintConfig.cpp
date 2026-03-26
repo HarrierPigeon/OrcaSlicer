@@ -6119,6 +6119,15 @@ void PrintConfigDef::init_fff_params()
     add_belt_remap("belt_gcode_remap_y", "Y", "Which slicing axis maps to machine Y in G-code output.", BeltRemapAxis::PosY);
     add_belt_remap("belt_gcode_remap_z", "Z", "Which slicing axis maps to machine Z in G-code output.", BeltRemapAxis::PosZ);
 
+    def = this->add("belt_gcode_back_transform", coBool);
+    def->label = L("G-code back-transform");
+    def->category = L("Printable space");
+    def->tooltip = L("Reverse the shear/scale transform applied during slicing so G-code "
+                      "coordinates are in the machine's physical coordinate space. "
+                      "Requires at least one shear axis with global mode enabled.");
+    def->mode = comAdvanced;
+    def->set_default_value(new ConfigOptionBool(false));
+
     // Belt support floor debug controls
     def = this->add("belt_support_floor_offset", coFloat);
     def->label = L("Floor Z offset");

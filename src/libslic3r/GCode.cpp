@@ -2432,6 +2432,8 @@ void GCode::_do_export(Print& print, GCodeOutputStream &file, ThumbnailsGenerato
         // Build volume extents for Rev remap mode.
         BoundingBoxf bbox_bed(print.config().printable_area.values);
         m_writer.set_build_volume_max(Vec3d(bbox_bed.max.x(), bbox_bed.max.y(), print.config().printable_height.value));
+        // Initialize the back-transform that undoes slicing shear/scale.
+        m_writer.set_belt_back_transform(print.config());
     }
 
     // How many times will be change_layer() called?

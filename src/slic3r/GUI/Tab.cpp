@@ -4437,6 +4437,7 @@ void TabPrinter::build_fff()
             line.append_option(optgroup->get_option("belt_gcode_remap_z"));
             optgroup->append_line(line);
         }
+        optgroup->append_single_option_line("belt_gcode_back_transform");
         {
             Line line = { L("Support floor"), L("Belt floor awareness for support generation and clipping") };
             line.append_option(optgroup->get_option("belt_support_floor_mode"));
@@ -5295,7 +5296,7 @@ void TabPrinter::toggle_options()
         toggle_line("belt_printer_infinite_y", is_belt);
         for (auto el : {"belt_shear_x", "belt_shear_y", "belt_shear_z",
                         "belt_scale_x", "belt_scale_y", "belt_scale_z",
-                        "belt_gcode_remap_x"})
+                        "belt_gcode_remap_x", "belt_gcode_back_transform"})
             toggle_line(el, is_belt);
 
         // Gray out angle/from sub-options when their parent shear/scale mode is None.

@@ -8,6 +8,7 @@
 #include "Point.hpp"
 #include "PrintConfig.hpp"
 #include "GCode/CoolingBuffer.hpp"
+#include "GCode/BeltBackTransform.hpp"
 
 namespace Slic3r {
 
@@ -132,6 +133,8 @@ public:
     void set_axis_remap(int rx, int ry, int rz);
     // Set build volume extents for Rev remap mode (max X, Y, Z).
     void set_build_volume_max(const Vec3d &max);
+    // Initialize the belt back-transform that undoes slicing shear/scale.
+    void set_belt_back_transform(const PrintConfig &config);
     // Transform a point from the slicing frame to machine coordinates.
     Vec3d to_machine_coords(const Vec3d &pos) const;
 
@@ -194,6 +197,7 @@ public:
     int             m_remap_y = 1;
     int             m_remap_z = 2;
     Vec3d           m_build_vol_max = Vec3d::Zero();
+    BeltBackTransform m_belt_back_transform;
     double          m_current_speed;
     bool            m_is_first_layer = true;
 
