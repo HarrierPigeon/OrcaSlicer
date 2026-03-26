@@ -2187,7 +2187,10 @@ void TreeSupport::draw_circles()
                                 circle.points[i] = circle.points[i] * scale + node.position;
                             }
                         }
-                        if (obj_layer_nr == 0 && m_raft_layers == 0) {
+                        // First layer brim expansion — skip for belt printers
+                        // where the first layer sits on a diagonal belt surface.
+                        if (obj_layer_nr == 0 && m_raft_layers == 0
+                            && std::abs(m_slicing_params.belt_floor_shear_factor) < EPSILON) {
                             double brim_width = !config.tree_support_auto_brim ? tree_brim_width : std::max(MIN_BRANCH_RADIUS_FIRST_LAYER, std::min(node.radius + node.dist_mm_to_top / (scale * branch_radius) * 0.5, MAX_BRANCH_RADIUS_FIRST_LAYER) - node.radius);
                             auto tmp=offset(circle, scale_(brim_width));
                             if(!tmp.empty())
