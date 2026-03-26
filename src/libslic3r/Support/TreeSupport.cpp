@@ -1746,7 +1746,10 @@ void TreeSupport::generate()
             && m_object->support_layer_count() > 0) {
             const int    from_axis = sp.belt_floor_from_axis;
             const double floor_off = pcfg.belt_support_floor_offset.value;
-            const double z_shift_local = sp.belt_floor_z_shift - m_object->belt_global_z_offset();
+            // Support layer print_z values are in GLOBAL Z (non-organic inherits
+            // from object layers which include global_z_offset).  Use the GLOBAL
+            // belt_floor_z_shift to match.
+            const double z_shift = sp.belt_floor_z_shift;
             // Find the lowest non-empty, non-brim support layer.
             ExPolygons source_areas;
             double source_z = 0;
@@ -1785,7 +1788,7 @@ void TreeSupport::generate()
                 for (int i = num_extra; i >= 1 && !prev_areas.empty(); --i) {
                     double print_z = first_z - i * sp.layer_height;
                     if (print_z < -sp.layer_height) continue;
-                    double cutoff = (print_z - z_shift_local - floor_off) / sf;
+                    double cutoff = (print_z - z_shift - floor_off) / sf;
                     coord_t cutoff_sc = scale_(cutoff);
                     coord_t big = scale_(1e3);
                     Polygon belt_poly;
