@@ -1780,7 +1780,11 @@ void TreeSupport::generate()
                 BoundingBoxf3 bb = m_object->model_object()->raw_bounding_box();
                 double from_extent = std::abs(bb.min(from_axis));
                 double first_z = m_object->get_support_layer(0)->print_z;
-                double extra_depth = std::min(from_extent + 10., std::max(0., first_z));
+                // HACK: add 10mm beyond the geometric extent to avoid small
+                // cutoff artifacts at the belt surface edge.  This is a bodge
+                // — ideally the depth would be computed exactly from the belt
+                // geometry, but the extra 10mm ensures clean termination.
+                double extra_depth = std::min(from_extent + 10. + 10., std::max(0., first_z));
                 int num_extra = std::min(50, std::max(0, (int)std::ceil(extra_depth / sp.layer_height)));
                 ExPolygons prev_areas = source_areas;
                 // Build belt extension layers (lowest Z first).
