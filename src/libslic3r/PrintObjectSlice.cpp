@@ -963,7 +963,16 @@ void PrintObject::slice()
     // So: belt_floor_z_shift = remapped_bb.min.z() + z_shift_val
     if (std::abs(m_slicing_params.belt_floor_shear_factor) > EPSILON) {
         double z_shift_val = (m_belt_min_z < 0.) ? -m_belt_min_z : 0.;
-        double belt_surface_z = belt_remapped_bbox(*this->model_object(), this->print()->config()).min.z();
+        // With pre-remap, the belt surface (model_Y=0) may not be at Z=0 in
+        // centered slicer space — add the remapped bbox min Z to compensate.
+        // Without pre-remap, the belt surface IS at Z=0 and bb.min.z() is
+        // already folded into m_belt_min_z, so use 0.
+        const auto &pcfg = this->print()->config();
+        bool has_preslice_remap = (int(pcfg.belt_preslice_remap_x.value) != int(BeltRemapAxis::PosX) ||
+                                   int(pcfg.belt_preslice_remap_y.value) != int(BeltRemapAxis::PosY) ||
+                                   int(pcfg.belt_preslice_remap_z.value) != int(BeltRemapAxis::PosZ));
+        double belt_surface_z = has_preslice_remap
+            ? belt_remapped_bbox(*this->model_object(), pcfg).min.z() : 0.;
         m_slicing_params.belt_floor_z_shift = belt_surface_z + z_shift_val;
     }
 
@@ -1057,8 +1066,12 @@ void PrintObject::slice()
                 // Subtract the belt surface's centered Z position so we get
                 // only the shear-induced contribution (same correction as the
                 // belt_floor_z_shift fix).
-                double belt_surface_z = belt_remapped_bbox(*this->model_object(),
-                                                           this->print()->config()).min.z();
+                // Same pre-remap guard as belt_floor_z_shift above.
+                bool has_preslice_remap2 = (int(pcfg.belt_preslice_remap_x.value) != int(BeltRemapAxis::PosX) ||
+                                            int(pcfg.belt_preslice_remap_y.value) != int(BeltRemapAxis::PosY) ||
+                                            int(pcfg.belt_preslice_remap_z.value) != int(BeltRemapAxis::PosZ));
+                double belt_surface_z = has_preslice_remap2
+                    ? belt_remapped_bbox(*this->model_object(), this->print()->config()).min.z() : 0.;
                 double shear_min_z = m_belt_min_z - belt_surface_z;
                 Point phys = inst_shift; // already has center_offset subtracted
                 double center_on_axis = (za.from == 0) ? unscale<double>(phys.x()) : unscale<double>(phys.y());
