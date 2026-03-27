@@ -946,17 +946,25 @@ void PrintObject::slice()
     this->slice_volumes();
     m_print->throw_if_canceled();
 
-    // After slicing, m_belt_min_z holds the exact post-shear minimum Z
-    // in trafo_centered space (which includes the ensure_on_bed Z offset).
-    // The belt surface is at Z=0 in trafo_centered space; after shear it
-    // becomes Z = sf*Y, and after the z-shift that keeps the mesh above
-    // Z=0 it becomes Z = sf*Y + z_shift_val.  So belt_floor_z_shift is
-    // simply the z-shift applied, i.e. max(0, -m_belt_min_z).
-    // NOTE: do NOT add raw_bounding_box().min.z() here — m_belt_min_z
-    // already includes the ensure_on_bed offset, unlike the min_rz used
-    // in update_slicing_parameters() which needs that compensation.
+    // Belt floor Z-shift: where is the belt surface in final slicer space?
+    //
+    // The belt surface is at model_Y=0 (XZ belt plane). After the full
+    // pipeline (trafo_centered → pre_remap → shear → z_shift), the belt
+    // surface equation in slicer space is:
+    //   Z_belt = sf * from_axis + belt_surface_z_centered + z_shift_val
+    //
+    // belt_surface_z_centered = remapped_bbox.min.z() (the Z position of
+    //   the belt surface in centered-pre-shear slicer space, which is 0
+    //   without pre-remap but nonzero when e.g. Y↔Z swap shifts the belt
+    //   surface away from Z=0 by the centering offset).
+    //
+    // z_shift_val = max(0, -m_belt_min_z) (lifts mesh above Z=0).
+    //
+    // So: belt_floor_z_shift = remapped_bb.min.z() + z_shift_val
     if (std::abs(m_slicing_params.belt_floor_shear_factor) > EPSILON) {
-        m_slicing_params.belt_floor_z_shift = (m_belt_min_z < 0.) ? -m_belt_min_z : 0.;
+        double z_shift_val = (m_belt_min_z < 0.) ? -m_belt_min_z : 0.;
+        double belt_surface_z = belt_remapped_bbox(*this->model_object(), this->print()->config()).min.z();
+        m_slicing_params.belt_floor_z_shift = belt_surface_z + z_shift_val;
     }
 
     int firstLayerReplacedBy = 0;
@@ -1042,14 +1050,19 @@ void PrintObject::slice()
             const auto &za = gaxes[2]; // Z row
             if (za.global && za.mode != BeltShearMode::None && za.from < 2) {
                 double factor = compute_shear_factor(za.mode, za.angle);
-                // The Z-shift brought the mesh's lowest sheared vertex to
-                // Z=0.  That vertex's physical Y determines the belt contact
-                // point.  With trafo_z preserved (ensure_on_bed offset),
-                // min_z = Y_at_contact * factor for bottom-face vertices,
-                // so: z_offset = center_Y * factor + min_z.
+                // The global Z offset accounts for the instance's position-
+                // dependent shear contribution.  m_belt_min_z is the minimum Z
+                // of the mesh after pre_remap + shear + trafo_centered, which
+                // includes the centering offset on the remapped Z axis.
+                // Subtract the belt surface's centered Z position so we get
+                // only the shear-induced contribution (same correction as the
+                // belt_floor_z_shift fix).
+                double belt_surface_z = belt_remapped_bbox(*this->model_object(),
+                                                           this->print()->config()).min.z();
+                double shear_min_z = m_belt_min_z - belt_surface_z;
                 Point phys = inst_shift; // already has center_offset subtracted
                 double center_on_axis = (za.from == 0) ? unscale<double>(phys.x()) : unscale<double>(phys.y());
-                global_z_offset += center_on_axis * factor + m_belt_min_z;
+                global_z_offset += center_on_axis * factor + shear_min_z;
             }
 
             BOOST_LOG_TRIVIAL(warning) << "Belt global: z_offset=" << global_z_offset
