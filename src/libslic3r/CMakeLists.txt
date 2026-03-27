@@ -79,6 +79,8 @@ set(lisbslic3r_sources
     BoundingBox.hpp
     BridgeDetector.cpp
     BridgeDetector.hpp
+    BeltTransform.cpp
+    BeltTransform.hpp
     Brim.cpp
     BrimEarsPoint.hpp
     Brim.hpp

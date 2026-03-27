@@ -8,6 +8,7 @@
 #include "Exception.hpp"
 #include "ExtrusionEntity.hpp"
 #include "EdgeGrid.hpp"
+#include "BeltTransform.hpp"
 #include "Geometry.hpp"
 #include "Geometry/ConvexHull.hpp"
 #include "GCode/PrintExtents.hpp"
@@ -5538,82 +5539,7 @@ void GCode::update_origin_snap(const PrintObject *obj, const Point &inst_shift)
 
     // Reconstruct the belt pipeline transform for this object (same as
     // PrintObjectSlice.cpp: z_shift * scale * shear * pre_remap).
-    const auto &cfg = m_config;
-    Transform3d belt = Transform3d::Identity();
-
-    // Pre-slice remap
-    int pre_rx = int(cfg.belt_preslice_remap_x.value);
-    int pre_ry = int(cfg.belt_preslice_remap_y.value);
-    int pre_rz = int(cfg.belt_preslice_remap_z.value);
-    if (pre_rx != int(BeltRemapAxis::PosX) ||
-        pre_ry != int(BeltRemapAxis::PosY) ||
-        pre_rz != int(BeltRemapAxis::PosZ)) {
-        auto remap_col = [](int r) -> Vec3d {
-            int a = r % 3; Vec3d c = Vec3d::Zero();
-            c[a] = (r < 3) ? 1.0 : -1.0;
-            return c;
-        };
-        Matrix3d lin;
-        lin.col(0) = remap_col(pre_rx);
-        lin.col(1) = remap_col(pre_ry);
-        lin.col(2) = remap_col(pre_rz);
-        Transform3d pre = Transform3d::Identity();
-        pre.linear() = lin;
-        if (pre_rx >= 6 || pre_ry >= 6 || pre_rz >= 6) {
-            BoundingBoxf bb(cfg.printable_area.values);
-            Vec3d vm(bb.max.x(), bb.max.y(), cfg.printable_height.value);
-            Vec3d tr = Vec3d::Zero();
-            if (pre_rx >= 6) tr[0] = vm[pre_rx % 3];
-            if (pre_ry >= 6) tr[1] = vm[pre_ry % 3];
-            if (pre_rz >= 6) tr[2] = vm[pre_rz % 3];
-            pre.translation() = tr;
-        }
-        belt = pre * belt;
-    }
-
-    // Shear
-    auto shear_f = [](BeltShearMode m, double a) -> double {
-        double r = Geometry::deg2rad(a), s = std::sin(r), c = std::cos(r);
-        switch (m) {
-        case BeltShearMode::PosCot: return (s > EPSILON) ?  c/s : 0.;
-        case BeltShearMode::NegCot: return (s > EPSILON) ? -c/s : 0.;
-        case BeltShearMode::PosTan: return (c > EPSILON) ?  s/c : 0.;
-        case BeltShearMode::NegTan: return (c > EPSILON) ? -s/c : 0.;
-        default: return 0.;
-        }
-    };
-    struct AS { BeltShearMode m; double a; int f; };
-    AS axes[3] = {
-        {cfg.belt_shear_x.value, cfg.belt_shear_x_angle.value, int(cfg.belt_shear_x_from.value)},
-        {cfg.belt_shear_y.value, cfg.belt_shear_y_angle.value, int(cfg.belt_shear_y_from.value)},
-        {cfg.belt_shear_z.value, cfg.belt_shear_z_angle.value, int(cfg.belt_shear_z_from.value)},
-    };
-    Transform3d shear = Transform3d::Identity();
-    for (int i = 0; i < 3; ++i)
-        if (axes[i].m != BeltShearMode::None) {
-            double f = shear_f(axes[i].m, axes[i].a);
-            if (std::abs(f) > EPSILON)
-                shear.matrix()(i, axes[i].f) += f;
-        }
-
-    // Scale
-    auto scale_f = [](BeltScaleMode m, double a) -> double {
-        if (m == BeltScaleMode::None) return 1.;
-        double r = Geometry::deg2rad(a), s = std::sin(r), c = std::cos(r);
-        switch (m) {
-        case BeltScaleMode::InvSin: return (s > EPSILON) ? 1./s : 1.;
-        case BeltScaleMode::InvCos: return (c > EPSILON) ? 1./c : 1.;
-        case BeltScaleMode::Sin:    return s;
-        case BeltScaleMode::Cos:    return c;
-        default: return 1.;
-        }
-    };
-    Transform3d sc = Transform3d::Identity();
-    sc.matrix()(0,0) = scale_f(cfg.belt_scale_x.value, cfg.belt_scale_x_angle.value);
-    sc.matrix()(1,1) = scale_f(cfg.belt_scale_y.value, cfg.belt_scale_y_angle.value);
-    sc.matrix()(2,2) = scale_f(cfg.belt_scale_z.value, cfg.belt_scale_z_angle.value);
-
-    belt = sc * shear * belt;
+    Transform3d belt = BeltTransformPipeline::build_forward_transform(m_config);
 
     // Z-shift
     double zs = (obj->belt_min_z() < 0.) ? -obj->belt_min_z() : 0.;

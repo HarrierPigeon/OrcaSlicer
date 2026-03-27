@@ -1,5 +1,6 @@
 #include "Exception.hpp"
 #include "Print.hpp"
+#include "BeltTransform.hpp"
 #include "BoundingBox.hpp"
 #include "ClipperUtils.hpp"
 #include "ElephantFootCompensation.hpp"
@@ -3398,76 +3399,22 @@ void PrintObject::update_slicing_parameters()
     // Orca: updated function call for XYZ shrinkage compensation
     if (!m_slicing_params.valid) {
           coordf_t object_height = this->model_object()->max_z();
-          // Belt floor parameters for support clipping (populated below if belt Z-shear is active).
-          double belt_floor_shear_factor_out = 0.0;
-          int    belt_floor_from_axis_out    = 1;
-          double belt_floor_z_shift_out     = 0.0;
-          // Belt shear/scale/pre-remap may change the effective Z height.
+          BeltTransformPipeline::BeltFloorParams belt_floor;
           const auto &pcfg = this->print()->config();
           if (pcfg.belt_printer.value) {
-              BoundingBoxf3 bb = belt_remapped_bbox(*this->model_object(), pcfg);
-              bool has_preslice_remap = (int(pcfg.belt_preslice_remap_x.value) != int(BeltRemapAxis::PosX) ||
-                                         int(pcfg.belt_preslice_remap_y.value) != int(BeltRemapAxis::PosY) ||
-                                         int(pcfg.belt_preslice_remap_z.value) != int(BeltRemapAxis::PosZ));
-              if (has_preslice_remap)
+              BoundingBoxf3 bb = BeltTransformPipeline::remap_bbox(*this->model_object(), pcfg);
+              if (BeltTransformPipeline::has_preslice_remap(pcfg))
                   object_height = bb.size().z();
-
-              bool has_z_shear = pcfg.belt_shear_z.value != BeltShearMode::None;
-              bool has_z_scale = pcfg.belt_scale_z.value != BeltScaleMode::None;
-              if (has_z_shear || has_z_scale) {
-                  auto compute_shear_factor = [](BeltShearMode mode, double angle_deg) -> double {
-                      double angle_rad = Geometry::deg2rad(angle_deg);
-                      double sin_a = std::sin(angle_rad), cos_a = std::cos(angle_rad);
-                      switch (mode) {
-                      case BeltShearMode::PosCot: return (sin_a > EPSILON) ?  cos_a / sin_a : 0.;
-                      case BeltShearMode::NegCot: return (sin_a > EPSILON) ? -cos_a / sin_a : 0.;
-                      case BeltShearMode::PosTan: return (cos_a > EPSILON) ?  sin_a / cos_a : 0.;
-                      case BeltShearMode::NegTan: return (cos_a > EPSILON) ? -sin_a / cos_a : 0.;
-                      default: return 0.;
-                      }
-                  };
-                  auto compute_scale_factor = [](BeltScaleMode mode, double angle_deg) -> double {
-                      if (mode == BeltScaleMode::None) return 1.;
-                      double angle_rad = Geometry::deg2rad(angle_deg);
-                      double sin_a = std::sin(angle_rad), cos_a = std::cos(angle_rad);
-                      switch (mode) {
-                      case BeltScaleMode::InvSin: return (sin_a > EPSILON) ? 1. / sin_a : 1.;
-                      case BeltScaleMode::InvCos: return (cos_a > EPSILON) ? 1. / cos_a : 1.;
-                      case BeltScaleMode::Sin:    return sin_a;
-                      case BeltScaleMode::Cos:    return cos_a;
-                      default: return 1.;
-                      }
-                  };
-                  double shear_factor = has_z_shear ? compute_shear_factor(pcfg.belt_shear_z.value, pcfg.belt_shear_z_angle.value) : 0.;
-                  double scale_z = compute_scale_factor(pcfg.belt_scale_z.value, pcfg.belt_scale_z_angle.value);
-                  if (has_z_shear && std::abs(shear_factor) > EPSILON) {
-                      int from = int(pcfg.belt_shear_z_from.value);
-                      double min_rz = std::numeric_limits<double>::max();
-                      double max_rz = std::numeric_limits<double>::lowest();
-                      for (double vz : {bb.min.z(), bb.max.z()})
-                          for (double vs : {bb.min(from), bb.max(from)}) {
-                              double new_z = scale_z * (vz + shear_factor * vs);
-                              min_rz = std::min(min_rz, new_z);
-                              max_rz = std::max(max_rz, new_z);
-                          }
-                      object_height = max_rz - min_rz;
-                      belt_floor_shear_factor_out = shear_factor;
-                      belt_floor_from_axis_out = from;
-                      // Belt contact surface starts at bb.min.z() pre-shear; add the
-                      // slicing Z-shift that keeps the mesh above Z=0.
-                      // Exact value is patched after slice_volumes() in posSlice.
-                      belt_floor_z_shift_out = bb.min.z() + ((min_rz < 0.) ? -min_rz : 0.);
-                  } else {
-                      object_height *= scale_z;
-                  }
-              }
+              auto hr = BeltTransformPipeline::compute_belt_height_and_floor(pcfg, bb, object_height);
+              object_height = hr.object_height;
+              belt_floor    = hr.floor_params;
           }
           m_slicing_params = SlicingParameters::create_from_config(pcfg, m_config, object_height,
                                                                    this->object_extruders(), this->print()->shrinkage_compensation());
           // Populate belt floor parameters into slicing params for support clipping.
-          m_slicing_params.belt_floor_shear_factor = belt_floor_shear_factor_out;
-          m_slicing_params.belt_floor_from_axis    = belt_floor_from_axis_out;
-          m_slicing_params.belt_floor_z_shift     = belt_floor_z_shift_out;
+          m_slicing_params.belt_floor_shear_factor = belt_floor.shear_factor;
+          m_slicing_params.belt_floor_from_axis    = belt_floor.from_axis;
+          m_slicing_params.belt_floor_z_shift     = belt_floor.z_shift;
       }
 }
 
@@ -3505,75 +3452,23 @@ SlicingParameters PrintObject::slicing_parameters(const DynamicPrintConfig &full
     sort_remove_duplicates(object_extruders);
     //FIXME add painting extruders
 
-    // Belt floor parameters for support clipping (populated below if belt Z-shear is active).
-    double belt_floor_shear_factor_out = 0.0;
-    int    belt_floor_from_axis_out    = 1;
-    double belt_floor_z_shift_out     = 0.0;
-
+    BeltTransformPipeline::BeltFloorParams belt_floor;
     if (object_max_z <= 0.f) {
         BoundingBoxf3 bb = model_object.raw_bounding_box();
         object_max_z = (float)bb.size().z();
-        // Belt pre-remap/shear/scale may change the effective Z height.
         if (print_config.belt_printer.value) {
-            bb = belt_remapped_bbox(model_object, print_config);
-            bool has_preslice_remap = (int(print_config.belt_preslice_remap_x.value) != int(BeltRemapAxis::PosX) ||
-                                       int(print_config.belt_preslice_remap_y.value) != int(BeltRemapAxis::PosY) ||
-                                       int(print_config.belt_preslice_remap_z.value) != int(BeltRemapAxis::PosZ));
-            if (has_preslice_remap)
+            bb = BeltTransformPipeline::remap_bbox(model_object, print_config);
+            if (BeltTransformPipeline::has_preslice_remap(print_config))
                 object_max_z = (float)bb.size().z();
-
-            bool has_z_shear = print_config.belt_shear_z.value != BeltShearMode::None;
-            bool has_z_scale = print_config.belt_scale_z.value != BeltScaleMode::None;
-            if (has_z_shear || has_z_scale) {
-                auto compute_shear_factor = [](BeltShearMode mode, double angle_deg) -> double {
-                    double angle_rad = Geometry::deg2rad(angle_deg);
-                    double sin_a = std::sin(angle_rad), cos_a = std::cos(angle_rad);
-                    switch (mode) {
-                    case BeltShearMode::PosCot: return (sin_a > EPSILON) ?  cos_a / sin_a : 0.;
-                    case BeltShearMode::NegCot: return (sin_a > EPSILON) ? -cos_a / sin_a : 0.;
-                    case BeltShearMode::PosTan: return (cos_a > EPSILON) ?  sin_a / cos_a : 0.;
-                    case BeltShearMode::NegTan: return (cos_a > EPSILON) ? -sin_a / cos_a : 0.;
-                    default: return 0.;
-                    }
-                };
-                auto compute_scale_factor = [](BeltScaleMode mode, double angle_deg) -> double {
-                    if (mode == BeltScaleMode::None) return 1.;
-                    double angle_rad = Geometry::deg2rad(angle_deg);
-                    double sin_a = std::sin(angle_rad), cos_a = std::cos(angle_rad);
-                    switch (mode) {
-                    case BeltScaleMode::InvSin: return (sin_a > EPSILON) ? 1. / sin_a : 1.;
-                    case BeltScaleMode::InvCos: return (cos_a > EPSILON) ? 1. / cos_a : 1.;
-                    case BeltScaleMode::Sin:    return sin_a;
-                    case BeltScaleMode::Cos:    return cos_a;
-                    default: return 1.;
-                    }
-                };
-                double shear_factor = has_z_shear ? compute_shear_factor(print_config.belt_shear_z.value, print_config.belt_shear_z_angle.value) : 0.;
-                double scale_z = compute_scale_factor(print_config.belt_scale_z.value, print_config.belt_scale_z_angle.value);
-                if (has_z_shear && std::abs(shear_factor) > EPSILON) {
-                    int from = int(print_config.belt_shear_z_from.value);
-                    double min_rz = std::numeric_limits<double>::max();
-                    double max_rz = std::numeric_limits<double>::lowest();
-                    for (double vz : {bb.min.z(), bb.max.z()})
-                        for (double vs : {bb.min(from), bb.max(from)}) {
-                            double new_z = scale_z * (vz + shear_factor * vs);
-                            min_rz = std::min(min_rz, new_z);
-                            max_rz = std::max(max_rz, new_z);
-                        }
-                    object_max_z = (float)(max_rz - min_rz);
-                    belt_floor_shear_factor_out = shear_factor;
-                    belt_floor_from_axis_out = from;
-                    belt_floor_z_shift_out = bb.min.z() + ((min_rz < 0.) ? -min_rz : 0.);
-                } else {
-                    object_max_z *= (float)scale_z;
-                }
-            }
+            auto hr = BeltTransformPipeline::compute_belt_height_and_floor(print_config, bb, object_max_z);
+            object_max_z = (float)hr.object_height;
+            belt_floor   = hr.floor_params;
         }
     }
     SlicingParameters params = SlicingParameters::create_from_config(print_config, object_config, object_max_z, object_extruders, object_shrinkage_compensation);
-    params.belt_floor_shear_factor = belt_floor_shear_factor_out;
-    params.belt_floor_from_axis    = belt_floor_from_axis_out;
-    params.belt_floor_z_shift     = belt_floor_z_shift_out;
+    params.belt_floor_shear_factor = belt_floor.shear_factor;
+    params.belt_floor_from_axis    = belt_floor.from_axis;
+    params.belt_floor_z_shift     = belt_floor.z_shift;
     return params;
 }
 
