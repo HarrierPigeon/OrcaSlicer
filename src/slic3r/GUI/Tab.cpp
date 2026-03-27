@@ -4449,6 +4449,14 @@ void TabPrinter::build_fff()
         }
         optgroup->append_single_option_line("belt_gcode_back_transform");
         {
+            Line line = { L("Z-shift bed compensation"),
+                          L("Subtract the slicing Z-shift from a machine axis so the object's "
+                            "bottom face sits on the physical bed surface.") };
+            line.append_option(optgroup->get_option("belt_zshift_compensate"));
+            line.append_option(optgroup->get_option("belt_zshift_compensate_axis"));
+            optgroup->append_line(line);
+        }
+        {
             Line line = { L("Support floor"), L("Belt floor awareness for support generation and clipping") };
             line.append_option(optgroup->get_option("belt_support_floor_mode"));
             line.append_option(optgroup->get_option("belt_support_floor_offset"));
@@ -5307,7 +5315,8 @@ void TabPrinter::toggle_options()
         for (auto el : {"belt_shear_x", "belt_shear_y", "belt_shear_z",
                         "belt_scale_x", "belt_scale_y", "belt_scale_z",
                         "belt_preslice_remap_x",
-                        "belt_gcode_remap_x", "belt_gcode_back_transform"})
+                        "belt_gcode_remap_x", "belt_gcode_back_transform",
+                        "belt_zshift_compensate"})
             toggle_line(el, is_belt);
 
         // Gray out angle/from sub-options when their parent shear/scale mode is None.
@@ -5334,6 +5343,9 @@ void TabPrinter::toggle_options()
 
         auto scz = m_config->option<ConfigOptionEnum<BeltScaleMode>>("belt_scale_z")->value;
         toggle_option("belt_scale_z_angle", is_belt && scz != BeltScaleMode::None);
+
+        auto zcomp = m_config->opt_bool("belt_zshift_compensate");
+        toggle_option("belt_zshift_compensate_axis", is_belt && zcomp);
 
         toggle_line("belt_support_floor_mode", is_belt);
     }

@@ -1488,6 +1488,8 @@ PRINT_CONFIG_CLASS_DERIVED_DEFINE(
     ((ConfigOptionEnum<BeltRemapAxis>,  belt_gcode_remap_y))
     ((ConfigOptionEnum<BeltRemapAxis>,  belt_gcode_remap_z))
     ((ConfigOptionBool,                 belt_gcode_back_transform))
+    ((ConfigOptionBool,                 belt_zshift_compensate))
+    ((ConfigOptionEnum<BeltAxis>,       belt_zshift_compensate_axis))
     ((ConfigOptionFloat,                          belt_support_floor_offset))
     ((ConfigOptionEnum<BeltSupportFloorMode>,     belt_support_floor_mode))
     ((ConfigOptionEnum<BeltSupportZOffsetMode>,   belt_support_z_offset_mode))

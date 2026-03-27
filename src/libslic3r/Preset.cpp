@@ -1016,6 +1016,7 @@ static std::vector<std::string> s_Preset_printer_options {
     "belt_scale_x", "belt_scale_x_angle", "belt_scale_y", "belt_scale_y_angle", "belt_scale_z", "belt_scale_z_angle",
     "belt_preslice_remap_x", "belt_preslice_remap_y", "belt_preslice_remap_z",
     "belt_gcode_remap_x", "belt_gcode_remap_y", "belt_gcode_remap_z", "belt_gcode_back_transform",
+    "belt_zshift_compensate", "belt_zshift_compensate_axis",
     "belt_support_floor_offset", "belt_support_floor_mode", "belt_support_z_offset_mode",
     "gcode_flavor",
     "fan_kickstart", "fan_speedup_time", "fan_speedup_overhangs",

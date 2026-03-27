@@ -103,6 +103,8 @@ bool Print::invalidate_state_by_config_options(const ConfigOptionResolver & /* n
         "belt_gcode_remap_x",
         "belt_gcode_remap_y",
         "belt_gcode_remap_z",
+        "belt_zshift_compensate",
+        "belt_zshift_compensate_axis",
         //BBS
         "additional_cooling_fan_speed",
         "reduce_crossing_wall",

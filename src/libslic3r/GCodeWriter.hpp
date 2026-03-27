@@ -135,6 +135,8 @@ public:
     void set_build_volume_max(const Vec3d &max);
     // Initialize the belt back-transform that undoes slicing shear/scale.
     void set_belt_back_transform(const PrintConfig &config);
+    // Set Z-shift bed compensation: subtracts the Z-shift from a machine axis.
+    void set_zshift_compensation(int axis, double val);
     // Transform a point from the slicing frame to machine coordinates.
     Vec3d to_machine_coords(const Vec3d &pos) const;
 
@@ -198,6 +200,8 @@ public:
     int             m_remap_z = 2;
     Vec3d           m_build_vol_max = Vec3d::Zero();
     BeltBackTransform m_belt_back_transform;
+    int             m_zshift_comp_axis = -1;  // -1 = disabled, 0/1/2 = X/Y/Z
+    double          m_zshift_comp_val  = 0.;  // Z-shift amount to subtract
     double          m_current_speed;
     bool            m_is_first_layer = true;
 

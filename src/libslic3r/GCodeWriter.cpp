@@ -42,6 +42,12 @@ void GCodeWriter::set_belt_back_transform(const PrintConfig &config)
     m_belt_back_transform.init_from_config(config);
 }
 
+void GCodeWriter::set_zshift_compensation(int axis, double val)
+{
+    m_zshift_comp_axis = axis;
+    m_zshift_comp_val  = val;
+}
+
 Vec3d GCodeWriter::to_machine_coords(const Vec3d &pos) const
 {
     if (!is_belt_printer())
@@ -56,7 +62,12 @@ Vec3d GCodeWriter::to_machine_coords(const Vec3d &pos) const
         if (r < 6) return -p[axis];
         return m_build_vol_max[axis] - p[axis];
     };
-    return { remap(m_remap_x), remap(m_remap_y), remap(m_remap_z) };
+    Vec3d result = { remap(m_remap_x), remap(m_remap_y), remap(m_remap_z) };
+    // Z-shift bed compensation: subtract the slicing Z-shift from a machine axis
+    // so the object's bottom face sits on the physical bed surface.
+    if (m_zshift_comp_axis >= 0 && m_zshift_comp_axis < 3)
+        result[m_zshift_comp_axis] -= m_zshift_comp_val;
+    return result;
 }
 
 bool GCodeWriter::supports_separate_travel_acceleration(GCodeFlavor flavor)

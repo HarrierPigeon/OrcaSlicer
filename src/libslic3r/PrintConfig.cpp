@@ -6148,6 +6148,22 @@ void PrintConfigDef::init_fff_params()
     def->mode = comAdvanced;
     def->set_default_value(new ConfigOptionBool(false));
 
+    def = this->add("belt_zshift_compensate", coBool);
+    def->label = L("Z-shift bed compensation");
+    def->category = L("Printable space");
+    def->tooltip = L("Subtract the slicing Z-shift from a machine axis in G-code output "
+                      "so the object's bottom face sits on the physical bed surface. "
+                      "The Z-shift keeps the mesh above Z=0 during slicing; this option "
+                      "undoes that offset on the chosen machine axis.");
+    def->mode = comAdvanced;
+    def->set_default_value(new ConfigOptionBool(false));
+
+    add_belt_axis_enum("belt_zshift_compensate_axis", "Axis",
+        "Which machine-space axis to subtract the Z-shift from. "
+        "For a belt printer whose bed is in the XZ plane (pre-slice remap Y↔Z), "
+        "set this to Y to bring the bottom face onto Y=0.",
+        BeltAxis::Y);
+
     // Belt support floor debug controls
     def = this->add("belt_support_floor_offset", coFloat);
     def->label = L("Floor Z offset");

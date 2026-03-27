@@ -2434,6 +2434,18 @@ void GCode::_do_export(Print& print, GCodeOutputStream &file, ThumbnailsGenerato
         m_writer.set_build_volume_max(Vec3d(bbox_bed.max.x(), bbox_bed.max.y(), print.config().printable_height.value));
         // Initialize the back-transform that undoes slicing shear/scale.
         m_writer.set_belt_back_transform(print.config());
+        // Z-shift bed compensation: subtract the slicing Z-shift from a machine
+        // axis so the object's bottom face sits on the physical bed surface.
+        if (print.config().belt_zshift_compensate.value) {
+            int comp_axis = int(print.config().belt_zshift_compensate_axis.value);
+            // Compute the Z-shift: max(0, -belt_min_z) across all objects.
+            double max_zshift = 0.;
+            for (const PrintObject *obj : print.objects()) {
+                double obj_zshift = (obj->belt_min_z() < 0.) ? -obj->belt_min_z() : 0.;
+                max_zshift = std::max(max_zshift, obj_zshift);
+            }
+            m_writer.set_zshift_compensation(comp_axis, max_zshift);
+        }
     }
 
     // How many times will be change_layer() called?

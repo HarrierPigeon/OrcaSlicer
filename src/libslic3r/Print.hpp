@@ -579,6 +579,7 @@ private:
     double                                  m_belt_min_z { 0.0 };
 public:
     double belt_global_z_offset() const { return m_belt_global_z_offset; }
+    double belt_min_z() const { return m_belt_min_z; }
 private:
 
 
