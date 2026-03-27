@@ -8,6 +8,7 @@
 
 #include "TreeModelVolumes.hpp"
 #include "TreeSupportCommon.hpp"
+#include "BeltFloorContext.hpp"
 
 #include "../BuildVolume.hpp"
 #include "../ClipperUtils.hpp"
@@ -101,13 +102,11 @@ TreeModelVolumes::TreeModelVolumes(
         {
             const auto &sp   = print_object.slicing_parameters();
             const auto &pcfg = print_object.print()->config();
-            const double sf  = sp.belt_floor_shear_factor;
-            if (std::abs(sf) > EPSILON
+            BeltFloorContext ctx;
+            ctx.init_local(sp, pcfg, print_object.belt_global_z_offset());
+            if (ctx.is_active()
                 && std::abs(print_object.belt_global_z_offset()) > EPSILON
                 && pcfg.belt_support_floor_mode.value == BeltSupportFloorMode::GeneratorOnly) {
-                const int    from_axis = sp.belt_floor_from_axis;
-                const double floor_off = pcfg.belt_support_floor_offset.value;
-                const double z_shift   = sp.belt_floor_z_shift - print_object.belt_global_z_offset();
                 size_t num_layers_needed = print_object.layer_count();
                 // Ensure m_anti_overhang is large enough.
                 if (m_anti_overhang.size() < num_layers_needed)
@@ -115,22 +114,7 @@ TreeModelVolumes::TreeModelVolumes(
                 for (size_t layer_idx = 0; layer_idx < num_layers_needed; ++layer_idx) {
                     double print_z = print_object.get_layer(layer_idx)->print_z
                                    - print_object.belt_global_z_offset();
-                    double cutoff  = (print_z - z_shift - floor_off) / sf;
-                    coord_t cutoff_sc = scale_(cutoff);
-                    coord_t big       = scale_(1e4);
-                    Polygon belt_poly;
-                    if (from_axis == 0) {
-                        if (sf > 0)
-                            belt_poly.points = {{cutoff_sc,-big},{big,-big},{big,big},{cutoff_sc,big}};
-                        else
-                            belt_poly.points = {{-big,-big},{cutoff_sc,-big},{cutoff_sc,big},{-big,big}};
-                    } else {
-                        if (sf > 0)
-                            belt_poly.points = {{-big,cutoff_sc},{big,cutoff_sc},{big,big},{-big,big}};
-                        else
-                            belt_poly.points = {{-big,-big},{big,-big},{big,cutoff_sc},{-big,cutoff_sc}};
-                    }
-                    append(m_anti_overhang[layer_idx], Polygons{belt_poly});
+                    append(m_anti_overhang[layer_idx], ctx.surface_polygon(print_z));
                 }
             }
         }
@@ -180,40 +164,20 @@ TreeModelVolumes::TreeModelVolumes(
         // Branches grow toward the belt and their slices are clipped at the belt
         // surface in organic_draw_branches().  The organic pipeline works in LOCAL
         // Z (no global_z_offset), so use local z_shift and local print_z.
-        const auto &slicing_params = print_object.slicing_parameters();
-        const auto &pcfg = print_object.print()->config();
-        const double sf = slicing_params.belt_floor_shear_factor;
-        if (std::abs(sf) > EPSILON
-            && pcfg.belt_support_floor_mode.value == BeltSupportFloorMode::GeneratorOnly) {
-            const int    from_axis = slicing_params.belt_floor_from_axis;
-            const double floor_off = pcfg.belt_support_floor_offset.value;
-            // Subtract global_z_offset to get the LOCAL z_shift — the organic
-            // pipeline's Z coordinates don't include the global offset.
-            const double z_shift   = slicing_params.belt_floor_z_shift
-                                   - print_object.belt_global_z_offset();
-            m_belt_floor.assign(num_layers, Polygons{});
-            for (size_t layer_idx = 0; layer_idx < num_layers; ++layer_idx) {
-                // Use local print_z (subtract global offset from object layer).
-                double print_z = (layer_idx >= num_raft_layers)
-                    ? print_object.get_layer(layer_idx - num_raft_layers)->print_z
-                      - print_object.belt_global_z_offset()
-                    : 0.;
-                double cutoff = (print_z - z_shift - floor_off) / sf;
-                coord_t cutoff_sc = scale_(cutoff);
-                coord_t big = scale_(1e4);
-                Polygon belt_poly;
-                if (from_axis == 0) {
-                    if (sf > 0)
-                        belt_poly.points = {{cutoff_sc,-big},{big,-big},{big,big},{cutoff_sc,big}};
-                    else
-                        belt_poly.points = {{-big,-big},{cutoff_sc,-big},{cutoff_sc,big},{-big,big}};
-                } else {
-                    if (sf > 0)
-                        belt_poly.points = {{-big,cutoff_sc},{big,cutoff_sc},{big,big},{-big,big}};
-                    else
-                        belt_poly.points = {{-big,-big},{big,-big},{big,cutoff_sc},{-big,cutoff_sc}};
-                }
-                m_belt_floor[layer_idx] = { belt_poly };
+        {
+            const auto &slicing_params = print_object.slicing_parameters();
+            const auto &pcfg2 = print_object.print()->config();
+            BeltFloorContext ctx;
+            ctx.init_local(slicing_params, pcfg2, print_object.belt_global_z_offset());
+            if (ctx.is_active()
+                && pcfg2.belt_support_floor_mode.value == BeltSupportFloorMode::GeneratorOnly) {
+                m_belt_floor = ctx.compute_per_layer_floors(num_layers, [&](size_t layer_idx) -> double {
+                    // Use local print_z (subtract global offset from object layer).
+                    return (layer_idx >= num_raft_layers)
+                        ? print_object.get_layer(layer_idx - num_raft_layers)->print_z
+                          - print_object.belt_global_z_offset()
+                        : 0.;
+                });
             }
         }
     }

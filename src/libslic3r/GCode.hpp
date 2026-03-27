@@ -4,6 +4,7 @@
 #include "libslic3r.h"
 #include "ExPolygon.hpp"
 #include "GCodeWriter.hpp"
+#include "BeltGCodeWriter.hpp"
 #include "Layer.hpp"
 #include "Point.hpp"
 #include "PlaceholderParser.hpp"
@@ -214,16 +215,18 @@ public:
         m_last_obj_copy(nullptr, Point(std::numeric_limits<coord_t>::max(), std::numeric_limits<coord_t>::max())),
         // BBS
         m_toolchange_count(0),
-        m_nominal_z(0.)
+        m_nominal_z(0.),
+        m_writer(std::make_unique<GCodeWriter>())
         {}
-    ~GCode() = default;
+    virtual ~GCode() = default;
 
+public:
     // throws std::runtime_exception on error,
     // throws CanceledException through print->throw_if_canceled().
     void            do_export(Print* print, const char* path, GCodeProcessorResult* result = nullptr, ThumbnailsGeneratorCallback thumbnail_cb = nullptr);
     void            export_layer_filaments(GCodeProcessorResult* result);
     //BBS: set offset for gcode writer
-    void set_gcode_offset(double x, double y) { m_writer.set_xy_offset(x, y); m_processor.set_xy_offset(x, y);}
+    void set_gcode_offset(double x, double y) { m_writer->set_xy_offset(x, y); m_processor.set_xy_offset(x, y);}
 
     // Exported for the helper classes (OozePrevention, Wipe) and for the Perl binding for unit tests.
     const Vec2d&    origin() const { return m_origin; }
@@ -237,8 +240,8 @@ public:
     Vec3d                    point_to_gcode_quantized(const Point3& point) const;
     const FullPrintConfig &config() const { return m_config; }
     const Layer*    layer() const { return m_layer; }
-    GCodeWriter&    writer() { return m_writer; }
-    const GCodeWriter& writer() const { return m_writer; }
+    GCodeWriter&    writer() { return *m_writer; }
+    const GCodeWriter& writer() const { return *m_writer; }
     PlaceholderParser& placeholder_parser() { return m_placeholder_parser_integration.parser; }
     const PlaceholderParser& placeholder_parser() const { return m_placeholder_parser_integration.parser; }
     // Process a template through the placeholder parser, collect error messages to be reported
@@ -261,7 +264,7 @@ public:
     bool            needs_retraction(const Polyline& travel, ExtrusionRole role, LiftType& lift_type);
     std::string     retract(bool toolchange = false, bool is_last_retraction = false, LiftType lift_type = LiftType::NormalLift, bool apply_instantly = false, ExtrusionRole role = erNone);
     // extra_retract forwards a PETG pre-extrusion over-extrusion; default 0 -> identical to the plain deretract.
-    std::string     unretract(float extra_retract = 0.f) { return m_writer.unlift() + m_writer.unretract(extra_retract); }
+    std::string     unretract(float extra_retract = 0.f) { return m_writer->unlift() + m_writer->unretract(extra_retract); }
     std::string     set_extruder(unsigned int extruder_id, double print_z, bool by_object=false, int toolchange_temp_override = -1, bool defer_temp_wait = false);
     bool is_BBL_Printer();
     WipeTowerType wipe_tower_type();
@@ -319,7 +322,7 @@ public:
         }
     };
 
-private:
+protected:
     class GCodeOutputStream {
     public:
         GCodeOutputStream(FILE *f, GCodeProcessor &processor) : f(f), m_processor(processor) {}
@@ -347,9 +350,17 @@ private:
         FILE *f = nullptr;
         GCodeProcessor &m_processor;
     };
+
+    // Virtual hooks for belt printer subclass (BeltGCode).
+    // No-ops in base GCode; overridden in BeltGCode.
+    virtual void init_belt_writer(Print &print, bool is_bbl_printers) {}
+    virtual void write_belt_header(GCodeOutputStream &file, const Print &print) {}
+    virtual void on_set_origin(const PrintObject *obj, const Point &inst_shift) {}
+    virtual bool should_disable_arc_fitting() const { return false; }
+
     void            _do_export(Print &print, GCodeOutputStream &file, ThumbnailsGeneratorCallback thumbnail_cb);
 
-    static std::vector<LayerToPrint>        		                   collect_layers_to_print(const PrintObject &object);
+    static std::vector<LayerToPrint>        		                   collect_layers_to_print(const PrintObject &object, bool skip_empty_first_layer = false);
     static std::vector<std::pair<coordf_t, std::vector<LayerToPrint>>> collect_layers_to_print(const Print &print);
 
     std::string generate_skirt(const Print &print,
@@ -583,16 +594,11 @@ private:
        This affects the input arguments supplied to the extrude*() and travel_to()
        methods. */
     Vec2d                               m_origin;
-    // Per-axis origin snap: shift G-code so each object's bbox min = offset.
-    bool                                m_origin_snap[3] = {false, false, false};
-    double                              m_origin_snap_offset[3] = {0., 0., 0.};
-    // Called when switching instances to recompute the writer's snap for this instance.
-    void update_origin_snap(const PrintObject *obj, const Point &inst_shift);
     FullPrintConfig                     m_config;
     DynamicConfig                       m_calib_config;
     // scaled G-code resolution
     double                              m_scaled_resolution;
-    GCodeWriter                         m_writer;
+    std::unique_ptr<GCodeWriter>         m_writer;
 
     struct PlaceholderParserIntegration {
         void reset();

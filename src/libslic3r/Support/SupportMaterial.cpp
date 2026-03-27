@@ -5,6 +5,7 @@
 #include "Print.hpp"
 #include "SupportMaterial.hpp"
 #include "SupportCommon.hpp"
+#include "BeltFloorContext.hpp"
 #include "Geometry.hpp"
 #include "Point.hpp"
 #include "MutablePolygon.hpp"
@@ -625,64 +626,10 @@ Polygons belt_floor_surface_polygon(
     const PrintObject       &object,
     coordf_t                 print_z)
 {
-    const double shear_factor = slicing_params.belt_floor_shear_factor;
-    if (std::abs(shear_factor) < EPSILON)
+    BeltFloorContext ctx;
+    if (!ctx.init(slicing_params, print_config))
         return {};
-
-    const int    from_axis     = slicing_params.belt_floor_from_axis;  // 0=X, 1=Y
-    const double floor_offset  = print_config.belt_support_floor_offset.value;
-
-    // Belt floor line in slicing coordinates: Z = sf * Y + z_shift.
-    // z_shift accounts for the upward shift applied when post-shear geometry
-    // extends below the bed (overhangs).  Solving for Y:
-    //   cutoff = (print_z - z_shift - floor_offset) / sf
-    const double z_shift = slicing_params.belt_floor_z_shift;
-    const double cutoff = (print_z - z_shift - floor_offset) / shear_factor;
-    const coord_t cutoff_scaled = scale_(cutoff);
-    const coord_t large_bound = scale_(1e4);
-
-    // Build the belt-side half-plane (inverted from the valid region).
-    // If shear_factor > 0: valid region is from_axis < cutoff, so belt surface is from_axis >= cutoff.
-    // If shear_factor < 0: valid region is from_axis > cutoff, so belt surface is from_axis <= cutoff.
-    Polygon belt_poly;
-    if (from_axis == 0) {
-        if (shear_factor > 0) {
-            // Belt surface: X >= cutoff
-            belt_poly.points = {
-                Point(cutoff_scaled, -large_bound),
-                Point(large_bound,   -large_bound),
-                Point(large_bound,    large_bound),
-                Point(cutoff_scaled,  large_bound)
-            };
-        } else {
-            // Belt surface: X <= cutoff
-            belt_poly.points = {
-                Point(-large_bound, -large_bound),
-                Point(cutoff_scaled, -large_bound),
-                Point(cutoff_scaled,  large_bound),
-                Point(-large_bound,  large_bound)
-            };
-        }
-    } else {
-        if (shear_factor > 0) {
-            // Belt surface: Y >= cutoff
-            belt_poly.points = {
-                Point(-large_bound, cutoff_scaled),
-                Point( large_bound, cutoff_scaled),
-                Point( large_bound, large_bound),
-                Point(-large_bound, large_bound)
-            };
-        } else {
-            // Belt surface: Y <= cutoff
-            belt_poly.points = {
-                Point(-large_bound, -large_bound),
-                Point( large_bound, -large_bound),
-                Point( large_bound, cutoff_scaled),
-                Point(-large_bound, cutoff_scaled)
-            };
-        }
-    }
-    return { belt_poly };
+    return ctx.surface_polygon(print_z);
 }
 
 // Belt printer: compute the valid-region half-plane polygon at a given print_z.
@@ -694,58 +641,10 @@ static Polygons belt_floor_valid_region_polygon(
     const PrintObject       &object,
     coordf_t                 print_z)
 {
-    const double shear_factor = slicing_params.belt_floor_shear_factor;
-    if (std::abs(shear_factor) < EPSILON)
+    BeltFloorContext ctx;
+    if (!ctx.init(slicing_params, print_config))
         return {};
-
-    const int    from_axis     = slicing_params.belt_floor_from_axis;
-    const double floor_offset  = print_config.belt_support_floor_offset.value;
-
-    const double z_shift = slicing_params.belt_floor_z_shift;
-    const double cutoff = (print_z - z_shift - floor_offset) / shear_factor;
-    const coord_t cutoff_scaled = scale_(cutoff);
-    const coord_t large_bound = scale_(1e4);
-
-    // Valid region: the complement of the belt surface polygon.
-    Polygon valid_poly;
-    if (from_axis == 0) {
-        if (shear_factor > 0) {
-            // Valid: X < cutoff
-            valid_poly.points = {
-                Point(-large_bound, -large_bound),
-                Point(cutoff_scaled, -large_bound),
-                Point(cutoff_scaled,  large_bound),
-                Point(-large_bound,  large_bound)
-            };
-        } else {
-            // Valid: X > cutoff
-            valid_poly.points = {
-                Point(cutoff_scaled, -large_bound),
-                Point(large_bound,   -large_bound),
-                Point(large_bound,    large_bound),
-                Point(cutoff_scaled,  large_bound)
-            };
-        }
-    } else {
-        if (shear_factor > 0) {
-            // Valid: Y < cutoff
-            valid_poly.points = {
-                Point(-large_bound, -large_bound),
-                Point( large_bound, -large_bound),
-                Point( large_bound, cutoff_scaled),
-                Point(-large_bound, cutoff_scaled)
-            };
-        } else {
-            // Valid: Y > cutoff
-            valid_poly.points = {
-                Point(-large_bound, cutoff_scaled),
-                Point( large_bound, cutoff_scaled),
-                Point( large_bound, large_bound),
-                Point(-large_bound, large_bound)
-            };
-        }
-    }
-    return { valid_poly };
+    return ctx.valid_region_polygon(print_z);
 }
 
 // Collect outer contours of all slices of this layer.
@@ -3378,22 +3277,18 @@ static void trim_support_layers_by_belt_floor(
     const PrintObject                &object,
     SupportGeneratorLayersPtr        &support_layers)
 {
-    if (std::abs(slicing_params.belt_floor_shear_factor) < EPSILON)
+    BeltFloorContext ctx;
+    if (!ctx.init(slicing_params, print_config))
         return;
     if (print_config.belt_support_floor_mode.value != BeltSupportFloorMode::GeneratorOnly)
         return;
 
     tbb::parallel_for(tbb::blocked_range<size_t>(0, support_layers.size()),
         [&](const tbb::blocked_range<size_t> &range) {
-            for (size_t i = range.begin(); i < range.end(); ++ i) {
-                SupportGeneratorLayer *layer = support_layers[i];
-                if (layer->polygons.empty())
-                    continue;
-                Polygons belt_surface = belt_floor_surface_polygon(
-                    slicing_params, print_config, object, layer->print_z);
-                if (! belt_surface.empty())
-                    layer->polygons = diff(layer->polygons, belt_surface);
-            }
+            for (size_t i = range.begin(); i < range.end(); ++i)
+                if (support_layers[i])
+                    support_layers[i]->polygons = diff(support_layers[i]->polygons,
+                                                       ctx.surface_polygon(support_layers[i]->print_z));
         });
 }
 

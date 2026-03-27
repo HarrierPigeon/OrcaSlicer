@@ -19,6 +19,7 @@
 #include "Polygon.hpp"
 #include "Polyline.hpp"
 #include "MutablePolygon.hpp"
+#include "BeltFloorContext.hpp"
 #include "SupportCommon.hpp"
 #include "TriangleMeshSlicer.hpp"
 #include "TreeSupport.hpp"
@@ -3437,8 +3438,9 @@ static void generate_support_areas(Print &print, TreeSupport* tree_support, cons
             PrintObject &po = *print.get_object(processing.second.front());
             const auto &sp  = po.slicing_parameters();
             const auto &pcfg = po.print()->config();
-            const double sf  = sp.belt_floor_shear_factor;
-            if (std::abs(sf) > EPSILON && std::abs(po.belt_global_z_offset()) > EPSILON
+            BeltFloorContext ctx;
+            ctx.init_local(sp, pcfg, po.belt_global_z_offset());
+            if (ctx.is_active() && std::abs(po.belt_global_z_offset()) > EPSILON
                 && pcfg.belt_support_floor_mode.value == BeltSupportFloorMode::GeneratorOnly) {
                 // z_shift_local is the belt surface height at Y=0 in local coords.
                 // Extend below the belt so the base expansion and build-plate
@@ -3650,32 +3652,16 @@ static void generate_support_areas(Print &print, TreeSupport* tree_support, cons
         // Compute the belt floor polygon directly from each layer's print_z
         // rather than mapping to a layer index (avoids index mismatch issues).
         {
-            const auto &sp = print_object.slicing_parameters();
-            const double sf        = sp.belt_floor_shear_factor;
-            const double z_shift   = sp.belt_floor_z_shift - print_object.belt_global_z_offset();
-            const double floor_off = print_object.print()->config().belt_support_floor_offset.value;
-            const int    from_axis = sp.belt_floor_from_axis;
-            if (std::abs(sf) > EPSILON
-                && print_object.print()->config().belt_support_floor_mode.value == BeltSupportFloorMode::GeneratorOnly) {
+            const auto &sp   = print_object.slicing_parameters();
+            const auto &pcfg = print_object.print()->config();
+            BeltFloorContext ctx;
+            ctx.init_local(sp, pcfg, print_object.belt_global_z_offset());
+            if (ctx.is_active()
+                && pcfg.belt_support_floor_mode.value == BeltSupportFloorMode::GeneratorOnly) {
                 tbb::parallel_for_each(layers_sorted.begin(), layers_sorted.end(), [&](SupportGeneratorLayer *layer) {
                     if (!layer || layer->polygons.empty())
                         return;
-                    double    cutoff    = (layer->print_z - z_shift - floor_off) / sf;
-                    coord_t   cutoff_sc = scale_(cutoff);
-                    coord_t   big       = scale_(1e4);
-                    Polygon belt_poly;
-                    if (from_axis == 0) {
-                        if (sf > 0)
-                            belt_poly.points = {{cutoff_sc,-big},{big,-big},{big,big},{cutoff_sc,big}};
-                        else
-                            belt_poly.points = {{-big,-big},{cutoff_sc,-big},{cutoff_sc,big},{-big,big}};
-                    } else {
-                        if (sf > 0)
-                            belt_poly.points = {{-big,cutoff_sc},{big,cutoff_sc},{big,big},{-big,big}};
-                        else
-                            belt_poly.points = {{-big,-big},{big,-big},{big,cutoff_sc},{-big,cutoff_sc}};
-                    }
-                    layer->polygons = diff(layer->polygons, Polygons{belt_poly});
+                    layer->polygons = diff(layer->polygons, ctx.surface_polygon(layer->print_z));
                 });
             }
         }

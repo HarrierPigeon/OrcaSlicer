@@ -12,6 +12,7 @@
 #include "Thread.hpp"
 #include "Time.hpp"
 #include "GCode.hpp"
+#include "BeltGCode.hpp"
 #include "GCode/WipeTower.hpp"
 #include "GCode/WipeTower2.hpp"
 #include "Utils.hpp"
@@ -2903,12 +2904,17 @@ std::string Print::export_gcode(const std::string& path_template, GCodeProcessor
     this->set_status(80, message);
 
     // The following line may die for multiple reasons.
-    GCode gcode;
+    // Factory: use BeltGCode for belt printers, plain GCode otherwise.
+    std::unique_ptr<GCode> gcode;
+    if (m_config.belt_printer.value)
+        gcode = std::make_unique<BeltGCode>();
+    else
+        gcode = std::make_unique<GCode>();
     //BBS: compute plate offset for gcode-generator
     const Vec3d origin = this->get_plate_origin();
-    gcode.set_gcode_offset(origin(0), origin(1));
-    gcode.do_export(this, path.c_str(), result, thumbnail_cb);
-    gcode.export_layer_filaments(result);
+    gcode->set_gcode_offset(origin(0), origin(1));
+    gcode->do_export(this, path.c_str(), result, thumbnail_cb);
+    gcode->export_layer_filaments(result);
     //BBS
     if (result != nullptr) {
         result->conflict_result = m_conflict_result;

@@ -14,6 +14,7 @@
 #include "TreeSupportCommon.hpp"
 #include "TreeSupport.hpp"
 #include "TreeSupport3D.hpp"
+#include "BeltFloorContext.hpp"
 #include <libnest2d/backends/libslic3r/geometries.hpp>
 #include <libnest2d/placers/nfpplacer.hpp>
 
@@ -666,16 +667,10 @@ TreeSupport::TreeSupport(PrintObject& object, const SlicingParameters &slicing_p
 
 double TreeSupport::belt_floor_print_z(const Point &pos_slicing) const
 {
-    double sf = m_slicing_params.belt_floor_shear_factor;
-    if (std::abs(sf) < EPSILON)
-        return -std::numeric_limits<double>::max(); // no belt floor
-    int from = m_slicing_params.belt_floor_from_axis;
-    // Belt floor in slicing coords: Z = sf * Y + z_shift + floor_offset.
-    // Inverse of cutoff = (Z - z_shift - floor_offset) / sf.
-    double pos = unscale<double>(from == 0 ? pos_slicing.x() : pos_slicing.y());
-    double floor_offset = m_print_config->belt_support_floor_offset.value;
-    double z_shift = m_slicing_params.belt_floor_z_shift;
-    return sf * pos + floor_offset + z_shift;
+    BeltFloorContext ctx;
+    if (!ctx.init(m_slicing_params, *m_print_config))
+        return -std::numeric_limits<double>::infinity();
+    return ctx.floor_print_z(pos_slicing);
 }
 
 #define SUPPORT_SURFACES_OFFSET_PARAMETERS ClipperLib::jtSquare, 0.
@@ -1795,18 +1790,11 @@ void TreeSupport::generate()
     // layer and clipped at the belt surface.  These layers bypass the tree
     // algorithm entirely — they're pure geometry added after draw_circles().
     {
-        const auto &sp   = m_slicing_params;
-        const auto &pcfg = *m_print_config;
-        const double sf  = sp.belt_floor_shear_factor;
-        if (std::abs(sf) > EPSILON
-            && pcfg.belt_support_floor_mode.value == BeltSupportFloorMode::GeneratorOnly
+        BeltFloorContext ctx;
+        if (ctx.init(m_slicing_params, *m_print_config)
+            && m_print_config->belt_support_floor_mode.value == BeltSupportFloorMode::GeneratorOnly
             && m_object->support_layer_count() > 0) {
-            const int    from_axis = sp.belt_floor_from_axis;
-            const double floor_off = pcfg.belt_support_floor_offset.value;
-            // Support layer print_z values are in GLOBAL Z (non-organic inherits
-            // from object layers which include global_z_offset).  Use the GLOBAL
-            // belt_floor_z_shift to match.
-            const double z_shift = sp.belt_floor_z_shift;
+            const auto &sp = m_slicing_params;
             // Find the lowest non-empty, non-brim support layer.
             ExPolygons source_areas;
             double source_z = 0;
@@ -1835,7 +1823,7 @@ void TreeSupport::generate()
             }
             if (!source_areas.empty()) {
                 BoundingBoxf3 bb = belt_remapped_bbox(*m_object->model_object(), m_object->print()->config());
-                double from_extent = std::abs(bb.min(from_axis));
+                double from_extent = std::abs(bb.min(ctx.from_axis()));
                 double bb_min_z    = std::abs(bb.min.z());
                 double first_z = m_object->get_support_layer(0)->print_z;
                 // Depth = from-axis extent + pre-shear bbox Z offset (ensure_on_bed
@@ -1849,18 +1837,8 @@ void TreeSupport::generate()
                 for (int i = num_extra; i >= 1 && !prev_areas.empty(); --i) {
                     double print_z = first_z - i * sp.layer_height;
                     if (print_z < -sp.layer_height) continue;
-                    double cutoff = (print_z - z_shift - floor_off) / sf;
-                    coord_t cutoff_sc = scale_(cutoff);
-                    coord_t big = scale_(1e3);
-                    Polygon belt_poly;
-                    if (from_axis == 0) {
-                        if (sf > 0) belt_poly.points = {{cutoff_sc,-big},{big,-big},{big,big},{cutoff_sc,big}};
-                        else        belt_poly.points = {{-big,-big},{cutoff_sc,-big},{cutoff_sc,big},{-big,big}};
-                    } else {
-                        if (sf > 0) belt_poly.points = {{-big,cutoff_sc},{big,cutoff_sc},{big,big},{-big,big}};
-                        else        belt_poly.points = {{-big,-big},{big,-big},{big,cutoff_sc},{-big,cutoff_sc}};
-                    }
-                    ExPolygons clipped = diff_ex(source_areas, Polygons{belt_poly});
+                    Polygons belt_surface = ctx.surface_polygon(print_z);
+                    ExPolygons clipped = diff_ex(source_areas, belt_surface);
                     if (clipped.empty()) continue;
                     SupportLayer *sl = new SupportLayer(0, 0, m_object, sp.layer_height, print_z, -1);
                     sl->base_areas = clipped;
@@ -2321,37 +2299,19 @@ void TreeSupport::draw_circles()
 
                 // Belt floor: clip tree support polygons by the belt surface plane.
                 // ts_layer->print_z is at LOCAL Z (global offset applied later in
-                // _generate_support_material), but belt_floor_z_shift includes
-                // global_z_offset — subtract it to get the cutoff in local coords.
-                if (std::abs(m_slicing_params.belt_floor_shear_factor) > EPSILON
-                    && m_print_config->belt_support_floor_mode.value == BeltSupportFloorMode::GeneratorOnly) {
-                    const double sf        = m_slicing_params.belt_floor_shear_factor;
-                    const int    from_axis = m_slicing_params.belt_floor_from_axis;
-                    const double floor_off = m_print_config->belt_support_floor_offset.value;
-                    const double z_shift_local = m_slicing_params.belt_floor_z_shift
-                                               - m_object->belt_global_z_offset();
-                    const double cutoff    = (ts_layer->print_z - z_shift_local - floor_off) / sf;
-                    const coord_t cutoff_sc = scale_(cutoff);
-                    const coord_t big       = scale_(1e4);
-
-                    Polygon belt_poly;
-                    if (from_axis == 0) {
-                        if (sf > 0)
-                            belt_poly.points = { {cutoff_sc,-big}, {big,-big}, {big,big}, {cutoff_sc,big} };
-                        else
-                            belt_poly.points = { {-big,-big}, {cutoff_sc,-big}, {cutoff_sc,big}, {-big,big} };
-                    } else {
-                        if (sf > 0)
-                            belt_poly.points = { {-big,cutoff_sc}, {big,cutoff_sc}, {big,big}, {-big,big} };
-                        else
-                            belt_poly.points = { {-big,-big}, {big,-big}, {big,cutoff_sc}, {-big,cutoff_sc} };
+                // _generate_support_material), so use init_local to subtract
+                // belt_global_z_offset from z_shift.
+                {
+                    BeltFloorContext ctx;
+                    if (ctx.init_local(m_slicing_params, *m_print_config, m_object->belt_global_z_offset())
+                        && m_print_config->belt_support_floor_mode.value == BeltSupportFloorMode::GeneratorOnly) {
+                        Polygons belt_surface = ctx.surface_polygon(ts_layer->print_z);
+                        base_areas     = diff_ex(base_areas,     belt_surface);
+                        roof_areas     = diff_ex(roof_areas,     belt_surface);
+                        roof_1st_layer = diff_ex(roof_1st_layer, belt_surface);
+                        floor_areas    = diff_ex(floor_areas,    belt_surface);
+                        roof_gap_areas = diff_ex(roof_gap_areas, belt_surface);
                     }
-                    Polygons belt_surface = { belt_poly };
-                    base_areas     = diff_ex(base_areas,     belt_surface);
-                    roof_areas     = diff_ex(roof_areas,     belt_surface);
-                    roof_1st_layer = diff_ex(roof_1st_layer, belt_surface);
-                    floor_areas    = diff_ex(floor_areas,    belt_surface);
-                    roof_gap_areas = diff_ex(roof_gap_areas, belt_surface);
                 }
 
                 if (SQUARE_SUPPORT) {
@@ -3841,6 +3801,20 @@ TreeSupportData::TreeSupportData(const PrintObject &object, coordf_t xy_distance
         ExPolygons& outline = m_layer_outlines.back();
         for (const ExPolygon& poly : layer->lslices) {
             poly.simplify(scale_(m_radius_sample_resolution), &outline);
+        }
+
+        // Belt floor: add belt surface polygon to layer outlines so the
+        // collision system treats the belt as a physical surface.
+        {
+            BeltFloorContext ctx;
+            double local_print_z = layer->print_z - object.belt_global_z_offset();
+            if (ctx.init_local(object.slicing_parameters(), object.print()->config(),
+                               object.belt_global_z_offset())
+                && object.print()->config().belt_support_floor_mode.value == BeltSupportFloorMode::GeneratorOnly) {
+                Polygons belt_surface = ctx.surface_polygon(local_print_z);
+                for (auto &p : belt_surface)
+                    outline.emplace_back(ExPolygon(p));
+            }
         }
 
         if (layer_nr == 0)

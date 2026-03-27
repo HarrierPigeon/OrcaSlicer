@@ -10,6 +10,8 @@
 #include "Layer.hpp"
 #include "MultiMaterialSegmentation.hpp"
 #include "Print.hpp"
+#include "BeltTransform.hpp"
+#include "BeltSliceStrategy.hpp"
 #include "Geometry.hpp"
 //BBS
 #include "ShortestPath.hpp"
@@ -170,147 +172,11 @@ static std::vector<VolumeSlices> slice_volumes_inner(
     params_base.closing_radius = print_object_config.slice_closing_radius.value;
     params_base.extra_offset   = 0;
     params_base.trafo          = object_trafo;
-    if (print_config.belt_printer.value) {
-        // --- Pre-slice axis remap ---
-        // Permutes/negates model axes before slicing so the slicer's coordinate
-        // system matches the physical bed orientation (e.g. XZ bed instead of XY).
-        int pre_rx = int(print_config.belt_preslice_remap_x.value);
-        int pre_ry = int(print_config.belt_preslice_remap_y.value);
-        int pre_rz = int(print_config.belt_preslice_remap_z.value);
-
-        bool has_preslice_remap = (pre_rx != int(BeltRemapAxis::PosX) ||
-                                   pre_ry != int(BeltRemapAxis::PosY) ||
-                                   pre_rz != int(BeltRemapAxis::PosZ));
-
-        if (has_preslice_remap) {
-            // Build volume extents for Rev mode.
-            BoundingBoxf bbox_bed(print_config.printable_area.values);
-            Vec3d vol_max(bbox_bed.max.x(), bbox_bed.max.y(),
-                          print_config.printable_height.value);
-
-            // Each remap value selects a source axis and sign.
-            // The column vector tells the matrix which input axis feeds this output.
-            auto remap_column = [](int r) -> Vec3d {
-                int axis = r % 3;
-                Vec3d col = Vec3d::Zero();
-                if (r < 3)      col[axis] =  1.0;  // +axis
-                else if (r < 6) col[axis] = -1.0;  // -axis
-                else            col[axis] = -1.0;  // Rev: max - pos = -(pos - max)
-                return col;
-            };
-
-            Matrix3d remap_lin;
-            remap_lin.col(0) = remap_column(pre_rx);
-            remap_lin.col(1) = remap_column(pre_ry);
-            remap_lin.col(2) = remap_column(pre_rz);
-
-            // Translation for Rev modes: output = max[src] - input[src].
-            Vec3d remap_trans = Vec3d::Zero();
-            auto add_rev_offset = [&](int r, int out_axis) {
-                if (r >= 6) {
-                    int src_axis = r % 3;
-                    remap_trans[out_axis] = vol_max[src_axis];
-                }
-            };
-            add_rev_offset(pre_rx, 0);
-            add_rev_offset(pre_ry, 1);
-            add_rev_offset(pre_rz, 2);
-
-            Transform3d pre_remap = Transform3d::Identity();
-            pre_remap.linear() = remap_lin;
-            pre_remap.translation() = remap_trans;
-
-            params_base.trafo = pre_remap * params_base.trafo;
-        }
-
-        // Build per-axis shear matrix from 3 independent axis configs.
-        auto compute_shear_factor = [](BeltShearMode mode, double angle_deg) -> double {
-            double angle_rad = Geometry::deg2rad(angle_deg);
-            double sin_a = std::sin(angle_rad);
-            double cos_a = std::cos(angle_rad);
-            switch (mode) {
-            case BeltShearMode::PosCot: return (sin_a > EPSILON) ?  cos_a / sin_a : 0.;
-            case BeltShearMode::NegCot: return (sin_a > EPSILON) ? -cos_a / sin_a : 0.;
-            case BeltShearMode::PosTan: return (cos_a > EPSILON) ?  sin_a / cos_a : 0.;
-            case BeltShearMode::NegTan: return (cos_a > EPSILON) ? -sin_a / cos_a : 0.;
-            default: return 0.;
-            }
-        };
-
-        struct AxisShear { BeltShearMode mode; double angle; int from; };
-        AxisShear axes[3] = {
-            { print_config.belt_shear_x.value, print_config.belt_shear_x_angle.value, int(print_config.belt_shear_x_from.value) },
-            { print_config.belt_shear_y.value, print_config.belt_shear_y_angle.value, int(print_config.belt_shear_y_from.value) },
-            { print_config.belt_shear_z.value, print_config.belt_shear_z_angle.value, int(print_config.belt_shear_z_from.value) },
-        };
-
-        Transform3d belt_shear = Transform3d::Identity();
-        bool has_shear = false;
-        for (int row = 0; row < 3; ++row) {
-            if (axes[row].mode != BeltShearMode::None) {
-                double factor = compute_shear_factor(axes[row].mode, axes[row].angle);
-                if (std::abs(factor) > EPSILON) {
-                    belt_shear.matrix()(row, axes[row].from) += factor;
-                    has_shear = true;
-                }
-            }
-        }
-
-        // Build per-axis scale matrix.
-        auto compute_scale_factor = [](BeltScaleMode mode, double angle_deg) -> double {
-            if (mode == BeltScaleMode::None) return 1.;
-            double angle_rad = Geometry::deg2rad(angle_deg);
-            double sin_a = std::sin(angle_rad);
-            double cos_a = std::cos(angle_rad);
-            switch (mode) {
-            case BeltScaleMode::InvSin: return (sin_a > EPSILON) ? 1. / sin_a : 1.;
-            case BeltScaleMode::InvCos: return (cos_a > EPSILON) ? 1. / cos_a : 1.;
-            case BeltScaleMode::Sin:    return sin_a;
-            case BeltScaleMode::Cos:    return cos_a;
-            default: return 1.;
-            }
-        };
-
-        Transform3d belt_scale = Transform3d::Identity();
-        bool has_scale = false;
-        double sx = compute_scale_factor(print_config.belt_scale_x.value, print_config.belt_scale_x_angle.value);
-        double sy = compute_scale_factor(print_config.belt_scale_y.value, print_config.belt_scale_y_angle.value);
-        double sz = compute_scale_factor(print_config.belt_scale_z.value, print_config.belt_scale_z_angle.value);
-        if (std::abs(sx - 1.) > EPSILON || std::abs(sy - 1.) > EPSILON || std::abs(sz - 1.) > EPSILON) {
-            belt_scale.matrix()(0, 0) = sx;
-            belt_scale.matrix()(1, 1) = sy;
-            belt_scale.matrix()(2, 2) = sz;
-            has_scale = true;
-        }
-
-        // Apply: scale * shear * trafo (shear first, then scale).
-        if (has_shear || has_scale)
-            params_base.trafo = belt_scale * belt_shear * params_base.trafo;
-
-        // After pre-remap/shear/scale, the mesh may clip through the build
-        // plate (Z < 0).  Detect this and shift the mesh up along slicer Z.
-        if (has_preslice_remap || has_shear || has_scale) {
-            Transform3d combined = params_base.trafo;
-            double min_z = std::numeric_limits<double>::max();
-            for (const ModelVolume *mv : model_volumes) {
-                if (!mv->is_model_part()) continue;
-                for (const stl_vertex &v : mv->mesh().its.vertices) {
-                    Vec3d pt = combined * v.cast<double>();
-                    min_z = std::min(min_z, pt.z());
-                }
-            }
-            double belt_z_shift_val = (min_z < 0. && min_z != std::numeric_limits<double>::max()) ? -min_z : 0.;
-            BOOST_LOG_TRIVIAL(warning) << "Belt Z-shift: min_z=" << min_z
-                << " z_shift=" << belt_z_shift_val
-                << " trafo_z=" << object_trafo.matrix()(2, 3);
-            if (belt_z_shift_val > 0.) {
-                Transform3d z_shift = Transform3d::Identity();
-                z_shift.matrix()(2, 3) = belt_z_shift_val;
-                params_base.trafo = z_shift * params_base.trafo;
-            }
-            if (out_belt_min_z)
-                *out_belt_min_z = (min_z != std::numeric_limits<double>::max()) ? min_z : 0.;
-        }
+    {
+        // Belt printer: apply pre-slice transforms (remap, shear, scale, z-shift) via strategy.
+        auto belt_strategy = BeltSliceStrategy::create(print_config);
+        if (belt_strategy)
+            belt_strategy->apply_to_trafo(params_base.trafo, model_volumes, out_belt_min_z);
     }
     //BBS: 0.0025mm is safe enough to simplify the data to speed slicing up for high-resolution model.
     //Also has on influence on arc fitting which has default resolution 0.0125mm.
@@ -996,11 +862,8 @@ void PrintObject::slice()
         // Without pre-remap, the belt surface IS at Z=0 and bb.min.z() is
         // already folded into m_belt_min_z, so use 0.
         const auto &pcfg = this->print()->config();
-        bool has_preslice_remap = (int(pcfg.belt_preslice_remap_x.value) != int(BeltRemapAxis::PosX) ||
-                                   int(pcfg.belt_preslice_remap_y.value) != int(BeltRemapAxis::PosY) ||
-                                   int(pcfg.belt_preslice_remap_z.value) != int(BeltRemapAxis::PosZ));
-        double belt_surface_z = has_preslice_remap
-            ? belt_remapped_bbox(*this->model_object(), pcfg).min.z() : 0.;
+        double belt_surface_z = BeltTransformPipeline::has_preslice_remap(pcfg)
+            ? BeltTransformPipeline::remap_bbox(*this->model_object(), pcfg).min.z() : 0.;
         m_slicing_params.belt_floor_z_shift = belt_surface_z + z_shift_val;
     }
 
@@ -1053,18 +916,6 @@ void PrintObject::slice()
             << " belt_shear_z_global=" << pcfg.belt_shear_z_global.value
             << " object=" << this->model_object()->name;
         if (pcfg.belt_printer.value) {
-            auto compute_shear_factor = [](BeltShearMode mode, double angle_deg) -> double {
-                double angle_rad = Geometry::deg2rad(angle_deg);
-                double sin_a = std::sin(angle_rad);
-                double cos_a = std::cos(angle_rad);
-                switch (mode) {
-                case BeltShearMode::PosCot: return (sin_a > EPSILON) ?  cos_a / sin_a : 0.;
-                case BeltShearMode::NegCot: return (sin_a > EPSILON) ? -cos_a / sin_a : 0.;
-                case BeltShearMode::PosTan: return (cos_a > EPSILON) ?  sin_a / cos_a : 0.;
-                case BeltShearMode::NegTan: return (cos_a > EPSILON) ? -sin_a / cos_a : 0.;
-                default: return 0.;
-                }
-            };
 
             Point inst_shift = this->instances().empty() ? Point(0, 0)
                 : this->instances().front().shift - this->center_offset();
@@ -1086,7 +937,7 @@ void PrintObject::slice()
             // PrintObjects so the lowest-positioned object stays at Z=0.
             const auto &za = gaxes[2]; // Z row
             if (za.global && za.mode != BeltShearMode::None && za.from < 2) {
-                double factor = compute_shear_factor(za.mode, za.angle);
+                double factor = BeltTransformPipeline::compute_shear_factor(za.mode, za.angle);
                 // The global Z offset accounts for the instance's position-
                 // dependent shear contribution.  m_belt_min_z is the minimum Z
                 // of the mesh after pre_remap + shear + trafo_centered, which
@@ -1094,12 +945,8 @@ void PrintObject::slice()
                 // Subtract the belt surface's centered Z position so we get
                 // only the shear-induced contribution (same correction as the
                 // belt_floor_z_shift fix).
-                // Same pre-remap guard as belt_floor_z_shift above.
-                bool has_preslice_remap2 = (int(pcfg.belt_preslice_remap_x.value) != int(BeltRemapAxis::PosX) ||
-                                            int(pcfg.belt_preslice_remap_y.value) != int(BeltRemapAxis::PosY) ||
-                                            int(pcfg.belt_preslice_remap_z.value) != int(BeltRemapAxis::PosZ));
-                double belt_surface_z = has_preslice_remap2
-                    ? belt_remapped_bbox(*this->model_object(), this->print()->config()).min.z() : 0.;
+                double belt_surface_z = BeltTransformPipeline::has_preslice_remap(pcfg)
+                    ? BeltTransformPipeline::remap_bbox(*this->model_object(), pcfg).min.z() : 0.;
                 double shear_min_z = m_belt_min_z - belt_surface_z;
                 Point phys = inst_shift; // already has center_offset subtracted
                 double center_on_axis = (za.from == 0) ? unscale<double>(phys.x()) : unscale<double>(phys.y());
