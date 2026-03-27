@@ -493,6 +493,11 @@ private:
        This affects the input arguments supplied to the extrude*() and travel_to()
        methods. */
     Vec2d                               m_origin;
+    // Per-axis origin snap: shift G-code so each object's bbox min = offset.
+    bool                                m_origin_snap[3] = {false, false, false};
+    double                              m_origin_snap_offset[3] = {0., 0., 0.};
+    // Called when switching instances to recompute the writer's snap for this instance.
+    void update_origin_snap(const PrintObject *obj, const Point &inst_shift);
     FullPrintConfig                     m_config;
     DynamicConfig                       m_calib_config;
     // scaled G-code resolution
