@@ -1777,7 +1777,7 @@ void TreeSupport::generate()
                 }
             }
             if (!source_areas.empty()) {
-                BoundingBoxf3 bb = m_object->model_object()->raw_bounding_box();
+                BoundingBoxf3 bb = belt_remapped_bbox(*m_object->model_object(), m_object->print()->config());
                 double from_extent = std::abs(bb.min(from_axis));
                 double bb_min_z    = std::abs(bb.min.z());
                 double first_z = m_object->get_support_layer(0)->print_z;

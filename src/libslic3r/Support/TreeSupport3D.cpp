@@ -3381,7 +3381,7 @@ static void generate_support_areas(Print &print, TreeSupport* tree_support, cons
                 // termination happen inside the belt region and get clipped.
                 // Use the distance from the pre-shear bbox min Z to the part's
                 // post-shear min Z, plus 10mm for base expansion headroom.
-                double bb_min_z    = std::abs(po.model_object()->raw_bounding_box().min.z());
+                double bb_min_z    = std::abs(belt_remapped_bbox(*po.model_object(), pcfg).min.z());
                 double extra_depth = bb_min_z + 10.;
                 int    num_extra     = std::max(0, (int)std::ceil(extra_depth / sp.layer_height));
                 if (num_extra > 0) {

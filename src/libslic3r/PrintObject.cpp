@@ -3405,35 +3405,12 @@ void PrintObject::update_slicing_parameters()
           // Belt shear/scale/pre-remap may change the effective Z height.
           const auto &pcfg = this->print()->config();
           if (pcfg.belt_printer.value) {
-              BoundingBoxf3 bb = this->model_object()->raw_bounding_box();
-
-              // Pre-slice remap may change which model axis is slicer-Z.
-              int pre_rx = int(pcfg.belt_preslice_remap_x.value);
-              int pre_ry = int(pcfg.belt_preslice_remap_y.value);
-              int pre_rz = int(pcfg.belt_preslice_remap_z.value);
-              bool has_preslice_remap = (pre_rx != int(BeltRemapAxis::PosX) ||
-                                         pre_ry != int(BeltRemapAxis::PosY) ||
-                                         pre_rz != int(BeltRemapAxis::PosZ));
-              if (has_preslice_remap) {
-                  auto remap_coord = [](int r, const Vec3d &v) -> double {
-                      int axis = r % 3;
-                      if (r < 3) return v[axis];
-                      return -v[axis];  // Neg and Rev both negate (Rev translation irrelevant for extents)
-                  };
-                  Vec3d mn = bb.min.cast<double>();
-                  Vec3d mx = bb.max.cast<double>();
-                  BoundingBoxf3 rbb;
-                  for (int i = 0; i < 8; ++i) {
-                      Vec3d c((i & 1) ? mx.x() : mn.x(),
-                              (i & 2) ? mx.y() : mn.y(),
-                              (i & 4) ? mx.z() : mn.z());
-                      Vec3d rc(remap_coord(pre_rx, c), remap_coord(pre_ry, c), remap_coord(pre_rz, c));
-                      if (i == 0) rbb = BoundingBoxf3(rc, rc);
-                      else rbb.merge(rc);
-                  }
-                  bb = rbb;
+              BoundingBoxf3 bb = belt_remapped_bbox(*this->model_object(), pcfg);
+              bool has_preslice_remap = (int(pcfg.belt_preslice_remap_x.value) != int(BeltRemapAxis::PosX) ||
+                                         int(pcfg.belt_preslice_remap_y.value) != int(BeltRemapAxis::PosY) ||
+                                         int(pcfg.belt_preslice_remap_z.value) != int(BeltRemapAxis::PosZ));
+              if (has_preslice_remap)
                   object_height = bb.size().z();
-              }
 
               bool has_z_shear = pcfg.belt_shear_z.value != BeltShearMode::None;
               bool has_z_scale = pcfg.belt_scale_z.value != BeltScaleMode::None;
@@ -3538,33 +3515,12 @@ SlicingParameters PrintObject::slicing_parameters(const DynamicPrintConfig &full
         object_max_z = (float)bb.size().z();
         // Belt pre-remap/shear/scale may change the effective Z height.
         if (print_config.belt_printer.value) {
-            // Pre-slice remap may change which model axis is slicer-Z.
-            int pre_rx = int(print_config.belt_preslice_remap_x.value);
-            int pre_ry = int(print_config.belt_preslice_remap_y.value);
-            int pre_rz = int(print_config.belt_preslice_remap_z.value);
-            bool has_preslice_remap = (pre_rx != int(BeltRemapAxis::PosX) ||
-                                       pre_ry != int(BeltRemapAxis::PosY) ||
-                                       pre_rz != int(BeltRemapAxis::PosZ));
-            if (has_preslice_remap) {
-                auto remap_coord = [](int r, const Vec3d &v) -> double {
-                    int axis = r % 3;
-                    if (r < 3) return v[axis];
-                    return -v[axis];
-                };
-                Vec3d mn = bb.min.cast<double>();
-                Vec3d mx = bb.max.cast<double>();
-                BoundingBoxf3 rbb;
-                for (int i = 0; i < 8; ++i) {
-                    Vec3d c((i & 1) ? mx.x() : mn.x(),
-                            (i & 2) ? mx.y() : mn.y(),
-                            (i & 4) ? mx.z() : mn.z());
-                    Vec3d rc(remap_coord(pre_rx, c), remap_coord(pre_ry, c), remap_coord(pre_rz, c));
-                    if (i == 0) rbb = BoundingBoxf3(rc, rc);
-                    else rbb.merge(rc);
-                }
-                bb = rbb;
+            bb = belt_remapped_bbox(model_object, print_config);
+            bool has_preslice_remap = (int(print_config.belt_preslice_remap_x.value) != int(BeltRemapAxis::PosX) ||
+                                       int(print_config.belt_preslice_remap_y.value) != int(BeltRemapAxis::PosY) ||
+                                       int(print_config.belt_preslice_remap_z.value) != int(BeltRemapAxis::PosZ));
+            if (has_preslice_remap)
                 object_max_z = (float)bb.size().z();
-            }
 
             bool has_z_shear = print_config.belt_shear_z.value != BeltShearMode::None;
             bool has_z_scale = print_config.belt_scale_z.value != BeltScaleMode::None;

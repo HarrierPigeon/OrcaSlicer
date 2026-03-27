@@ -151,7 +151,7 @@ TreeModelVolumes::TreeModelVolumes(
             double belt_sf = sp2.belt_floor_shear_factor;
             if (std::abs(belt_sf) > EPSILON && std::abs(print_object.belt_global_z_offset()) > EPSILON
                 && pcfg2.belt_support_floor_mode.value == BeltSupportFloorMode::GeneratorOnly) {
-                double bb_min_z    = std::abs(print_object.model_object()->raw_bounding_box().min.z());
+                double bb_min_z    = std::abs(belt_remapped_bbox(*print_object.model_object(), pcfg2).min.z());
                 double extra_depth = bb_min_z + 10.;
                 int    num_extra   = std::max(0, (int)std::ceil(extra_depth / sp2.layer_height));
                 if (num_extra > 0) {
