@@ -283,6 +283,9 @@ bool Print::invalidate_state_by_config_options(const ConfigOptionResolver & /* n
             // In Spiral Vase mode, holes are closed and only the largest area contour is kept at each layer.
             // Therefore toggling the Spiral Vase on / off requires complete reslicing.
             || opt_key == "spiral_mode"
+            // Build plate tilt changes slicing plane orientation.
+            || opt_key == "build_plate_tilt_x"
+            || opt_key == "build_plate_tilt_y"
             // Belt printer transform options change the mesh geometry before slicing.
             || opt_key == "belt_printer"
             || opt_key == "belt_printer_angle"
