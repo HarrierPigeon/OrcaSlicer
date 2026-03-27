@@ -8,12 +8,11 @@
 #include "Point.hpp"
 #include "PrintConfig.hpp"
 #include "GCode/CoolingBuffer.hpp"
-#include "GCode/BeltBackTransform.hpp"
-
 namespace Slic3r {
 
 class GCodeWriter {
 public:
+    virtual ~GCodeWriter() = default;
     GCodeConfig config;
     bool multiple_extruders;
 
@@ -74,21 +73,21 @@ public:
     std::string set_speed(double F, const std::string &comment = std::string(), const std::string &cooling_marker = std::string());
     // SoftFever NOTE: the returned speed is mm/minute
     double      get_current_speed() const { return m_current_speed;}
-    std::string travel_to_xy(const Vec2d &point, const std::string &comment = std::string());
-    std::string travel_to_xyz(const Vec3d &point, const std::string &comment = std::string(), bool force_z = false);
+    virtual std::string travel_to_xy(const Vec2d &point, const std::string &comment = std::string());
+    virtual std::string travel_to_xyz(const Vec3d &point, const std::string &comment = std::string(), bool force_z = false);
     std::string travel_to_z(double z, const std::string &comment = std::string(), bool force = false);
     bool        will_move_z(double z) const;
-    std::string extrude_to_xy(const Vec2d &point, double dE, const std::string &comment = std::string(), bool force_no_extrusion = false);
+    virtual std::string extrude_to_xy(const Vec2d &point, double dE, const std::string &comment = std::string(), bool force_no_extrusion = false);
     //BBS: generate G2 or G3 extrude which moves by arc
     std::string extrude_arc_to_xy(const Vec2d &point, const Vec2d &center_offset, double dE, const bool is_ccw, const std::string &comment = std::string(), bool force_no_extrusion = false);
-    std::string extrude_to_xyz(const Vec3d &point, double dE, const std::string &comment = std::string(), bool force_no_extrusion = false);
+    virtual std::string extrude_to_xyz(const Vec3d &point, double dE, const std::string &comment = std::string(), bool force_no_extrusion = false);
     std::string retract(bool before_wipe = false, double retract_length = 0);
     std::string retract_for_toolchange(bool before_wipe = false, double retract_length = 0);
     std::string unretract();
     // do lift instantly
-    std::string eager_lift(const LiftType type);
+    virtual std::string eager_lift(const LiftType type);
     // record a lift request, do realy lift in next travel
-    std::string lazy_lift(LiftType lift_type = LiftType::NormalLift, bool spiral_vase = false);
+    virtual std::string lazy_lift(LiftType lift_type = LiftType::NormalLift, bool spiral_vase = false);
     std::string unlift();
     const Vec3d& get_position() const { return m_pos; }
     Vec3d&       get_position() { return m_pos; }
@@ -126,23 +125,23 @@ public:
     void set_is_first_layer(bool bval) { m_is_first_layer = bval; }
     GCodeFlavor get_gcode_flavor() const { return config.gcode_flavor; }
 
-    // Belt printer: set the belt angle and precompute sin/cos for coordinate transformation.
-    void set_belt_angle(double angle_deg);
-    bool is_belt_printer() const { return m_belt_angle_rad != 0.; }
-    // Set axis remap for G-code output (BeltRemapAxis enum values).
-    void set_axis_remap(int rx, int ry, int rz);
-    // Set build volume extents for Rev remap mode (max X, Y, Z).
-    void set_build_volume_max(const Vec3d &max);
-    // Initialize the belt back-transform that undoes slicing shear/scale.
-    void set_belt_back_transform(const PrintConfig &config);
-    // Set per-axis origin snap: shifts G-code so bbox min on this axis = offset.
-    void set_origin_snap(int axis, bool enable, double offset, double bbox_min);
-    // Transform a point from the slicing frame to machine coordinates.
-    Vec3d to_machine_coords(const Vec3d &pos) const;
-
     // Returns whether this flavor supports separate print and travel acceleration.
     static bool supports_separate_travel_acceleration(GCodeFlavor flavor);
-  private:
+protected:
+    // Position/lift/offset state — accessible to subclasses (e.g. BeltGCodeWriter)
+    Vec3d           m_pos = Vec3d::Zero();
+    double          m_x_offset{ 0 };
+    double          m_y_offset{ 0 };
+    double          m_lifted;
+    double          m_to_lift;
+    LiftType        m_to_lift_type;
+    bool            m_is_first_layer = true;
+    bool            m_is_current_pos_clear = false;
+    double          m_current_speed;
+
+    virtual std::string _travel_to_z(double z, const std::string &comment);
+
+private:
 	// Extruders are sorted by their ID, so that binary search is possible.
     std::vector<Extruder> m_filament_extruders;
     bool            m_single_extruder_multi_material;
@@ -170,48 +169,21 @@ public:
     unsigned int    m_last_additional_fan_speed;
     int             m_last_bed_temperature;
     bool            m_last_bed_temperature_reached;
-    double          m_lifted;
-
-    // BBS
-    double          m_to_lift;
-    LiftType        m_to_lift_type;
-    Vec3d           m_pos = Vec3d::Zero();
-    //BBS: this flag is used to indicate whether the m_pos is real.
-    //A example that of the first move, the m_pos is zero, but the real position of extruder doesn't
-    //Pos must be clear after the first xyz travel move
-    bool            m_is_current_pos_clear = false;
-    //BBS: x, y offset for gcode generated
-    double          m_x_offset{ 0 };
-    double          m_y_offset{ 0 };
 
     // Orca: slicing resolution in mm
     double          m_resolution = 0.01;
-    
+
     std::string m_gcode_label_objects_start;
     std::string m_gcode_label_objects_end;
 
     //SoftFever
     bool            m_is_bbl_printers = false;
 
-    // Belt printer state
-    double          m_belt_angle_rad = 0.;
-    int             m_remap_x = 0;
-    int             m_remap_y = 1;
-    int             m_remap_z = 2;
-    Vec3d           m_build_vol_max = Vec3d::Zero();
-    BeltBackTransform m_belt_back_transform;
-    bool            m_origin_snap[3]     = {false, false, false};
-    double          m_origin_offset[3]   = {0., 0., 0.};   // target coord for bbox min
-    double          m_origin_bbox_min[3] = {0., 0., 0.};   // computed bbox min in machine space
-    double          m_current_speed;
-    bool            m_is_first_layer = true;
-
     enum class Acceleration {
         Travel,
         Print
     };
 
-    std::string _travel_to_z(double z, const std::string &comment);
     std::string _spiral_travel_to_z(double z, const Vec2d &ij_offset, const std::string &comment);
     std::string _retract(double length, double restart_extra, const std::string &comment);
     std::string set_acceleration_internal(Acceleration type, unsigned int acceleration);

@@ -20,59 +20,6 @@ namespace Slic3r {
 
 bool GCodeWriter::full_gcode_comment = true;
 
-void GCodeWriter::set_belt_angle(double angle_deg)
-{
-    m_belt_angle_rad = Geometry::deg2rad(angle_deg);
-}
-
-void GCodeWriter::set_axis_remap(int rx, int ry, int rz)
-{
-    m_remap_x = rx;
-    m_remap_y = ry;
-    m_remap_z = rz;
-}
-
-void GCodeWriter::set_build_volume_max(const Vec3d &max)
-{
-    m_build_vol_max = max;
-}
-
-void GCodeWriter::set_belt_back_transform(const PrintConfig &config)
-{
-    m_belt_back_transform.init_from_config(config);
-}
-
-void GCodeWriter::set_origin_snap(int axis, bool enable, double offset, double bbox_min)
-{
-    if (axis >= 0 && axis < 3) {
-        m_origin_snap[axis]     = enable;
-        m_origin_offset[axis]   = offset;
-        m_origin_bbox_min[axis] = bbox_min;
-    }
-}
-
-Vec3d GCodeWriter::to_machine_coords(const Vec3d &pos) const
-{
-    if (!is_belt_printer())
-        return pos;
-    // Step 1: Undo the shear/scale applied during slicing.
-    Vec3d p = m_belt_back_transform.apply(pos);
-    // Step 2: Apply axis remapping for the machine's coordinate convention.
-    // BeltRemapAxis: 0-2 = +X/+Y/+Z, 3-5 = -X/-Y/-Z, 6-8 = Rev X/Y/Z
-    auto remap = [this, &p](int r) -> double {
-        int axis = r % 3;
-        if (r < 3) return p[axis];
-        if (r < 6) return -p[axis];
-        return m_build_vol_max[axis] - p[axis];
-    };
-    Vec3d result = { remap(m_remap_x), remap(m_remap_y), remap(m_remap_z) };
-    // Per-axis origin snap: shift so bbox min on each enabled axis = offset.
-    for (int i = 0; i < 3; ++i)
-        if (m_origin_snap[i])
-            result[i] -= (m_origin_bbox_min[i] - m_origin_offset[i]);
-    return result;
-}
-
 bool GCodeWriter::supports_separate_travel_acceleration(GCodeFlavor flavor)
 {
     return (flavor == gcfRepetier || flavor == gcfMarlinFirmware ||  flavor == gcfRepRapFirmware);
@@ -601,13 +548,7 @@ std::string GCodeWriter::travel_to_xy(const Vec2d &point, const std::string &com
     Vec2d point_on_plate = { point(0) - m_x_offset, point(1) - m_y_offset };
 
     GCodeG1Formatter w;
-    if (is_belt_printer()) {
-        // Belt printer: transform to machine coordinates (XY travel also needs Z due to YZ rotation)
-        Vec3d machine = to_machine_coords(Vec3d(point_on_plate.x(), point_on_plate.y(), m_pos.z()));
-        w.emit_xyz(machine);
-    } else {
-        w.emit_xy(point_on_plate);
-    }
+    w.emit_xy(point_on_plate);
     auto speed = m_is_first_layer
         ? this->config.get_abs_value("initial_layer_travel_speed") : this->config.travel_speed.value;
     w.emit_f(speed * 60.0);
@@ -621,11 +562,6 @@ it will not perform subsequent lifts, even if Z was raised manually
 (i.e. with travel_to_z()) and thus _lifted was reduced. */
 std::string GCodeWriter::lazy_lift(LiftType lift_type, bool spiral_vase)
 {
-    // Belt printer: force NormalLift since SpiralLift and SlopeLift compute slope angles
-    // that don't account for the YZ coordinate rotation.
-    if (is_belt_printer())
-        lift_type = LiftType::NormalLift;
-
     // check whether the above/below conditions are met
     double target_lift = 0;
     {
@@ -654,8 +590,7 @@ std::string GCodeWriter::lazy_lift(LiftType lift_type, bool spiral_vase)
 // BBS: immediately execute an undelayed lift move with a spiral lift pattern
 // designed specifically for subsequent gcode injection (e.g. timelapse)
 std::string GCodeWriter::eager_lift(const LiftType type) {
-    // Belt printer: force NormalLift (SpiralLift/SlopeLift don't account for YZ rotation).
-    const LiftType effective_type = is_belt_printer() ? LiftType::NormalLift : type;
+    const LiftType effective_type = type;
     std::string lift_move;
     double target_lift = 0;
     {
@@ -742,8 +677,6 @@ std::string GCodeWriter::travel_to_xyz(const Vec3d &point, const std::string &co
                 //  /       to make the z list early to avoid to hit some warping place when travel is long.
                 Vec2d temp = delta_no_z.normalized() * delta(2) / tan(this->filament()->travel_slope());
                 Vec3d slope_top_point = Vec3d(temp(0), temp(1), delta(2)) + source;
-                if (is_belt_printer())
-                    slope_top_point = to_machine_coords(slope_top_point);
                 GCodeG1Formatter w0;
                 w0.emit_xyz(slope_top_point);
                 w0.emit_f(travel_speed * 60.0);
@@ -758,27 +691,18 @@ std::string GCodeWriter::travel_to_xyz(const Vec3d &point, const std::string &co
 
         std::string xy_z_move;
         {
-            Vec3d emit_target = is_belt_printer() ? to_machine_coords(target) : target;
             GCodeG1Formatter w0;
             if (this->is_current_position_clear()) {
-                w0.emit_xyz(emit_target);
+                w0.emit_xyz(target);
                 w0.emit_f(travel_speed * 60.0);
                 w0.emit_comment(GCodeWriter::full_gcode_comment, comment);
                 xy_z_move = w0.string();
             }
             else {
-                if (is_belt_printer()) {
-                    // Belt mode: can't split XY and Z moves independently, emit full XYZ
-                    w0.emit_xyz(emit_target);
-                    w0.emit_f(travel_speed * 60.0);
-                    w0.emit_comment(GCodeWriter::full_gcode_comment, comment);
-                    xy_z_move = w0.string();
-                } else {
-                    w0.emit_xy(Vec2d(target.x(), target.y()));
-                    w0.emit_f(travel_speed * 60.0);
-                    w0.emit_comment(GCodeWriter::full_gcode_comment, comment);
-                    xy_z_move = w0.string() + _travel_to_z(target.z(), comment);
-                }
+                w0.emit_xy(Vec2d(target.x(), target.y()));
+                w0.emit_f(travel_speed * 60.0);
+                w0.emit_comment(GCodeWriter::full_gcode_comment, comment);
+                xy_z_move = w0.string() + _travel_to_z(target.z(), comment);
             }
         }
         m_pos = dest_point;
@@ -804,25 +728,15 @@ std::string GCodeWriter::travel_to_xyz(const Vec3d &point, const std::string &co
 
     //BBS: take plate offset into consider
     Vec3d point_on_plate = { dest_point(0) - m_x_offset, dest_point(1) - m_y_offset, dest_point(2) };
-    if (is_belt_printer())
-        point_on_plate = to_machine_coords(point_on_plate);
     std::string out_string;
     GCodeG1Formatter w;
     if (!this->is_current_position_clear())
     {
-        if (is_belt_printer()) {
-            // Belt mode: emit full XYZ since Y and Z are coupled
-            w.emit_xyz(point_on_plate);
-            w.emit_f(this->config.travel_speed.value * 60.0);
-            w.emit_comment(GCodeWriter::full_gcode_comment, comment);
-            out_string = w.string();
-        } else {
-            //force to move xy first then z after filament change
-            w.emit_xy(Vec2d(point_on_plate.x(), point_on_plate.y()));
-            w.emit_f(this->config.travel_speed.value * 60.0);
-            w.emit_comment(GCodeWriter::full_gcode_comment, comment);
-            out_string = w.string() + _travel_to_z(point_on_plate.z(), comment);
-        }
+        //force to move xy first then z after filament change
+        w.emit_xy(Vec2d(point_on_plate.x(), point_on_plate.y()));
+        w.emit_f(this->config.travel_speed.value * 60.0);
+        w.emit_comment(GCodeWriter::full_gcode_comment, comment);
+        out_string = w.string() + _travel_to_z(point_on_plate.z(), comment);
     } else {
         GCodeG1Formatter w;
         w.emit_xyz(point_on_plate);
@@ -866,13 +780,7 @@ std::string GCodeWriter::_travel_to_z(double z, const std::string &comment)
     }
 
     GCodeG1Formatter w;
-    if (is_belt_printer()) {
-        // Belt printer: a Z-only move in slicing frame needs to emit both Y and Z in machine coords.
-        Vec3d machine = to_machine_coords(Vec3d(m_pos.x() - m_x_offset, m_pos.y() - m_y_offset, z));
-        w.emit_xyz(machine);
-    } else {
-        w.emit_z(z);
-    }
+    w.emit_z(z);
     w.emit_f(speed * 60.0);
     //BBS
     w.emit_comment(GCodeWriter::full_gcode_comment, comment);
@@ -977,12 +885,7 @@ std::string GCodeWriter::extrude_to_xy(const Vec2d &point, double dE, const std:
     Vec2d point_on_plate = { point(0) - m_x_offset, point(1) - m_y_offset };
 
     GCodeG1Formatter w;
-    if (is_belt_printer()) {
-        Vec3d machine = to_machine_coords(Vec3d(point_on_plate.x(), point_on_plate.y(), m_pos.z()));
-        w.emit_xyz(machine);
-    } else {
-        w.emit_xy(point_on_plate);
-    }
+    w.emit_xy(point_on_plate);
     if (!force_no_extrusion)
         w.emit_e(filament()->E());
     //BBS
@@ -1023,8 +926,6 @@ std::string GCodeWriter::extrude_to_xyz(const Vec3d &point, double dE, const std
     Vec3d point_on_plate = { point(0) - m_x_offset, point(1) - m_y_offset, point(2) };
 
     GCodeG1Formatter w;
-    if (is_belt_printer())
-        point_on_plate = to_machine_coords(point_on_plate);
     w.emit_xyz(point_on_plate);
     if (!force_no_extrusion)
         w.emit_e(filament()->E());

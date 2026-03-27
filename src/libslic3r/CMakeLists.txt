@@ -79,6 +79,8 @@ set(lisbslic3r_sources
     BoundingBox.hpp
     BridgeDetector.cpp
     BridgeDetector.hpp
+    BeltGCodeWriter.cpp
+    BeltGCodeWriter.hpp
     BeltTransform.cpp
     BeltTransform.hpp
     Brim.cpp

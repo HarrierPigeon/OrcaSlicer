@@ -4,6 +4,7 @@
 #include "libslic3r.h"
 #include "ExPolygon.hpp"
 #include "GCodeWriter.hpp"
+#include "BeltGCodeWriter.hpp"
 #include "Layer.hpp"
 #include "Point.hpp"
 #include "PlaceholderParser.hpp"
@@ -206,7 +207,8 @@ public:
         m_last_obj_copy(nullptr, Point(std::numeric_limits<coord_t>::max(), std::numeric_limits<coord_t>::max())),
         // BBS
         m_toolchange_count(0),
-        m_nominal_z(0.)
+        m_nominal_z(0.),
+        m_writer(std::make_unique<GCodeWriter>())
         {}
     ~GCode() = default;
 
@@ -215,7 +217,7 @@ public:
     void            do_export(Print* print, const char* path, GCodeProcessorResult* result = nullptr, ThumbnailsGeneratorCallback thumbnail_cb = nullptr);
     void            export_layer_filaments(GCodeProcessorResult* result);
     //BBS: set offset for gcode writer
-    void set_gcode_offset(double x, double y) { m_writer.set_xy_offset(x, y); m_processor.set_xy_offset(x, y);}
+    void set_gcode_offset(double x, double y) { m_writer->set_xy_offset(x, y); m_processor.set_xy_offset(x, y);}
 
     // Exported for the helper classes (OozePrevention, Wipe) and for the Perl binding for unit tests.
     const Vec2d&    origin() const { return m_origin; }
@@ -227,8 +229,8 @@ public:
     Vec2d point_to_gcode_quantized(const Point& point) const;
     const FullPrintConfig &config() const { return m_config; }
     const Layer*    layer() const { return m_layer; }
-    GCodeWriter&    writer() { return m_writer; }
-    const GCodeWriter& writer() const { return m_writer; }
+    GCodeWriter&    writer() { return *m_writer; }
+    const GCodeWriter& writer() const { return *m_writer; }
     PlaceholderParser& placeholder_parser() { return m_placeholder_parser_integration.parser; }
     const PlaceholderParser& placeholder_parser() const { return m_placeholder_parser_integration.parser; }
     // Process a template through the placeholder parser, collect error messages to be reported
@@ -248,7 +250,7 @@ public:
     std::string     travel_to(const Point& point, ExtrusionRole role, std::string comment, double z = DBL_MAX);
     bool            needs_retraction(const Polyline& travel, ExtrusionRole role, LiftType& lift_type);
     std::string     retract(bool toolchange = false, bool is_last_retraction = false, LiftType lift_type = LiftType::NormalLift, bool apply_instantly = false, ExtrusionRole role = erNone);
-    std::string     unretract() { return m_writer.unlift() + m_writer.unretract(); }
+    std::string     unretract() { return m_writer->unlift() + m_writer->unretract(); }
     std::string     set_extruder(unsigned int extruder_id, double print_z, bool by_object=false, int toolchange_temp_override = -1);
     bool is_BBL_Printer();
     bool is_QIDI_Printer();
@@ -502,7 +504,7 @@ private:
     DynamicConfig                       m_calib_config;
     // scaled G-code resolution
     double                              m_scaled_resolution;
-    GCodeWriter                         m_writer;
+    std::unique_ptr<GCodeWriter>         m_writer;
 
     struct PlaceholderParserIntegration {
         void reset();
