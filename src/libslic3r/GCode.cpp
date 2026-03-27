@@ -2434,17 +2434,140 @@ void GCode::_do_export(Print& print, GCodeOutputStream &file, ThumbnailsGenerato
         m_writer.set_build_volume_max(Vec3d(bbox_bed.max.x(), bbox_bed.max.y(), print.config().printable_height.value));
         // Initialize the back-transform that undoes slicing shear/scale.
         m_writer.set_belt_back_transform(print.config());
-        // Z-shift bed compensation: subtract the slicing Z-shift from a machine
-        // axis so the object's bottom face sits on the physical bed surface.
-        if (print.config().belt_zshift_compensate.value) {
-            int comp_axis = int(print.config().belt_zshift_compensate_axis.value);
-            // Compute the Z-shift: max(0, -belt_min_z) across all objects.
-            double max_zshift = 0.;
+        // Per-axis origin snap: compute machine-space bbox min across all objects,
+        // then set snap offsets so bbox min on each enabled axis = offset value.
+        bool any_snap = print.config().belt_origin_snap_x.value ||
+                        print.config().belt_origin_snap_y.value ||
+                        print.config().belt_origin_snap_z.value;
+        if (any_snap) {
+            // Reconstruct the slicer-space belt transform from config
+            // (same pipeline as PrintObjectSlice.cpp: pre_remap * shear * scale * z_shift).
+            auto build_belt_trafo = [&print](const PrintObject *obj) -> Transform3d {
+                const auto &cfg = print.config();
+                Transform3d t = Transform3d::Identity();
+
+                // Pre-slice remap
+                int pre_rx = int(cfg.belt_preslice_remap_x.value);
+                int pre_ry = int(cfg.belt_preslice_remap_y.value);
+                int pre_rz = int(cfg.belt_preslice_remap_z.value);
+                if (pre_rx != int(BeltRemapAxis::PosX) ||
+                    pre_ry != int(BeltRemapAxis::PosY) ||
+                    pre_rz != int(BeltRemapAxis::PosZ)) {
+                    auto remap_col = [](int r) -> Vec3d {
+                        int a = r % 3; Vec3d c = Vec3d::Zero();
+                        c[a] = (r < 3) ? 1.0 : -1.0;
+                        return c;
+                    };
+                    Matrix3d lin;
+                    lin.col(0) = remap_col(pre_rx);
+                    lin.col(1) = remap_col(pre_ry);
+                    lin.col(2) = remap_col(pre_rz);
+                    Transform3d pre = Transform3d::Identity();
+                    pre.linear() = lin;
+                    // Rev translation
+                    if (pre_rx >= 6 || pre_ry >= 6 || pre_rz >= 6) {
+                        BoundingBoxf bb(cfg.printable_area.values);
+                        Vec3d vm(bb.max.x(), bb.max.y(), cfg.printable_height.value);
+                        Vec3d tr = Vec3d::Zero();
+                        if (pre_rx >= 6) tr[0] = vm[pre_rx % 3];
+                        if (pre_ry >= 6) tr[1] = vm[pre_ry % 3];
+                        if (pre_rz >= 6) tr[2] = vm[pre_rz % 3];
+                        pre.translation() = tr;
+                    }
+                    t = pre * t;
+                }
+
+                // Shear
+                auto shear_f = [](BeltShearMode m, double a) -> double {
+                    double r = Geometry::deg2rad(a), s = std::sin(r), c = std::cos(r);
+                    switch (m) {
+                    case BeltShearMode::PosCot: return (s > EPSILON) ?  c/s : 0.;
+                    case BeltShearMode::NegCot: return (s > EPSILON) ? -c/s : 0.;
+                    case BeltShearMode::PosTan: return (c > EPSILON) ?  s/c : 0.;
+                    case BeltShearMode::NegTan: return (c > EPSILON) ? -s/c : 0.;
+                    default: return 0.;
+                    }
+                };
+                struct AS { BeltShearMode m; double a; int f; };
+                AS axes[3] = {
+                    {cfg.belt_shear_x.value, cfg.belt_shear_x_angle.value, int(cfg.belt_shear_x_from.value)},
+                    {cfg.belt_shear_y.value, cfg.belt_shear_y_angle.value, int(cfg.belt_shear_y_from.value)},
+                    {cfg.belt_shear_z.value, cfg.belt_shear_z_angle.value, int(cfg.belt_shear_z_from.value)},
+                };
+                Transform3d shear = Transform3d::Identity();
+                for (int i = 0; i < 3; ++i)
+                    if (axes[i].m != BeltShearMode::None) {
+                        double f = shear_f(axes[i].m, axes[i].a);
+                        if (std::abs(f) > EPSILON)
+                            shear.matrix()(i, axes[i].f) += f;
+                    }
+
+                // Scale
+                auto scale_f = [](BeltScaleMode m, double a) -> double {
+                    if (m == BeltScaleMode::None) return 1.;
+                    double r = Geometry::deg2rad(a), s = std::sin(r), c = std::cos(r);
+                    switch (m) {
+                    case BeltScaleMode::InvSin: return (s > EPSILON) ? 1./s : 1.;
+                    case BeltScaleMode::InvCos: return (c > EPSILON) ? 1./c : 1.;
+                    case BeltScaleMode::Sin:    return s;
+                    case BeltScaleMode::Cos:    return c;
+                    default: return 1.;
+                    }
+                };
+                Transform3d sc = Transform3d::Identity();
+                sc.matrix()(0,0) = scale_f(cfg.belt_scale_x.value, cfg.belt_scale_x_angle.value);
+                sc.matrix()(1,1) = scale_f(cfg.belt_scale_y.value, cfg.belt_scale_y_angle.value);
+                sc.matrix()(2,2) = scale_f(cfg.belt_scale_z.value, cfg.belt_scale_z_angle.value);
+
+                t = sc * shear * t;
+
+                // Z-shift
+                double zs = (obj->belt_min_z() < 0.) ? -obj->belt_min_z() : 0.;
+                if (zs > 0.) {
+                    Transform3d zsh = Transform3d::Identity();
+                    zsh.matrix()(2, 3) = zs;
+                    t = zsh * t;
+                }
+                return t;
+            };
+
+            // Compute machine-space bbox min across all objects and instances.
+            // Must include instance XY shifts and belt global Z offset to match
+            // the actual slicer-space coordinates used during G-code generation.
+            Vec3d global_min(std::numeric_limits<double>::max(),
+                             std::numeric_limits<double>::max(),
+                             std::numeric_limits<double>::max());
             for (const PrintObject *obj : print.objects()) {
-                double obj_zshift = (obj->belt_min_z() < 0.) ? -obj->belt_min_z() : 0.;
-                max_zshift = std::max(max_zshift, obj_zshift);
+                Transform3d belt = build_belt_trafo(obj);
+                Transform3d full = belt * obj->trafo_centered();
+                BoundingBoxf3 bb = obj->model_object()->raw_bounding_box();
+                Vec3d mn = bb.min.cast<double>(), mx = bb.max.cast<double>();
+                double gz = obj->belt_global_z_offset();
+                for (const PrintInstance &inst : obj->instances()) {
+                    // Instance shift is the XY bed position (in slicer-space, scaled).
+                    Vec3d shift(unscale<double>(inst.shift.x()),
+                                unscale<double>(inst.shift.y()), gz);
+                    for (int i = 0; i < 8; ++i) {
+                        Vec3d c((i & 1) ? mx.x() : mn.x(),
+                                (i & 2) ? mx.y() : mn.y(),
+                                (i & 4) ? mx.z() : mn.z());
+                        Vec3d slicer_pt = full * c + shift;
+                        Vec3d mc = m_writer.to_machine_coords(slicer_pt);
+                        for (int a = 0; a < 3; ++a)
+                            global_min[a] = std::min(global_min[a], mc[a]);
+                    }
+                }
             }
-            m_writer.set_zshift_compensation(comp_axis, max_zshift);
+
+            // Set snap offsets on the writer.
+            bool snaps[3] = { print.config().belt_origin_snap_x.value,
+                              print.config().belt_origin_snap_y.value,
+                              print.config().belt_origin_snap_z.value };
+            double offsets[3] = { print.config().belt_origin_offset_x.value,
+                                  print.config().belt_origin_offset_y.value,
+                                  print.config().belt_origin_offset_z.value };
+            for (int a = 0; a < 3; ++a)
+                m_writer.set_origin_snap(a, snaps[a], offsets[a], global_min[a]);
         }
     }
 

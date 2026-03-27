@@ -6148,21 +6148,30 @@ void PrintConfigDef::init_fff_params()
     def->mode = comAdvanced;
     def->set_default_value(new ConfigOptionBool(false));
 
-    def = this->add("belt_zshift_compensate", coBool);
-    def->label = L("Z-shift bed compensation");
-    def->category = L("Printable space");
-    def->tooltip = L("Subtract the slicing Z-shift from a machine axis in G-code output "
-                      "so the object's bottom face sits on the physical bed surface. "
-                      "The Z-shift keeps the mesh above Z=0 during slicing; this option "
-                      "undoes that offset on the chosen machine axis.");
-    def->mode = comAdvanced;
-    def->set_default_value(new ConfigOptionBool(false));
+    auto add_belt_origin_snap = [this](const char *key_snap, const char *key_offset,
+                                        const char *axis_label) {
+        auto def = this->add(key_snap, coBool);
+        def->label = L(axis_label);
+        def->category = L("Printable space");
+        std::string tip = std::string("Shift G-code output so the object's bounding box minimum on machine ")
+                          + axis_label + " equals the offset value.";
+        def->tooltip = L(tip);
+        def->mode = comAdvanced;
+        def->set_default_value(new ConfigOptionBool(false));
 
-    add_belt_axis_enum("belt_zshift_compensate_axis", "Axis",
-        "Which machine-space axis to subtract the Z-shift from. "
-        "For a belt printer whose bed is in the XZ plane (pre-slice remap Y↔Z), "
-        "set this to Y to bring the bottom face onto Y=0.",
-        BeltAxis::Y);
+        def = this->add(key_offset, coFloat);
+        def->label = L("Offset");
+        def->category = L("Printable space");
+        def->tooltip = L("Target coordinate for the bounding box minimum on this machine axis.");
+        def->sidetext = L("mm");
+        def->min = -10000;
+        def->max = 10000;
+        def->mode = comAdvanced;
+        def->set_default_value(new ConfigOptionFloat(0));
+    };
+    add_belt_origin_snap("belt_origin_snap_x", "belt_origin_offset_x", "X");
+    add_belt_origin_snap("belt_origin_snap_y", "belt_origin_offset_y", "Y");
+    add_belt_origin_snap("belt_origin_snap_z", "belt_origin_offset_z", "Z");
 
     // Belt support floor debug controls
     def = this->add("belt_support_floor_offset", coFloat);

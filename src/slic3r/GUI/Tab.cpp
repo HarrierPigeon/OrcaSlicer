@@ -4449,11 +4449,21 @@ void TabPrinter::build_fff()
         }
         optgroup->append_single_option_line("belt_gcode_back_transform");
         {
-            Line line = { L("Z-shift bed compensation"),
-                          L("Subtract the slicing Z-shift from a machine axis so the object's "
-                            "bottom face sits on the physical bed surface.") };
-            line.append_option(optgroup->get_option("belt_zshift_compensate"));
-            line.append_option(optgroup->get_option("belt_zshift_compensate_axis"));
+            Line line = { L("Origin snap X"), L("Snap object bbox min X to offset in G-code output") };
+            line.append_option(optgroup->get_option("belt_origin_snap_x"));
+            line.append_option(optgroup->get_option("belt_origin_offset_x"));
+            optgroup->append_line(line);
+        }
+        {
+            Line line = { L("Origin snap Y"), L("Snap object bbox min Y to offset in G-code output") };
+            line.append_option(optgroup->get_option("belt_origin_snap_y"));
+            line.append_option(optgroup->get_option("belt_origin_offset_y"));
+            optgroup->append_line(line);
+        }
+        {
+            Line line = { L("Origin snap Z"), L("Snap object bbox min Z to offset in G-code output") };
+            line.append_option(optgroup->get_option("belt_origin_snap_z"));
+            line.append_option(optgroup->get_option("belt_origin_offset_z"));
             optgroup->append_line(line);
         }
         {
@@ -5316,7 +5326,7 @@ void TabPrinter::toggle_options()
                         "belt_scale_x", "belt_scale_y", "belt_scale_z",
                         "belt_preslice_remap_x",
                         "belt_gcode_remap_x", "belt_gcode_back_transform",
-                        "belt_zshift_compensate"})
+                        "belt_origin_snap_x", "belt_origin_snap_y", "belt_origin_snap_z"})
             toggle_line(el, is_belt);
 
         // Gray out angle/from sub-options when their parent shear/scale mode is None.
@@ -5344,8 +5354,9 @@ void TabPrinter::toggle_options()
         auto scz = m_config->option<ConfigOptionEnum<BeltScaleMode>>("belt_scale_z")->value;
         toggle_option("belt_scale_z_angle", is_belt && scz != BeltScaleMode::None);
 
-        auto zcomp = m_config->opt_bool("belt_zshift_compensate");
-        toggle_option("belt_zshift_compensate_axis", is_belt && zcomp);
+        toggle_option("belt_origin_offset_x", is_belt && m_config->opt_bool("belt_origin_snap_x"));
+        toggle_option("belt_origin_offset_y", is_belt && m_config->opt_bool("belt_origin_snap_y"));
+        toggle_option("belt_origin_offset_z", is_belt && m_config->opt_bool("belt_origin_snap_z"));
 
         toggle_line("belt_support_floor_mode", is_belt);
     }

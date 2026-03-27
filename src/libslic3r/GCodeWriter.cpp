@@ -42,10 +42,13 @@ void GCodeWriter::set_belt_back_transform(const PrintConfig &config)
     m_belt_back_transform.init_from_config(config);
 }
 
-void GCodeWriter::set_zshift_compensation(int axis, double val)
+void GCodeWriter::set_origin_snap(int axis, bool enable, double offset, double bbox_min)
 {
-    m_zshift_comp_axis = axis;
-    m_zshift_comp_val  = val;
+    if (axis >= 0 && axis < 3) {
+        m_origin_snap[axis]     = enable;
+        m_origin_offset[axis]   = offset;
+        m_origin_bbox_min[axis] = bbox_min;
+    }
 }
 
 Vec3d GCodeWriter::to_machine_coords(const Vec3d &pos) const
@@ -63,10 +66,10 @@ Vec3d GCodeWriter::to_machine_coords(const Vec3d &pos) const
         return m_build_vol_max[axis] - p[axis];
     };
     Vec3d result = { remap(m_remap_x), remap(m_remap_y), remap(m_remap_z) };
-    // Z-shift bed compensation: subtract the slicing Z-shift from a machine axis
-    // so the object's bottom face sits on the physical bed surface.
-    if (m_zshift_comp_axis >= 0 && m_zshift_comp_axis < 3)
-        result[m_zshift_comp_axis] -= m_zshift_comp_val;
+    // Per-axis origin snap: shift so bbox min on each enabled axis = offset.
+    for (int i = 0; i < 3; ++i)
+        if (m_origin_snap[i])
+            result[i] -= (m_origin_bbox_min[i] - m_origin_offset[i]);
     return result;
 }
 
