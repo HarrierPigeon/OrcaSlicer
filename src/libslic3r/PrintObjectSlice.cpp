@@ -10,6 +10,7 @@
 #include "MultiMaterialSegmentation.hpp"
 #include "Print.hpp"
 #include "BeltTransform.hpp"
+#include "BeltSliceStrategy.hpp"
 #include "Geometry.hpp"
 //BBS
 #include "ShortestPath.hpp"
@@ -143,45 +144,11 @@ static std::vector<VolumeSlices> slice_volumes_inner(
     params_base.closing_radius = print_object_config.slice_closing_radius.value;
     params_base.extra_offset   = 0;
     params_base.trafo          = object_trafo;
-    if (print_config.belt_printer.value) {
-        // Apply belt pre-slice transforms: pre_remap * shear * scale.
-        bool has_remap = BeltTransformPipeline::has_preslice_remap(print_config);
-        if (has_remap)
-            params_base.trafo = BeltTransformPipeline::build_preslice_remap(print_config) * params_base.trafo;
-
-        bool shear_active = false, scale_active = false;
-        Matrix3d shear = BeltTransformPipeline::build_shear_matrix(print_config, &shear_active);
-        Matrix3d scale = BeltTransformPipeline::build_scale_matrix(print_config, &scale_active);
-        if (shear_active || scale_active) {
-            Transform3d belt_xform = Transform3d::Identity();
-            belt_xform.linear() = scale * shear;
-            params_base.trafo = belt_xform * params_base.trafo;
-        }
-
-        // After pre-remap/shear/scale, the mesh may clip through the build
-        // plate (Z < 0).  Detect this and shift the mesh up along slicer Z.
-        if (has_remap || shear_active || scale_active) {
-            Transform3d combined = params_base.trafo;
-            double min_z = std::numeric_limits<double>::max();
-            for (const ModelVolume *mv : model_volumes) {
-                if (!mv->is_model_part()) continue;
-                for (const stl_vertex &v : mv->mesh().its.vertices) {
-                    Vec3d pt = combined * v.cast<double>();
-                    min_z = std::min(min_z, pt.z());
-                }
-            }
-            double belt_z_shift_val = (min_z < 0. && min_z != std::numeric_limits<double>::max()) ? -min_z : 0.;
-            BOOST_LOG_TRIVIAL(warning) << "Belt Z-shift: min_z=" << min_z
-                << " z_shift=" << belt_z_shift_val
-                << " trafo_z=" << object_trafo.matrix()(2, 3);
-            if (belt_z_shift_val > 0.) {
-                Transform3d z_shift = Transform3d::Identity();
-                z_shift.matrix()(2, 3) = belt_z_shift_val;
-                params_base.trafo = z_shift * params_base.trafo;
-            }
-            if (out_belt_min_z)
-                *out_belt_min_z = (min_z != std::numeric_limits<double>::max()) ? min_z : 0.;
-        }
+    {
+        // Belt printer: apply pre-slice transforms (remap, shear, scale, z-shift) via strategy.
+        auto belt_strategy = BeltSliceStrategy::create(print_config);
+        if (belt_strategy)
+            belt_strategy->apply_to_trafo(params_base.trafo, model_volumes, out_belt_min_z);
     }
     //BBS: 0.0025mm is safe enough to simplify the data to speed slicing up for high-resolution model.
     //Also has on influence on arc fitting which has default resolution 0.0125mm.
