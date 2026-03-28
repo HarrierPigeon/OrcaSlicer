@@ -13,31 +13,24 @@ std::unique_ptr<BeltSliceStrategy> BeltSliceStrategy::create(const PrintConfig &
 
 BeltSliceStrategy::BeltSliceStrategy(const PrintConfig &config)
 {
-    m_has_remap = BeltTransformPipeline::has_preslice_remap(config);
-    if (m_has_remap)
-        m_pre_remap = BeltTransformPipeline::build_preslice_remap(config);
-
     m_shear = BeltTransformPipeline::build_shear_matrix(config, &m_has_shear);
     m_scale = BeltTransformPipeline::build_scale_matrix(config, &m_has_scale);
 }
 
 void BeltSliceStrategy::apply_to_trafo(Transform3d &trafo,
                                         const ModelVolumePtrs &model_volumes,
+                                        bool has_remap,
                                         double *out_belt_min_z) const
 {
-    // Step 1: Pre-slice axis remap.
-    if (m_has_remap)
-        trafo = m_pre_remap * trafo;
-
-    // Step 2: Shear + scale.
+    // Shear + scale (belt-only; pre-slice remap is handled separately).
     if (m_has_shear || m_has_scale) {
         Transform3d belt_xform = Transform3d::Identity();
         belt_xform.linear() = m_scale * m_shear;
         trafo = belt_xform * trafo;
     }
 
-    // Step 3: Z-shift — detect if mesh clips below build plate after transforms.
-    if (m_has_remap || m_has_shear || m_has_scale) {
+    // Z-shift — detect if mesh clips below build plate after transforms.
+    if (has_remap || m_has_shear || m_has_scale) {
         double min_z = std::numeric_limits<double>::max();
         for (const ModelVolume *mv : model_volumes) {
             if (!mv->is_model_part()) continue;

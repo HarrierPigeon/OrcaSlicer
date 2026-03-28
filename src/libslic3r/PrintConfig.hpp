@@ -254,7 +254,7 @@ enum class BeltAxis
     Z = 2,
 };
 
-enum class BeltRemapAxis
+enum class RemapAxis
 {
     PosX = 0, PosY = 1, PosZ = 2,
     NegX = 3, NegY = 4, NegZ = 5,
@@ -697,7 +697,7 @@ CONFIG_OPTION_ENUM_DECLARE_STATIC_MAPS(SlicingMode)
 CONFIG_OPTION_ENUM_DECLARE_STATIC_MAPS(BeltShearMode)
 CONFIG_OPTION_ENUM_DECLARE_STATIC_MAPS(BeltScaleMode)
 CONFIG_OPTION_ENUM_DECLARE_STATIC_MAPS(BeltAxis)
-CONFIG_OPTION_ENUM_DECLARE_STATIC_MAPS(BeltRemapAxis)
+CONFIG_OPTION_ENUM_DECLARE_STATIC_MAPS(RemapAxis)
 CONFIG_OPTION_ENUM_DECLARE_STATIC_MAPS(BeltSupportFloorMode)
 CONFIG_OPTION_ENUM_DECLARE_STATIC_MAPS(BeltSupportZOffsetMode)
 CONFIG_OPTION_ENUM_DECLARE_STATIC_MAPS(SupportMaterialPattern)
@@ -1783,13 +1783,13 @@ PRINT_CONFIG_CLASS_DERIVED_DEFINE(
     ((ConfigOptionFloat,                belt_scale_y_angle))
     ((ConfigOptionEnum<BeltScaleMode>,  belt_scale_z))
     ((ConfigOptionFloat,                belt_scale_z_angle))
-    ((ConfigOptionEnum<BeltRemapAxis>,  belt_preslice_remap_x))
-    ((ConfigOptionEnum<BeltRemapAxis>,  belt_preslice_remap_y))
-    ((ConfigOptionEnum<BeltRemapAxis>,  belt_preslice_remap_z))
-    ((ConfigOptionEnum<BeltRemapAxis>,  belt_gcode_remap_x))
-    ((ConfigOptionEnum<BeltRemapAxis>,  belt_gcode_remap_y))
-    ((ConfigOptionEnum<BeltRemapAxis>,  belt_gcode_remap_z))
-    ((ConfigOptionBool,                 belt_gcode_back_transform))
+    ((ConfigOptionEnum<RemapAxis>,  preslice_remap_x))
+    ((ConfigOptionEnum<RemapAxis>,  preslice_remap_y))
+    ((ConfigOptionEnum<RemapAxis>,  preslice_remap_z))
+    ((ConfigOptionEnum<RemapAxis>,  gcode_remap_x))
+    ((ConfigOptionEnum<RemapAxis>,  gcode_remap_y))
+    ((ConfigOptionEnum<RemapAxis>,  gcode_remap_z))
+    ((ConfigOptionBool,                 gcode_back_transform))
     ((ConfigOptionBool,                 belt_origin_snap_x))
     ((ConfigOptionFloat,                belt_origin_offset_x))
     ((ConfigOptionBool,                 belt_origin_snap_y))

@@ -371,18 +371,18 @@ static t_config_enum_values s_keys_map_BeltScaleMode {
 };
 CONFIG_OPTION_ENUM_DEFINE_STATIC_MAPS(BeltScaleMode)
 
-static t_config_enum_values s_keys_map_BeltRemapAxis {
-    { "pos_x", int(BeltRemapAxis::PosX) },
-    { "pos_y", int(BeltRemapAxis::PosY) },
-    { "pos_z", int(BeltRemapAxis::PosZ) },
-    { "neg_x", int(BeltRemapAxis::NegX) },
-    { "neg_y", int(BeltRemapAxis::NegY) },
-    { "neg_z", int(BeltRemapAxis::NegZ) },
-    { "rev_x", int(BeltRemapAxis::RevX) },
-    { "rev_y", int(BeltRemapAxis::RevY) },
-    { "rev_z", int(BeltRemapAxis::RevZ) },
+static t_config_enum_values s_keys_map_RemapAxis {
+    { "pos_x", int(RemapAxis::PosX) },
+    { "pos_y", int(RemapAxis::PosY) },
+    { "pos_z", int(RemapAxis::PosZ) },
+    { "neg_x", int(RemapAxis::NegX) },
+    { "neg_y", int(RemapAxis::NegY) },
+    { "neg_z", int(RemapAxis::NegZ) },
+    { "rev_x", int(RemapAxis::RevX) },
+    { "rev_y", int(RemapAxis::RevY) },
+    { "rev_z", int(RemapAxis::RevZ) },
 };
-CONFIG_OPTION_ENUM_DEFINE_STATIC_MAPS(BeltRemapAxis)
+CONFIG_OPTION_ENUM_DEFINE_STATIC_MAPS(RemapAxis)
 
 static t_config_enum_values s_keys_map_BeltSupportFloorMode {
     { "none",           int(BeltSupportFloorMode::None) },
@@ -7204,49 +7204,49 @@ void PrintConfigDef::init_fff_params()
     add_belt_scale_angle("belt_scale_z_angle", "Angle");
 
     // G-code axis remap with sign
-    auto add_belt_remap = [this](const char *key, const char *label, const char *tooltip, BeltRemapAxis default_axis) {
+    auto add_belt_remap = [this](const char *key, const char *label, const char *tooltip, RemapAxis default_axis) {
         auto def = this->add(key, coEnum);
         def->label = L(label);
         def->category = L("Printable space");
         def->tooltip = L(tooltip);
-        def->enum_keys_map = &ConfigOptionEnum<BeltRemapAxis>::get_enum_values();
+        def->enum_keys_map = &ConfigOptionEnum<RemapAxis>::get_enum_values();
         def->enum_values  = {"pos_x", "pos_y", "pos_z", "neg_x", "neg_y", "neg_z", "rev_x", "rev_y", "rev_z"};
         def->enum_labels  = {L("+X"), L("+Y"), L("+Z"), L("-X"), L("-Y"), L("-Z"), L("Rev X"), L("Rev Y"), L("Rev Z")};
-        def->mode = comAdvanced;
-        def->set_default_value(new ConfigOptionEnum<BeltRemapAxis>(default_axis));
+        def->mode = comSimple;  // Visibility controlled by toggle_line in Tab.cpp
+        def->set_default_value(new ConfigOptionEnum<RemapAxis>(default_axis));
     };
 
-    add_belt_remap("belt_preslice_remap_x", "X",
+    add_belt_remap("preslice_remap_x", "X",
         "Before slicing, which model-space axis becomes the slicer's X axis. "
         "Use this to re-orient the coordinate system so the slicer's XY plane matches "
         "your belt printer's physical bed plane. For a printer whose bed is in the XZ plane, "
         "set Y to +Z and Z to +Y (or -Y) to swap the vertical and belt-travel axes. "
         "Default +X: no change.",
-        BeltRemapAxis::PosX);
-    add_belt_remap("belt_preslice_remap_y", "Y",
+        RemapAxis::PosX);
+    add_belt_remap("preslice_remap_y", "Y",
         "Before slicing, which model-space axis becomes the slicer's Y axis. "
         "The slicer treats Y as one of the two horizontal bed axes. If your physical "
         "belt surface runs along the Z axis, map Y to +Z here so the slicer slices "
         "along the correct plane. Default +Y: no change.",
-        BeltRemapAxis::PosY);
-    add_belt_remap("belt_preslice_remap_z", "Z",
+        RemapAxis::PosY);
+    add_belt_remap("preslice_remap_z", "Z",
         "Before slicing, which model-space axis becomes the slicer's Z axis (layer stacking direction). "
         "The slicer builds layers upward along this axis. If your printer's layer-stacking "
         "direction is the physical Y axis, map Z to +Y (or -Y for inverted direction). "
         "Rev mode mirrors relative to the build volume maximum. Default +Z: no change.",
-        BeltRemapAxis::PosZ);
+        RemapAxis::PosZ);
 
-    add_belt_remap("belt_gcode_remap_x", "X", "Which slicing axis maps to machine X in G-code output. Applied AFTER slicing, during G-code generation.", BeltRemapAxis::PosX);
-    add_belt_remap("belt_gcode_remap_y", "Y", "Which slicing axis maps to machine Y in G-code output. Applied AFTER slicing, during G-code generation.", BeltRemapAxis::PosY);
-    add_belt_remap("belt_gcode_remap_z", "Z", "Which slicing axis maps to machine Z in G-code output. Applied AFTER slicing, during G-code generation.", BeltRemapAxis::PosZ);
+    add_belt_remap("gcode_remap_x", "X", "Which slicing axis maps to machine X in G-code output. Applied AFTER slicing, during G-code generation.", RemapAxis::PosX);
+    add_belt_remap("gcode_remap_y", "Y", "Which slicing axis maps to machine Y in G-code output. Applied AFTER slicing, during G-code generation.", RemapAxis::PosY);
+    add_belt_remap("gcode_remap_z", "Z", "Which slicing axis maps to machine Z in G-code output. Applied AFTER slicing, during G-code generation.", RemapAxis::PosZ);
 
-    def = this->add("belt_gcode_back_transform", coBool);
+    def = this->add("gcode_back_transform", coBool);
     def->label = L("G-code back-transform");
     def->category = L("Printable space");
     def->tooltip = L("Reverse the shear/scale transform applied during slicing so G-code "
                       "coordinates are in the machine's physical coordinate space. "
                       "Requires at least one shear axis with global mode enabled.");
-    def->mode = comAdvanced;
+    def->mode = comSimple;  // Visibility controlled by toggle_line in Tab.cpp
     def->set_default_value(new ConfigOptionBool(false));
 
     auto add_belt_origin_snap = [this](const char *key_snap, const char *key_offset,

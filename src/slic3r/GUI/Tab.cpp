@@ -5089,19 +5089,19 @@ void TabPrinter::build_fff()
                           L("Remap model axes before slicing so the slicer's coordinate system matches "
                             "the physical bed orientation. For belt printers whose bed is NOT in the XY plane, "
                             "use this to swap axes so layers are stacked in the correct physical direction.") };
-            line.append_option(optgroup->get_option("belt_preslice_remap_x"));
-            line.append_option(optgroup->get_option("belt_preslice_remap_y"));
-            line.append_option(optgroup->get_option("belt_preslice_remap_z"));
+            line.append_option(optgroup->get_option("preslice_remap_x"));
+            line.append_option(optgroup->get_option("preslice_remap_y"));
+            line.append_option(optgroup->get_option("preslice_remap_z"));
             optgroup->append_line(line);
         }
         {
             Line line = { L("G-code axis remap (post-slice)"), L("Remap slicing-frame axes to machine axes in G-code output. Applied AFTER slicing, during G-code generation.") };
-            line.append_option(optgroup->get_option("belt_gcode_remap_x"));
-            line.append_option(optgroup->get_option("belt_gcode_remap_y"));
-            line.append_option(optgroup->get_option("belt_gcode_remap_z"));
+            line.append_option(optgroup->get_option("gcode_remap_x"));
+            line.append_option(optgroup->get_option("gcode_remap_y"));
+            line.append_option(optgroup->get_option("gcode_remap_z"));
             optgroup->append_line(line);
         }
-        optgroup->append_single_option_line("belt_gcode_back_transform");
+        optgroup->append_single_option_line("gcode_back_transform");
         {
             Line line = { L("Origin snap X"), L("Snap object bbox min X to offset in G-code output") };
             line.append_option(optgroup->get_option("belt_origin_snap_x"));
@@ -6187,10 +6187,13 @@ void TabPrinter::toggle_options()
         toggle_line("belt_printer_infinite_y", is_belt);
         for (auto el : {"belt_shear_x", "belt_shear_y", "belt_shear_z",
                         "belt_scale_x", "belt_scale_y", "belt_scale_z",
-                        "belt_preslice_remap_x",
-                        "belt_gcode_remap_x", "belt_gcode_back_transform",
                         "belt_origin_snap_x", "belt_origin_snap_y", "belt_origin_snap_z"})
             toggle_line(el, is_belt);
+
+        // Remap options: visible when belt mode is on OR when UI is in developer mode.
+        bool show_remap = is_belt || (m_mode >= comDevelop);
+        for (auto el : {"preslice_remap_x", "gcode_remap_x", "gcode_back_transform"})
+            toggle_line(el, show_remap);
 
         // Gray out angle/from sub-options when their parent shear/scale mode is None.
         auto sx = m_config->option<ConfigOptionEnum<BeltShearMode>>("belt_shear_x")->value;

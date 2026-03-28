@@ -24,6 +24,36 @@ namespace Slic3r {
 
 bool GCodeWriter::full_gcode_comment = true;
 
+void GCodeWriter::set_axis_remap(int rx, int ry, int rz)
+{
+    m_remap_x = rx;
+    m_remap_y = ry;
+    m_remap_z = rz;
+}
+
+void GCodeWriter::set_build_volume_max(const Vec3d &max)
+{
+    m_build_vol_max = max;
+}
+
+bool GCodeWriter::has_axis_remap() const
+{
+    return m_remap_x != 0 || m_remap_y != 1 || m_remap_z != 2;
+}
+
+Vec3d GCodeWriter::apply_axis_remap(const Vec3d &pos) const
+{
+    if (!has_axis_remap())
+        return pos;
+    auto remap = [this, &pos](int r) -> double {
+        int axis = r % 3;
+        if (r < 3) return pos[axis];
+        if (r < 6) return -pos[axis];
+        return m_build_vol_max[axis] - pos[axis];
+    };
+    return { remap(m_remap_x), remap(m_remap_y), remap(m_remap_z) };
+}
+
 bool GCodeWriter::supports_separate_travel_acceleration(GCodeFlavor flavor)
 {
     return (flavor == gcfRepetier || flavor == gcfMarlinFirmware ||  flavor == gcfRepRapFirmware);
@@ -758,7 +788,13 @@ std::string GCodeWriter::travel_to_xy(const Vec2d &point, const std::string &com
     Vec2d point_on_plate = { point(0) - m_x_offset, point(1) - m_y_offset };
 
     GCodeG1Formatter w;
-    w.emit_xy(point_on_plate);
+    if (has_axis_remap()) {
+        // Axis remap may couple XY with Z; emit full XYZ in machine coordinates.
+        Vec3d machine = apply_axis_remap(Vec3d(point_on_plate.x(), point_on_plate.y(), m_pos.z()));
+        w.emit_xyz(machine);
+    } else {
+        w.emit_xy(point_on_plate);
+    }
     auto speed = m_is_first_layer
         ? this->config.get_abs_value_at("initial_layer_travel_speed", m_cached_extruder_idx) : this->config.travel_speed.get_at(m_cached_extruder_idx);
     w.emit_f(speed * 60.0);
@@ -1003,7 +1039,13 @@ std::string GCodeWriter::_travel_to_z(double z, const std::string &comment)
     }
 
     GCodeG1Formatter w;
-    w.emit_z(z);
+    if (has_axis_remap()) {
+        // Remap may couple Z with other axes; emit full XYZ.
+        Vec3d machine = apply_axis_remap(Vec3d(m_pos.x() - m_x_offset, m_pos.y() - m_y_offset, z));
+        w.emit_xyz(machine);
+    } else {
+        w.emit_z(z);
+    }
     w.emit_f(speed * 60.0);
     //BBS
     w.emit_comment(GCodeWriter::full_gcode_comment, comment);
@@ -1111,7 +1153,12 @@ std::string GCodeWriter::extrude_to_xy(const Vec2d &point, double dE, const std:
     Vec2d point_on_plate = { point(0) - m_x_offset, point(1) - m_y_offset };
 
     GCodeG1Formatter w;
-    w.emit_xy(point_on_plate);
+    if (has_axis_remap()) {
+        Vec3d machine = apply_axis_remap(Vec3d(point_on_plate.x(), point_on_plate.y(), m_pos.z()));
+        w.emit_xyz(machine);
+    } else {
+        w.emit_xy(point_on_plate);
+    }
     if (!force_no_extrusion)
         w.emit_e(filament()->E());
     //BBS
@@ -1155,6 +1202,9 @@ std::string GCodeWriter::extrude_to_xyz(const Vec3d &point, double dE, const std
 
     //BBS: take plate offset into consider
     Vec3d point_on_plate = { point(0) - m_x_offset, point(1) - m_y_offset, point(2) };
+
+    if (has_axis_remap())
+        point_on_plate = apply_axis_remap(point_on_plate);
 
     GCodeG1Formatter w;
     if (z_changed)

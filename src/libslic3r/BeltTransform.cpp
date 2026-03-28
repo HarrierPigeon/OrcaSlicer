@@ -13,9 +13,9 @@ Transform3d BeltTransformPipeline::build_preslice_remap(const PrintConfig &confi
     if (!has_preslice_remap(config))
         return pre_remap;
 
-    int pre_rx = int(config.belt_preslice_remap_x.value);
-    int pre_ry = int(config.belt_preslice_remap_y.value);
-    int pre_rz = int(config.belt_preslice_remap_z.value);
+    int pre_rx = int(config.preslice_remap_x.value);
+    int pre_ry = int(config.preslice_remap_y.value);
+    int pre_rz = int(config.preslice_remap_z.value);
 
     // Each remap value selects a source axis and sign.
     auto remap_column = [](int r) -> Vec3d {
@@ -114,13 +114,13 @@ Transform3d BeltTransformPipeline::build_forward_transform(const PrintConfig &co
 
 BoundingBoxf3 BeltTransformPipeline::remap_bbox(const BoundingBoxf3 &bb, const PrintConfig &config)
 {
-    int pre_rx = int(config.belt_preslice_remap_x.value);
-    int pre_ry = int(config.belt_preslice_remap_y.value);
-    int pre_rz = int(config.belt_preslice_remap_z.value);
+    int pre_rx = int(config.preslice_remap_x.value);
+    int pre_ry = int(config.preslice_remap_y.value);
+    int pre_rz = int(config.preslice_remap_z.value);
 
-    if (pre_rx == int(BeltRemapAxis::PosX) &&
-        pre_ry == int(BeltRemapAxis::PosY) &&
-        pre_rz == int(BeltRemapAxis::PosZ))
+    if (pre_rx == int(RemapAxis::PosX) &&
+        pre_ry == int(RemapAxis::PosY) &&
+        pre_rz == int(RemapAxis::PosZ))
         return bb;  // Identity remap.
 
     auto remap_coord = [](int r, const Vec3d &v) -> double {

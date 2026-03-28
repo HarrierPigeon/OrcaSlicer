@@ -58,21 +58,21 @@ public:
 
     static bool has_preslice_remap(const PrintConfig &config)
     {
-        return int(config.belt_preslice_remap_x.value) != int(BeltRemapAxis::PosX) ||
-               int(config.belt_preslice_remap_y.value) != int(BeltRemapAxis::PosY) ||
-               int(config.belt_preslice_remap_z.value) != int(BeltRemapAxis::PosZ);
+        return int(config.preslice_remap_x.value) != int(RemapAxis::PosX) ||
+               int(config.preslice_remap_y.value) != int(RemapAxis::PosY) ||
+               int(config.preslice_remap_z.value) != int(RemapAxis::PosZ);
     }
 
     // Overload accepting DynamicPrintConfig (used in static slicing_parameters).
     static bool has_preslice_remap(const DynamicPrintConfig &config)
     {
         auto get_int = [&](const char *key) -> int {
-            auto *opt = config.option<ConfigOptionEnum<BeltRemapAxis>>(key);
+            auto *opt = config.option<ConfigOptionEnum<RemapAxis>>(key);
             return opt ? int(opt->value) : 0;
         };
-        return get_int("belt_preslice_remap_x") != int(BeltRemapAxis::PosX) ||
-               get_int("belt_preslice_remap_y") != int(BeltRemapAxis::PosY) ||
-               get_int("belt_preslice_remap_z") != int(BeltRemapAxis::PosZ);
+        return get_int("preslice_remap_x") != int(RemapAxis::PosX) ||
+               get_int("preslice_remap_y") != int(RemapAxis::PosY) ||
+               get_int("preslice_remap_z") != int(RemapAxis::PosZ);
     }
 
     static bool has_shear(const PrintConfig &config)

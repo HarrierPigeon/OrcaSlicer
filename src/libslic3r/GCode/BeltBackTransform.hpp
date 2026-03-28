@@ -15,7 +15,7 @@ namespace Slic3r {
 // Initialized once from PrintConfig, then applied per-point in
 // GCodeWriter::to_machine_coords() before axis remapping.
 //
-// Active when belt_gcode_back_transform is true AND at least one of:
+// Active when gcode_back_transform is true AND at least one of:
 //   - a shear axis has global mode enabled, or
 //   - a pre-slice axis remap is non-identity.
 class BeltBackTransform

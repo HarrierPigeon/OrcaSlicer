@@ -23,21 +23,19 @@ public:
     // Create a strategy if belt_printer is enabled; returns nullptr otherwise.
     static std::unique_ptr<BeltSliceStrategy> create(const PrintConfig &config);
 
-    // Apply belt transforms to the slicing trafo.
-    // Modifies trafo in-place: trafo = z_shift * scale * shear * pre_remap * trafo
-    // Scans all model_part volumes to detect minimum Z and add z-shift if needed.
-    // Sets *out_belt_min_z to the minimum Z of the mesh after transforms.
+    // Apply belt-specific transforms (shear + scale + z-shift) to the slicing trafo.
+    // Pre-slice remap is handled separately (standalone feature).
+    // has_remap: whether pre-slice remap was already applied (affects z-shift detection).
     void apply_to_trafo(Transform3d &trafo,
                         const ModelVolumePtrs &model_volumes,
+                        bool has_remap,
                         double *out_belt_min_z) const;
 
 private:
     explicit BeltSliceStrategy(const PrintConfig &config);
 
-    bool        m_has_remap  = false;
     bool        m_has_shear  = false;
     bool        m_has_scale  = false;
-    Transform3d m_pre_remap  = Transform3d::Identity();
     Matrix3d    m_shear      = Matrix3d::Identity();
     Matrix3d    m_scale      = Matrix3d::Identity();
 };

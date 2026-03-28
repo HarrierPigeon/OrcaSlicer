@@ -15,13 +15,7 @@ void BeltGCode::init_belt_writer(Print &print, bool is_bbl_printers)
     auto belt_writer = std::make_unique<BeltGCodeWriter>();
     belt_writer->set_is_bbl_machine(is_bbl_printers);
     belt_writer->set_belt_angle(print.config().belt_printer_angle.value);
-    belt_writer->set_axis_remap(
-        int(print.config().belt_gcode_remap_x.value),
-        int(print.config().belt_gcode_remap_y.value),
-        int(print.config().belt_gcode_remap_z.value));
-    BoundingBoxf bbox_bed(print.config().printable_area.values);
-    belt_writer->set_build_volume_max(Vec3d(bbox_bed.max.x(), bbox_bed.max.y(),
-                                            print.config().printable_height.value));
+    // Axis remap and build volume max are set by base GCode after init_belt_writer returns.
     belt_writer->set_belt_back_transform(print.config());
     m_writer = std::move(belt_writer);
 
@@ -59,9 +53,9 @@ void BeltGCode::write_belt_header(GCodeOutputStream &file, const Print &print)
     file.write_format("; belt_scale_z = %s\n",       full_cfg.opt_serialize("belt_scale_z").c_str());
     file.write_format("; belt_scale_z_angle = %.1f\n", print.config().belt_scale_z_angle.value);
     // Pre-slice remap configs
-    file.write_format("; belt_preslice_remap_x = %s\n", full_cfg.opt_serialize("belt_preslice_remap_x").c_str());
-    file.write_format("; belt_preslice_remap_y = %s\n", full_cfg.opt_serialize("belt_preslice_remap_y").c_str());
-    file.write_format("; belt_preslice_remap_z = %s\n", full_cfg.opt_serialize("belt_preslice_remap_z").c_str());
+    file.write_format("; preslice_remap_x = %s\n", full_cfg.opt_serialize("preslice_remap_x").c_str());
+    file.write_format("; preslice_remap_y = %s\n", full_cfg.opt_serialize("preslice_remap_y").c_str());
+    file.write_format("; preslice_remap_z = %s\n", full_cfg.opt_serialize("preslice_remap_z").c_str());
 }
 
 void BeltGCode::on_set_origin(const PrintObject *obj, const Point &inst_shift)

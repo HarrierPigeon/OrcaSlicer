@@ -106,9 +106,9 @@ bool Print::invalidate_state_by_config_options(const ConfigOptionResolver & /* n
     // or they are only notes not influencing the generated G-code.
     static std::unordered_set<std::string> steps_gcode = {
         // Belt printer G-code axis remap (only affects G-code output, not slicing).
-        "belt_gcode_remap_x",
-        "belt_gcode_remap_y",
-        "belt_gcode_remap_z",
+        "gcode_remap_x",
+        "gcode_remap_y",
+        "gcode_remap_z",
         "belt_origin_snap_x", "belt_origin_offset_x",
         "belt_origin_snap_y", "belt_origin_offset_y",
         "belt_origin_snap_z", "belt_origin_offset_z",
@@ -336,9 +336,9 @@ bool Print::invalidate_state_by_config_options(const ConfigOptionResolver & /* n
             || opt_key == "belt_scale_y_angle"
             || opt_key == "belt_scale_z"
             || opt_key == "belt_scale_z_angle"
-            || opt_key == "belt_preslice_remap_x"
-            || opt_key == "belt_preslice_remap_y"
-            || opt_key == "belt_preslice_remap_z") {
+            || opt_key == "preslice_remap_x"
+            || opt_key == "preslice_remap_y"
+            || opt_key == "preslice_remap_z") {
             osteps.emplace_back(posSlice);
         } else if (
                opt_key == "belt_support_floor_offset"

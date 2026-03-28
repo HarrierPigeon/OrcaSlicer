@@ -8,7 +8,7 @@ bool BeltBackTransform::init_from_config(const PrintConfig &config)
     m_active  = false;
     m_inverse = Transform3d::Identity();
 
-    if (!config.belt_printer.value || !config.belt_gcode_back_transform.value)
+    if (!config.belt_printer.value || !config.gcode_back_transform.value)
         return false;
 
     // Require at least one active transform to proceed.

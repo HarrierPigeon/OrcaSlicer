@@ -2927,6 +2927,19 @@ void GCode::_do_export(Print& print, GCodeOutputStream &file, ThumbnailsGenerato
     // Belt printer: initialize belt-specific writer via virtual hook.
     this->init_belt_writer(print, is_bbl_printers);
 
+    // Standalone axis remap (works with or without belt mode).
+    {
+        int rx = int(print.config().gcode_remap_x.value);
+        int ry = int(print.config().gcode_remap_y.value);
+        int rz = int(print.config().gcode_remap_z.value);
+        if (rx != 0 || ry != 1 || rz != 2) {
+            m_writer->set_axis_remap(rx, ry, rz);
+            BoundingBoxf bbox_bed(print.config().printable_area.values);
+            m_writer->set_build_volume_max(Vec3d(bbox_bed.max.x(), bbox_bed.max.y(),
+                                                  print.config().printable_height.value));
+        }
+    }
+
     // How many times will be change_layer() called?
     // change_layer() in turn increments the progress bar status.
     m_layer_count = 0;
