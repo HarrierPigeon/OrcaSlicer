@@ -210,8 +210,9 @@ public:
         m_nominal_z(0.),
         m_writer(std::make_unique<GCodeWriter>())
         {}
-    ~GCode() = default;
+    virtual ~GCode() = default;
 
+public:
     // throws std::runtime_exception on error,
     // throws CanceledException through print->throw_if_canceled().
     void            do_export(Print* print, const char* path, GCodeProcessorResult* result = nullptr, ThumbnailsGeneratorCallback thumbnail_cb = nullptr);
@@ -302,7 +303,7 @@ public:
         }
     };
 
-private:
+protected:
     class GCodeOutputStream {
     public:
         GCodeOutputStream(FILE *f, GCodeProcessor &processor) : f(f), m_processor(processor) {}
@@ -330,9 +331,17 @@ private:
         FILE *f = nullptr;
         GCodeProcessor &m_processor;
     };
+
+    // Virtual hooks for belt printer subclass (BeltGCode).
+    // No-ops in base GCode; overridden in BeltGCode.
+    virtual void init_belt_writer(Print &print, bool is_bbl_printers) {}
+    virtual void write_belt_header(GCodeOutputStream &file, const Print &print) {}
+    virtual void on_set_origin(const PrintObject *obj, const Point &inst_shift) {}
+    virtual bool should_disable_arc_fitting() const { return false; }
+
     void            _do_export(Print &print, GCodeOutputStream &file, ThumbnailsGeneratorCallback thumbnail_cb);
 
-    static std::vector<LayerToPrint>        		                   collect_layers_to_print(const PrintObject &object);
+    static std::vector<LayerToPrint>        		                   collect_layers_to_print(const PrintObject &object, bool skip_empty_first_layer = false);
     static std::vector<std::pair<coordf_t, std::vector<LayerToPrint>>> collect_layers_to_print(const Print &print);
 
     std::string generate_skirt(const Print &print,
@@ -495,11 +504,6 @@ private:
        This affects the input arguments supplied to the extrude*() and travel_to()
        methods. */
     Vec2d                               m_origin;
-    // Per-axis origin snap: shift G-code so each object's bbox min = offset.
-    bool                                m_origin_snap[3] = {false, false, false};
-    double                              m_origin_snap_offset[3] = {0., 0., 0.};
-    // Called when switching instances to recompute the writer's snap for this instance.
-    void update_origin_snap(const PrintObject *obj, const Point &inst_shift);
     FullPrintConfig                     m_config;
     DynamicConfig                       m_calib_config;
     // scaled G-code resolution
