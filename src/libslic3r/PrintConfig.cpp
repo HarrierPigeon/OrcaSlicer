@@ -7146,13 +7146,13 @@ void PrintConfigDef::init_fff_params()
         def->set_default_value(new ConfigOptionEnum<BeltAxis>(default_axis));
     };
 
-    auto add_belt_shear_global = [this](const char *key, const char *label) {
+    auto add_belt_shear_global = [this](const char *key, const char *label, bool default_val = false) {
         auto def = this->add(key, coBool);
         def->label = L(label);
         def->category = L("Printable space");
         def->tooltip = L("Apply shear in global coordinates (position-aware) rather than object-local coordinates.");
         def->mode = comAdvanced;
-        def->set_default_value(new ConfigOptionBool(false));
+        def->set_default_value(new ConfigOptionBool(default_val));
     };
 
     add_belt_shear_mode("belt_shear_x", "Function", BeltShearMode::None);
@@ -7160,15 +7160,15 @@ void PrintConfigDef::init_fff_params()
     add_belt_axis_enum("belt_shear_x_from", "From", "Source axis for X shear.", BeltAxis::Z);
     add_belt_shear_global("belt_shear_x_global", "Global");
 
-    add_belt_shear_mode("belt_shear_y", "Function", BeltShearMode::PosCot);
+    add_belt_shear_mode("belt_shear_y", "Function", BeltShearMode::None);
     add_belt_shear_angle("belt_shear_y_angle", "Angle");
     add_belt_axis_enum("belt_shear_y_from", "From", "Source axis for Y shear.", BeltAxis::Z);
     add_belt_shear_global("belt_shear_y_global", "Global");
 
-    add_belt_shear_mode("belt_shear_z", "Function", BeltShearMode::None);
+    add_belt_shear_mode("belt_shear_z", "Function", BeltShearMode::PosTan);
     add_belt_shear_angle("belt_shear_z_angle", "Angle");
     add_belt_axis_enum("belt_shear_z_from", "From", "Source axis for Z shear.", BeltAxis::Y);
-    add_belt_shear_global("belt_shear_z_global", "Global");
+    add_belt_shear_global("belt_shear_z_global", "Global", true);
 
     // Per-axis scale controls for belt printer
     auto add_belt_scale_mode = [this](const char *key, const char *label, BeltScaleMode default_mode) {
