@@ -5092,6 +5092,7 @@ void TabPrinter::build_fff()
             line.append_option(optgroup->get_option("preslice_remap_x"));
             line.append_option(optgroup->get_option("preslice_remap_y"));
             line.append_option(optgroup->get_option("preslice_remap_z"));
+            line.append_option(optgroup->get_option("preslice_remap_global"));
             optgroup->append_line(line);
         }
         {
@@ -5101,6 +5102,7 @@ void TabPrinter::build_fff()
             line.append_option(optgroup->get_option("gcode_remap_z"));
             optgroup->append_line(line);
         }
+        optgroup->append_single_option_line("belt_preslice_global");
         optgroup->append_single_option_line("gcode_back_transform");
         {
             Line line = { L("Origin snap X"), L("Snap object bbox min X to offset in G-code output") };
@@ -6194,22 +6196,29 @@ void TabPrinter::toggle_options()
         bool show_remap = is_belt || (m_mode >= comDevelop);
         for (auto el : {"preslice_remap_x", "gcode_remap_x", "gcode_back_transform"})
             toggle_line(el, show_remap);
+        toggle_line("belt_preslice_global", show_remap);
+
+        bool belt_global = is_belt && m_config->opt_bool("belt_preslice_global");
+
+        // preslice_remap_global: superseded by belt_preslice_global
+        toggle_option("preslice_remap_global", show_remap && !belt_global);
 
         // Gray out angle/from sub-options when their parent shear/scale mode is None.
+        // Per-axis globals are superseded when belt_preslice_global is on.
         auto sx = m_config->option<ConfigOptionEnum<BeltShearMode>>("belt_shear_x")->value;
         toggle_option("belt_shear_x_angle",  is_belt && sx != BeltShearMode::None);
         toggle_option("belt_shear_x_from",   is_belt && sx != BeltShearMode::None);
-        toggle_option("belt_shear_x_global", is_belt && sx != BeltShearMode::None);
+        toggle_option("belt_shear_x_global", is_belt && sx != BeltShearMode::None && !belt_global);
 
         auto sy = m_config->option<ConfigOptionEnum<BeltShearMode>>("belt_shear_y")->value;
         toggle_option("belt_shear_y_angle",  is_belt && sy != BeltShearMode::None);
         toggle_option("belt_shear_y_from",   is_belt && sy != BeltShearMode::None);
-        toggle_option("belt_shear_y_global", is_belt && sy != BeltShearMode::None);
+        toggle_option("belt_shear_y_global", is_belt && sy != BeltShearMode::None && !belt_global);
 
         auto sz = m_config->option<ConfigOptionEnum<BeltShearMode>>("belt_shear_z")->value;
         toggle_option("belt_shear_z_angle",  is_belt && sz != BeltShearMode::None);
         toggle_option("belt_shear_z_from",   is_belt && sz != BeltShearMode::None);
-        toggle_option("belt_shear_z_global", is_belt && sz != BeltShearMode::None);
+        toggle_option("belt_shear_z_global", is_belt && sz != BeltShearMode::None && !belt_global);
 
         auto scx = m_config->option<ConfigOptionEnum<BeltScaleMode>>("belt_scale_x")->value;
         toggle_option("belt_scale_x_angle", is_belt && scx != BeltScaleMode::None);
@@ -6220,9 +6229,10 @@ void TabPrinter::toggle_options()
         auto scz = m_config->option<ConfigOptionEnum<BeltScaleMode>>("belt_scale_z")->value;
         toggle_option("belt_scale_z_angle", is_belt && scz != BeltScaleMode::None);
 
-        toggle_option("belt_origin_offset_x", is_belt && m_config->opt_bool("belt_origin_snap_x"));
-        toggle_option("belt_origin_offset_y", is_belt && m_config->opt_bool("belt_origin_snap_y"));
-        toggle_option("belt_origin_offset_z", is_belt && m_config->opt_bool("belt_origin_snap_z"));
+        // Origin snap is superseded by belt_preslice_global
+        toggle_option("belt_origin_offset_x", is_belt && m_config->opt_bool("belt_origin_snap_x") && !belt_global);
+        toggle_option("belt_origin_offset_y", is_belt && m_config->opt_bool("belt_origin_snap_y") && !belt_global);
+        toggle_option("belt_origin_offset_z", is_belt && m_config->opt_bool("belt_origin_snap_z") && !belt_global);
 
         toggle_line("belt_support_floor_mode", is_belt);
     }

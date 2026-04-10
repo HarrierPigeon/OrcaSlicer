@@ -84,11 +84,13 @@
     ],
     "preslice_remap_y": "pos_z",
     "preslice_remap_z": "pos_y",
+    "preslice_remap_global": "1",
     "printer_extruder_id": [
         "1"
     ],
     "belt_origin_snap_y": "1",
     "belt_printer": "1",
+    "belt_preslice_global": "1",
     "belt_shear_z": "pos_cot",
     "belt_shear_z_angle": "30",
     "build_plate_tilt_x": "45",

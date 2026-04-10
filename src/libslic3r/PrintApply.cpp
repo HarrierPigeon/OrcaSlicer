@@ -1,6 +1,7 @@
 #include "ClipperUtils.hpp"
 #include "Model.hpp"
 #include "Print.hpp"
+#include "BeltTransform.hpp"
 
 #include <boost/log/trivial.hpp>
 #include <cfloat>
@@ -1680,8 +1681,10 @@ Print::ApplyStatus Print::apply(const Model &model, DynamicPrintConfig new_full_
             // Orca: Updated for XYZ filament shrink compensation
             // Belt global mode: force each instance into its own PrintObject
             // so each gets independent layer Z values.
-            bool belt_force_separate = m_config.belt_printer.value && m_config.belt_shear_z_global.value
-                && m_config.belt_shear_z.value != BeltShearMode::None;
+            bool belt_force_separate = m_config.belt_printer.value && (
+                (m_config.belt_shear_z_global.value && m_config.belt_shear_z.value != BeltShearMode::None)
+                || m_config.belt_preslice_global.value
+                || (m_config.preslice_remap_global.value && BeltTransformPipeline::has_preslice_remap(m_config)));
             model_object_status.print_instances = print_objects_from_model_object(*model_object, this->shrinkage_compensation(), belt_force_separate);
             std::vector<const PrintObjectStatus*> old;
             old.reserve(print_object_status_db.count(*model_object));
@@ -1772,8 +1775,9 @@ Print::ApplyStatus Print::apply(const Model &model, DynamicPrintConfig new_full_
         // min_shift across all objects, so one move affects everyone).
         if (belt_instances_shifted
             && m_config.belt_printer.value
-            && m_config.belt_shear_z_global.value
-            && m_config.belt_shear_z.value != BeltShearMode::None) {
+            && ((m_config.belt_shear_z_global.value && m_config.belt_shear_z.value != BeltShearMode::None)
+                || m_config.belt_preslice_global.value
+                || (m_config.preslice_remap_global.value && BeltTransformPipeline::has_preslice_remap(m_config)))) {
             for (PrintObject *object : m_objects)
                 update_apply_status(object->invalidate_step(posSlice));
         }

@@ -598,9 +598,12 @@ private:
     double                                  m_belt_global_z_offset { 0.0 };
     // Belt printer: min_z of mesh after belt shear (before Z-shift), for z_offset calc.
     double                                  m_belt_min_z { 0.0 };
+    // Belt printer: XY correction from global pre-slice mode, applied to G-code origin.
+    Vec2d                                   m_belt_global_xy_correction { Vec2d::Zero() };
 public:
     double belt_global_z_offset() const { return m_belt_global_z_offset; }
     double belt_min_z() const { return m_belt_min_z; }
+    Vec2d  belt_global_xy_correction() const { return m_belt_global_xy_correction; }
 private:
 
 

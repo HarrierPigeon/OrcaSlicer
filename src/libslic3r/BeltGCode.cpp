@@ -56,10 +56,45 @@ void BeltGCode::write_belt_header(GCodeOutputStream &file, const Print &print)
     file.write_format("; preslice_remap_x = %s\n", full_cfg.opt_serialize("preslice_remap_x").c_str());
     file.write_format("; preslice_remap_y = %s\n", full_cfg.opt_serialize("preslice_remap_y").c_str());
     file.write_format("; preslice_remap_z = %s\n", full_cfg.opt_serialize("preslice_remap_z").c_str());
+    file.write_format("; preslice_remap_global = %d\n", print.config().preslice_remap_global.value ? 1 : 0);
+    file.write_format("; belt_preslice_global = %d\n", print.config().belt_preslice_global.value ? 1 : 0);
 }
 
 void BeltGCode::on_set_origin(const PrintObject *obj, const Point &inst_shift)
 {
+    // Global pre-slice mode: adjust origin using computed correction.
+    // Transform the origin through the belt pipeline so that
+    // back_transform(T * origin) = origin (correct machine position).
+    // This replaces the bbox-based axis snap with an exact formula.
+    //
+    // Two flags trigger this path:
+    //   belt_preslice_global   — full pipeline (scale * shear * remap) is global
+    //   preslice_remap_global  — only the pre-slice remap is global
+    // The XY origin adjustment uses the FULL forward transform either way,
+    // because the back_transform applied during G-code emission is always the
+    // inverse of the full pipeline. When only the remap is configured, both
+    // flags produce identical math (T == R).
+    bool use_global = m_config.belt_preslice_global.value
+        || (m_config.preslice_remap_global.value
+            && BeltTransformPipeline::has_preslice_remap(m_config));
+    if (use_global && m_config.belt_printer.value) {
+        auto *belt_writer = dynamic_cast<BeltGCodeWriter*>(m_writer.get());
+        if (belt_writer) {
+            // Clear snap — not needed with computed corrections
+            for (int a = 0; a < 3; ++a)
+                belt_writer->set_origin_snap(a, false, 0., 0.);
+        }
+
+        // Adjust origin: transform through belt forward pipeline so that
+        // the back-transform correctly recovers model-space positions.
+        Transform3d T = BeltTransformPipeline::build_forward_transform(m_config);
+        Vec2d cur_origin = this->origin();
+        Vec3d origin3d(cur_origin.x(), cur_origin.y(), 0.);
+        Vec3d adjusted = T.linear() * origin3d;
+        this->set_origin(Vec2d(adjusted.x(), adjusted.y()));
+        return;
+    }
+
     if (!m_origin_snap[0] && !m_origin_snap[1] && !m_origin_snap[2])
         return;
 

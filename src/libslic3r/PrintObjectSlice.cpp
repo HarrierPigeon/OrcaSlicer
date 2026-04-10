@@ -934,6 +934,7 @@ void PrintObject::slice()
         BOOST_LOG_TRIVIAL(warning) << "Belt global check: belt_printer=" << pcfg.belt_printer.value
             << " belt_shear_z=" << int(pcfg.belt_shear_z.value)
             << " belt_shear_z_global=" << pcfg.belt_shear_z_global.value
+            << " belt_preslice_global=" << pcfg.belt_preslice_global.value
             << " object=" << this->model_object()->name;
         if (pcfg.belt_printer.value) {
 
@@ -944,37 +945,53 @@ void PrintObject::slice()
                 << " shift=(" << unscale<double>(inst_shift.x()) << ", " << unscale<double>(inst_shift.y()) << ")";
             double global_z_offset = 0.;
 
-            struct GAxis { BeltShearMode mode; double angle; int from; bool global; };
-            GAxis gaxes[3] = {
-                { pcfg.belt_shear_x.value, pcfg.belt_shear_x_angle.value, int(pcfg.belt_shear_x_from.value), pcfg.belt_shear_x_global.value },
-                { pcfg.belt_shear_y.value, pcfg.belt_shear_y_angle.value, int(pcfg.belt_shear_y_from.value), pcfg.belt_shear_y_global.value },
-                { pcfg.belt_shear_z.value, pcfg.belt_shear_z_angle.value, int(pcfg.belt_shear_z_from.value), pcfg.belt_shear_z_global.value },
-            };
+            if (pcfg.belt_preslice_global.value) {
+                // Global pre-slice mode: compute full correction c = (T.linear() - I) * d
+                // where T is the belt forward transform and d is the bed position.
+                Transform3d T = BeltTransformPipeline::build_forward_transform(pcfg);
+                Vec3d d(unscale<double>(inst_shift.x()), unscale<double>(inst_shift.y()), 0.);
+                Vec3d c = T.linear() * d - d;
 
-            // Only the Z-row shear contributes a Z offset from global mode.
-            // (X/Y row shears with global would offset X/Y, not Z — not useful here.)
-            // Offsets are RELATIVE: we subtract the minimum shift across all
-            // PrintObjects so the lowest-positioned object stays at Z=0.
-            const auto &za = gaxes[2]; // Z row
-            if (za.global && za.mode != BeltShearMode::None && za.from < 2) {
-                double factor = BeltTransformPipeline::compute_shear_factor(za.mode, za.angle);
-                // The global Z offset accounts for the instance's position-
-                // dependent shear contribution.  m_belt_min_z is the minimum Z
-                // of the mesh after pre_remap + shear + trafo_centered, which
-                // includes the centering offset on the remapped Z axis.
-                // Subtract the belt surface's centered Z position so we get
-                // only the shear-induced contribution (same correction as the
-                // belt_floor_z_shift fix).
-                double belt_surface_z = BeltTransformPipeline::has_preslice_remap(pcfg)
-                    ? BeltTransformPipeline::remap_bbox(*this->model_object(), pcfg).min.z() : 0.;
-                double shear_min_z = m_belt_min_z - belt_surface_z;
-                Point phys = inst_shift; // already has center_offset subtracted
-                double center_on_axis = (za.from == 0) ? unscale<double>(phys.x()) : unscale<double>(phys.y());
-                global_z_offset += center_on_axis * factor + shear_min_z;
+                global_z_offset = c.z();
+                m_belt_global_xy_correction = Vec2d(c.x(), c.y());
+
+                BOOST_LOG_TRIVIAL(warning) << "Belt preslice_global: correction=("
+                    << c.x() << ", " << c.y() << ", " << c.z() << ")";
+            } else {
+                struct GAxis { BeltShearMode mode; double angle; int from; bool global; };
+                GAxis gaxes[3] = {
+                    { pcfg.belt_shear_x.value, pcfg.belt_shear_x_angle.value, int(pcfg.belt_shear_x_from.value), pcfg.belt_shear_x_global.value },
+                    { pcfg.belt_shear_y.value, pcfg.belt_shear_y_angle.value, int(pcfg.belt_shear_y_from.value), pcfg.belt_shear_y_global.value },
+                    { pcfg.belt_shear_z.value, pcfg.belt_shear_z_angle.value, int(pcfg.belt_shear_z_from.value), pcfg.belt_shear_z_global.value },
+                };
+
+                // Only the Z-row shear contributes a Z offset from global mode.
+                // (X/Y row shears with global would offset X/Y, not Z — not useful here.)
+                const auto &za = gaxes[2]; // Z row
+                if (za.global && za.mode != BeltShearMode::None && za.from < 2) {
+                    double factor = BeltTransformPipeline::compute_shear_factor(za.mode, za.angle);
+                    double belt_surface_z = BeltTransformPipeline::has_preslice_remap(pcfg)
+                        ? BeltTransformPipeline::remap_bbox(*this->model_object(), pcfg).min.z() : 0.;
+                    double shear_min_z = m_belt_min_z - belt_surface_z;
+                    Point phys = inst_shift;
+                    double center_on_axis = (za.from == 0) ? unscale<double>(phys.x()) : unscale<double>(phys.y());
+                    global_z_offset += center_on_axis * factor + shear_min_z;
+                }
+
+                // Pre-slice remap global mode: when on, the remap accounts for the
+                // instance bed position. The Z component of the correction
+                // (R - I) * d shifts layer print_z so e.g. a Y↔Z swap with an
+                // object at Y=50 prints at Z=50.
+                if (pcfg.preslice_remap_global.value
+                    && BeltTransformPipeline::has_preslice_remap(pcfg)) {
+                    Transform3d R = BeltTransformPipeline::build_preslice_remap(pcfg);
+                    Vec3d d(unscale<double>(inst_shift.x()), unscale<double>(inst_shift.y()), 0.);
+                    Vec3d remap_correction = R.linear() * d - d;
+                    global_z_offset += remap_correction.z();
+                }
             }
 
             BOOST_LOG_TRIVIAL(warning) << "Belt global: z_offset=" << global_z_offset
-                << " za.global=" << za.global << " za.mode=" << int(za.mode) << " za.from=" << za.from
                 << " (relative to min across " << this->print()->objects().size() << " objects)";
             m_belt_global_z_offset = global_z_offset;
             if (std::abs(global_z_offset) > EPSILON) {

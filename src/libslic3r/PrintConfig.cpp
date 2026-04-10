@@ -7236,6 +7236,16 @@ void PrintConfigDef::init_fff_params()
         "Rev mode mirrors relative to the build volume maximum. Default +Z: no change.",
         RemapAxis::PosZ);
 
+    def = this->add("preslice_remap_global", coBool);
+    def->label = L("Global");
+    def->category = L("Printable space");
+    def->tooltip = L("When enabled, the pre-slice axis remap accounts for each object's bed position. "
+                      "Without this, the remap is applied locally around each object's center, so "
+                      "objects at different positions don't get a position-dependent contribution. "
+                      "Mirrors the per-axis 'Global' option on belt mesh shears, but for the remap.");
+    def->mode = comAdvanced;
+    def->set_default_value(new ConfigOptionBool(false));
+
     add_belt_remap("gcode_remap_x", "X", "Which slicing axis maps to machine X in G-code output. Applied AFTER slicing, during G-code generation.", RemapAxis::PosX);
     add_belt_remap("gcode_remap_y", "Y", "Which slicing axis maps to machine Y in G-code output. Applied AFTER slicing, during G-code generation.", RemapAxis::PosY);
     add_belt_remap("gcode_remap_z", "Z", "Which slicing axis maps to machine Z in G-code output. Applied AFTER slicing, during G-code generation.", RemapAxis::PosZ);
@@ -7247,6 +7257,15 @@ void PrintConfigDef::init_fff_params()
                       "coordinates are in the machine's physical coordinate space. "
                       "Requires at least one shear axis with global mode enabled.");
     def->mode = comSimple;  // Visibility controlled by toggle_line in Tab.cpp
+    def->set_default_value(new ConfigOptionBool(false));
+
+    def = this->add("belt_preslice_global", coBool);
+    def->label = L("Global mesh transforms");
+    def->category = L("Printable space");
+    def->tooltip = L("When enabled, pre-slice belt transforms (remap, shear, scale) account for "
+                      "each object's bed position, producing correct machine coordinates without "
+                      "relying on origin snap. Each instance gets its own PrintObject.");
+    def->mode = comAdvanced;
     def->set_default_value(new ConfigOptionBool(false));
 
     auto add_belt_origin_snap = [this](const char *key_snap, const char *key_offset,
