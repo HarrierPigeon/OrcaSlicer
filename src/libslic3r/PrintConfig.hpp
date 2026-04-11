@@ -203,6 +203,26 @@ enum class BeltSupportZOffsetMode
     RaftOnly,       // Only apply to raft layers
 };
 
+// Selects which plane the slicer treats as the "first layer plane" — the
+// reference surface used to decide which extrusions get first-layer settings
+// (no fan, slow speed, initial-layer accel/jerk, deferred temperature drop).
+//
+// Auto resolves to:
+//   - XY (inactive, legacy behavior) for non-belt printers and for belt
+//     printers with no Z-axis shear.
+//   - BeltShear for belt printers with belt_shear_z != None.
+//
+// XY is also used as an explicit "opt out" mode that forces legacy
+// per-layer first-layer detection even on belt printers.
+enum class FirstLayerPlaneMode
+{
+    Auto = 0,
+    XY,
+    YZ,
+    XZ,
+    BeltShear,
+};
+
 enum SupportMaterialPattern {
     smpDefault,
     smpRectilinear, smpRectilinearGrid, smpHoneycomb,
@@ -552,6 +572,7 @@ CONFIG_OPTION_ENUM_DECLARE_STATIC_MAPS(BeltAxis)
 CONFIG_OPTION_ENUM_DECLARE_STATIC_MAPS(RemapAxis)
 CONFIG_OPTION_ENUM_DECLARE_STATIC_MAPS(BeltSupportFloorMode)
 CONFIG_OPTION_ENUM_DECLARE_STATIC_MAPS(BeltSupportZOffsetMode)
+CONFIG_OPTION_ENUM_DECLARE_STATIC_MAPS(FirstLayerPlaneMode)
 CONFIG_OPTION_ENUM_DECLARE_STATIC_MAPS(SupportMaterialPattern)
 CONFIG_OPTION_ENUM_DECLARE_STATIC_MAPS(SupportMaterialStyle)
 CONFIG_OPTION_ENUM_DECLARE_STATIC_MAPS(SupportMaterialInterfacePattern)
@@ -1496,6 +1517,9 @@ PRINT_CONFIG_CLASS_DERIVED_DEFINE(
     ((ConfigOptionEnum<RemapAxis>,  gcode_remap_z))
     ((ConfigOptionBool,                 gcode_back_transform))
     ((ConfigOptionBool,                 belt_preslice_global))
+    ((ConfigOptionEnum<FirstLayerPlaneMode>, first_layer_plane))
+    ((ConfigOptionFloat,                first_layer_plane_offset))
+    ((ConfigOptionFloat,                first_layer_plane_thickness))
     ((ConfigOptionBool,                 belt_origin_snap_x))
     ((ConfigOptionFloat,                belt_origin_offset_x))
     ((ConfigOptionBool,                 belt_origin_snap_y))

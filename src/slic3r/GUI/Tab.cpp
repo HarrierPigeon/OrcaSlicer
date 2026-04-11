@@ -4452,6 +4452,18 @@ void TabPrinter::build_fff()
         optgroup->append_single_option_line("belt_preslice_global");
         optgroup->append_single_option_line("gcode_back_transform");
         {
+            Line line = { L("First layer plane"),
+                          L("Reference plane used to decide which extrusions get first-layer "
+                            "settings (no fan, slow speed, deferred temperature drop). On belt "
+                            "printers, Auto resolves to the tilted belt-shear plane so that "
+                            "first-layer treatment follows perpendicular distance from the belt "
+                            "surface, not slicing layer index.") };
+            line.append_option(optgroup->get_option("first_layer_plane"));
+            line.append_option(optgroup->get_option("first_layer_plane_offset"));
+            line.append_option(optgroup->get_option("first_layer_plane_thickness"));
+            optgroup->append_line(line);
+        }
+        {
             Line line = { L("Origin snap X"), L("Snap object bbox min X to offset in G-code output") };
             line.append_option(optgroup->get_option("belt_origin_snap_x"));
             line.append_option(optgroup->get_option("belt_origin_offset_x"));
@@ -5367,6 +5379,14 @@ void TabPrinter::toggle_options()
         toggle_option("belt_origin_offset_x", is_belt && m_config->opt_bool("belt_origin_snap_x") && !belt_global);
         toggle_option("belt_origin_offset_y", is_belt && m_config->opt_bool("belt_origin_snap_y") && !belt_global);
         toggle_option("belt_origin_offset_z", is_belt && m_config->opt_bool("belt_origin_snap_z") && !belt_global);
+
+        // First-layer plane: visible alongside the rest of belt-printer settings.
+        // The Auto default keeps legacy XY behavior on non-belt printers, so it's
+        // safe to also show it in the developer mode for non-belt printers.
+        bool show_first_layer_plane = is_belt || (m_mode >= comDevelop);
+        toggle_line("first_layer_plane", show_first_layer_plane);
+        toggle_option("first_layer_plane_offset",    show_first_layer_plane);
+        toggle_option("first_layer_plane_thickness", show_first_layer_plane);
 
         toggle_line("belt_support_floor_mode", is_belt);
     }

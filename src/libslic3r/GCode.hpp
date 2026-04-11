@@ -5,6 +5,7 @@
 #include "ExPolygon.hpp"
 #include "GCodeWriter.hpp"
 #include "BeltGCodeWriter.hpp"
+#include "FirstLayerPlane.hpp"
 #include "Layer.hpp"
 #include "Point.hpp"
 #include "PlaceholderParser.hpp"
@@ -303,6 +304,14 @@ public:
         }
     };
 
+    // Public accessor for the first-layer plane evaluator.  Used by
+    // CoolingBuffer (which is constructed with a GCode reference and needs
+    // to read the plane for per-segment fan re-evaluation).  All other
+    // first-layer-plane access points (on_first_layer overload, effective
+    // index helper) are in the protected section since they're called from
+    // GCode internals only.
+    const FirstLayerPlane *first_layer_plane() const { return m_first_layer_plane.get(); }
+
 protected:
     class GCodeOutputStream {
     public:
@@ -598,6 +607,11 @@ protected:
 
     std::unique_ptr<CoolingBuffer>      m_cooling_buffer;
     std::unique_ptr<SpiralVase>         m_spiral_vase;
+    // First-layer plane evaluator.  Constructed once per print from the
+    // PrintConfig.  is_active() == false on non-belt printers and on belt
+    // printers without a Z-axis shear; in that case all per-path plane
+    // checks short-circuit to the legacy Layer::id() == 0 path.
+    std::unique_ptr<FirstLayerPlane>    m_first_layer_plane;
 
     std::unique_ptr<PressureEqualizer>  m_pressure_equalizer;
     
@@ -657,6 +671,25 @@ protected:
     // On the first printing layer. This flag triggers first layer speeds.
     //BBS
     bool    on_first_layer() const { return m_layer != nullptr && m_layer->id() == 0 && abs(m_layer->bottom_z()) < EPSILON; }
+    // Per-point first-layer test.  When the FirstLayerPlane evaluator is
+    // active, the result depends on the supplied slicing-frame point;
+    // otherwise we delegate to the legacy per-layer test.  This is the
+    // entry point used by per-path call sites in _extrude.
+    bool on_first_layer(const Vec3d &point_slicing_mm) const {
+        if (m_first_layer_plane && m_first_layer_plane->is_active())
+            return m_first_layer_plane->is_first_layer(
+                point_slicing_mm, m_config.initial_layer_print_height.value);
+        return on_first_layer();
+    }
+    // "Effective layer index" used to drive layer-count thresholds like
+    // slow_down_layers.  When the evaluator is active this returns the
+    // perpendicular distance to the plane in band_thickness_mm units;
+    // otherwise it returns the legacy slicing layer index.
+    int effective_layer_index_for_point(const Vec3d &point_slicing_mm) const {
+        if (m_first_layer_plane && m_first_layer_plane->is_active())
+            return m_first_layer_plane->effective_layer_index(point_slicing_mm);
+        return on_first_layer() ? 0 : layer_id();
+    }
     int layer_id() const {
         if (m_layer == nullptr)
             return -1;

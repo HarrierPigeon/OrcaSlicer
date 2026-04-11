@@ -1,7 +1,26 @@
 #include "BeltGCodeWriter.hpp"
+#include "FirstLayerPlane.hpp"
 #include "Geometry.hpp"
 
 namespace Slic3r {
+
+namespace {
+
+// Decide whether a particular destination point gets first-layer treatment.
+// When the plane evaluator is active, distance from the plane wins; otherwise
+// fall back to the layer-coarse m_is_first_layer flag set by the caller.
+inline bool belt_point_on_first_layer(
+    const FirstLayerPlane *plane,
+    double                 first_layer_thickness_mm,
+    bool                   layer_first_flag,
+    const Vec3d           &point_slicing_mm)
+{
+    if (plane && plane->is_active())
+        return plane->is_first_layer(point_slicing_mm, first_layer_thickness_mm);
+    return layer_first_flag;
+}
+
+} // namespace
 
 // ---- Belt configuration ---------------------------------------------------
 
@@ -52,7 +71,10 @@ std::string BeltGCodeWriter::travel_to_xy(const Vec2d &point, const std::string 
 
     GCodeG1Formatter w;
     w.emit_xyz(machine);
-    auto speed = m_is_first_layer
+    const bool first_layer_for_point = belt_point_on_first_layer(
+        m_first_layer_plane, m_first_layer_thickness_mm, m_is_first_layer,
+        Vec3d(point.x(), point.y(), m_pos.z()));
+    auto speed = first_layer_for_point
         ? this->config.get_abs_value("initial_layer_travel_speed") : this->config.travel_speed.value;
     w.emit_f(speed * 60.0);
     w.emit_comment(GCodeWriter::full_gcode_comment, comment);
@@ -78,8 +100,11 @@ std::string BeltGCodeWriter::_travel_to_z(double z, const std::string &comment)
 
     double speed = this->config.travel_speed_z.value;
     if (speed == 0.) {
-        speed = m_is_first_layer ? this->config.get_abs_value("initial_layer_travel_speed")
-                                 : this->config.travel_speed.value;
+        const bool first_layer_for_point = belt_point_on_first_layer(
+            m_first_layer_plane, m_first_layer_thickness_mm, m_is_first_layer,
+            Vec3d(m_pos.x(), m_pos.y(), z));
+        speed = first_layer_for_point ? this->config.get_abs_value("initial_layer_travel_speed")
+                                      : this->config.travel_speed.value;
     }
 
     // Belt printer: a Z-only move in slicing frame needs to emit both Y and Z in machine coords.
@@ -142,8 +167,11 @@ std::string BeltGCodeWriter::travel_to_xyz(const Vec3d &point, const std::string
     // 3. Lift type forced to NormalLift (handled by lazy_lift/eager_lift overrides)
 
     Vec3d dest_point = point;
+    const bool first_layer_for_point = belt_point_on_first_layer(
+        m_first_layer_plane, m_first_layer_thickness_mm, m_is_first_layer, point);
     auto travel_speed =
-        m_is_first_layer ? this->config.get_abs_value("initial_layer_travel_speed") : this->config.travel_speed.value;
+        first_layer_for_point ? this->config.get_abs_value("initial_layer_travel_speed")
+                              : this->config.travel_speed.value;
 
     // Handle pending z_hop
     if (std::abs(m_to_lift) > EPSILON) {

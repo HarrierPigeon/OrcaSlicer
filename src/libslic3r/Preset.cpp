@@ -1017,6 +1017,7 @@ static std::vector<std::string> s_Preset_printer_options {
     "preslice_remap_x", "preslice_remap_y", "preslice_remap_z", "preslice_remap_global",
     "gcode_remap_x", "gcode_remap_y", "gcode_remap_z", "gcode_back_transform",
     "belt_preslice_global",
+    "first_layer_plane", "first_layer_plane_offset", "first_layer_plane_thickness",
     "belt_origin_snap_x", "belt_origin_offset_x",
     "belt_origin_snap_y", "belt_origin_offset_y",
     "belt_origin_snap_z", "belt_origin_offset_z",

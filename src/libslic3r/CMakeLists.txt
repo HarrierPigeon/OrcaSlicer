@@ -87,6 +87,8 @@ set(lisbslic3r_sources
     BeltSliceStrategy.hpp
     BeltTransform.cpp
     BeltTransform.hpp
+    FirstLayerPlane.cpp
+    FirstLayerPlane.hpp
     Brim.cpp
     BrimEarsPoint.hpp
     Brim.hpp

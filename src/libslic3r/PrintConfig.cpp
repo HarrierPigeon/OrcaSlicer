@@ -341,6 +341,15 @@ static t_config_enum_values s_keys_map_BeltSupportZOffsetMode {
 };
 CONFIG_OPTION_ENUM_DEFINE_STATIC_MAPS(BeltSupportZOffsetMode)
 
+static t_config_enum_values s_keys_map_FirstLayerPlaneMode {
+    { "auto",        int(FirstLayerPlaneMode::Auto) },
+    { "xy",          int(FirstLayerPlaneMode::XY) },
+    { "yz",          int(FirstLayerPlaneMode::YZ) },
+    { "xz",          int(FirstLayerPlaneMode::XZ) },
+    { "belt_shear",  int(FirstLayerPlaneMode::BeltShear) },
+};
+CONFIG_OPTION_ENUM_DEFINE_STATIC_MAPS(FirstLayerPlaneMode)
+
 static t_config_enum_values s_keys_map_SupportMaterialPattern {
     { "rectilinear",        smpRectilinear },
     { "rectilinear-grid",   smpRectilinearGrid },
@@ -6187,6 +6196,51 @@ void PrintConfigDef::init_fff_params()
                       "relying on origin snap. Each instance gets its own PrintObject.");
     def->mode = comAdvanced;
     def->set_default_value(new ConfigOptionBool(false));
+
+    // First-layer plane: which surface defines "first layer" for fan / speed /
+    // accel decisions.  On belt printers the slicing-frame layer 0 is a tilted
+    // slab that no longer corresponds to the physical first printed layer.
+    // Auto picks BeltShear when belt_shear_z != None, otherwise XY (legacy).
+    def = this->add("first_layer_plane", coEnum);
+    def->label = L("First layer plane");
+    def->category = L("Printable space");
+    def->tooltip = L("Selects the reference plane used to decide which extrusions get "
+                     "first-layer settings (no fan, slow speed, initial-layer accel/jerk, "
+                     "deferred temperature drop). On belt printers a single slicing layer "
+                     "contains paths at many machine-Z values, so layer-index based detection "
+                     "fails. Auto resolves to Belt shear plane when belt_shear_z is non-None, "
+                     "otherwise XY (legacy).  Pick XY explicitly to opt out and force the "
+                     "legacy slicing-layer-0 detection.");
+    def->enum_keys_map = &ConfigOptionEnum<FirstLayerPlaneMode>::get_enum_values();
+    def->enum_values   = {"auto", "xy", "yz", "xz", "belt_shear"};
+    def->enum_labels   = {L("Auto"), L("XY (machine bed)"), L("YZ"), L("XZ"), L("Belt shear plane")};
+    def->mode = comAdvanced;
+    def->set_default_value(new ConfigOptionEnum<FirstLayerPlaneMode>(FirstLayerPlaneMode::Auto));
+
+    def = this->add("first_layer_plane_offset", coFloat);
+    def->label = L("Plane offset");
+    def->category = L("Printable space");
+    def->tooltip = L("Shifts the first-layer plane along its normal (mm). For axis-aligned "
+                     "planes this is just a coordinate shift. Positive values move the plane "
+                     "away from the belt surface (deeper into the model).");
+    def->sidetext = L("mm");
+    def->min = -1000;
+    def->max =  1000;
+    def->mode = comAdvanced;
+    def->set_default_value(new ConfigOptionFloat(0.0));
+
+    def = this->add("first_layer_plane_thickness", coFloat);
+    def->label = L("Plane band thickness");
+    def->category = L("Printable space");
+    def->tooltip = L("Thickness of one 'band' relative to the first-layer plane, in mm. "
+                     "Used as the unit by which 'No cooling for the first N layers' (and "
+                     "similar layer-count thresholds) is multiplied when the first-layer "
+                     "plane is active. -1 means use initial_layer_print_height.");
+    def->sidetext = L("mm");
+    def->min = -1;
+    def->max = 100;
+    def->mode = comAdvanced;
+    def->set_default_value(new ConfigOptionFloat(-1.0));
 
     auto add_belt_origin_snap = [this](const char *key_snap, const char *key_offset,
                                         const char *axis_label) {
