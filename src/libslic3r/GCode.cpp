@@ -28,6 +28,7 @@
 #include "GCode/ExtrusionProcessor.hpp"
 #include <algorithm>
 #include <cfloat>
+#include <climits>
 #include <cmath>
 #include <cstdlib>
 #include <chrono>
@@ -2940,6 +2941,17 @@ void GCode::_do_export(Print& print, GCodeOutputStream &file, ThumbnailsGenerato
         }
     }
 
+    // Build the FirstLayerPlane evaluator.  When inactive (non-belt printers
+    // and belt printers without Z shear), all per-path call sites short-
+    // circuit to the legacy Layer::id() == 0 path so g-code stays bit-
+    // identical to the pre-feature behavior.
+    m_first_layer_plane = std::make_unique<FirstLayerPlane>(print.config());
+    if (auto *belt_writer = dynamic_cast<BeltGCodeWriter*>(m_writer.get())) {
+        belt_writer->set_first_layer_plane(
+            m_first_layer_plane.get(),
+            print.config().initial_layer_print_height.value);
+    }
+
     // How many times will be change_layer() called?
     // change_layer() in turn increments the progress bar status.
     m_layer_count = 0;
@@ -5758,7 +5770,38 @@ LayerResult GCode::process_layer(
         }
     }
 
-    if (!first_layer && !m_second_layer_things_done) {
+    // First-layer plane: defer the temperature/PLR transition until the
+    // entire layer is past the first-layer band.  When the evaluator is
+    // inactive (non-belt printers and belt printers without Z shear) we
+    // fall back to the legacy `!first_layer` predicate so behavior is
+    // bit-identical to the pre-feature path.
+    bool past_first_layer_band = !first_layer;
+    if (m_first_layer_plane && m_first_layer_plane->is_active()) {
+        past_first_layer_band = false;
+        if (object_layer != nullptr) {
+            // Conservatively walk the layer's lslice bboxes; if every bbox's
+            // most-belt-side corner is outside the first-layer band, the
+            // layer is fully past it.
+            const Layer *ol = object_layer;
+            int min_eff = INT_MAX;
+            for (const BoundingBox &bb : ol->lslices_bboxes) {
+                BoundingBoxf bbf(
+                    Vec2d(unscale<double>(bb.min.x()), unscale<double>(bb.min.y())),
+                    Vec2d(unscale<double>(bb.max.x()), unscale<double>(bb.max.y())));
+                int eff = m_first_layer_plane->min_effective_index_for_xy_bbox(
+                    bbf, ol->print_z);
+                if (eff < min_eff) min_eff = eff;
+                if (min_eff <= 0) break;
+            }
+            past_first_layer_band = (min_eff > 0 && min_eff != INT_MAX);
+        } else if (support_layer != nullptr) {
+            // Support-only layers: gate on the support layer's bottom_z
+            // proximity to the plane.  Conservative.
+            past_first_layer_band = !first_layer;
+        }
+    }
+
+    if (past_first_layer_band && !m_second_layer_things_done) {
         // Orca: set power loss recovery
         const auto plr_mode = print.config().enable_power_loss_recovery.value;
         gcode += m_writer->enable_power_loss_recovery(plr_mode);
@@ -7507,6 +7550,18 @@ std::string GCode::_extrude(const ExtrusionPath &path, std::string description, 
     if (is_bridge(path.role()))
         description += " (bridge)";
 
+    // First-layer plane evaluation: compute the path's slicing-frame point
+    // once and reuse for every per-path call site below.  When the plane
+    // evaluator is inactive (non-belt printers, or belt printers without
+    // a Z-axis shear) `path_on_first_layer` falls back to the legacy
+    // layer-id check, so behavior is bit-identical to the pre-feature path.
+    const Vec3d path_point_mm{
+        unscale<double>(path.first_point().x()),
+        unscale<double>(path.first_point().y()),
+        m_layer ? m_layer->print_z : 0.0
+    };
+    const bool path_on_first_layer = this->on_first_layer(path_point_mm);
+
     const ExtrusionPathSloped* sloped = dynamic_cast<const ExtrusionPathSloped*>(&path);
 
     const auto get_sloped_z = [&sloped, this](double z_ratio) {
@@ -7572,7 +7627,7 @@ std::string GCode::_extrude(const ExtrusionPath &path, std::string description, 
     // adjust acceleration
     if (NOZZLE_CONFIG(default_acceleration) > 0) {
         double acceleration;
-        if (this->on_first_layer() && NOZZLE_CONFIG(initial_layer_acceleration) > 0) {
+        if (path_on_first_layer && NOZZLE_CONFIG(initial_layer_acceleration) > 0) {
             acceleration = NOZZLE_CONFIG(initial_layer_acceleration);
 #if 0
         } else if (this->object_layer_over_raft() && m_config.first_layer_acceleration_over_raft.value > 0) {
@@ -7598,7 +7653,7 @@ std::string GCode::_extrude(const ExtrusionPath &path, std::string description, 
 
     // adjust X Y jerk
     if (NOZZLE_CONFIG(default_jerk) > 0) {
-        if (this->on_first_layer() && NOZZLE_CONFIG(initial_layer_jerk) > 0) {
+        if (path_on_first_layer && NOZZLE_CONFIG(initial_layer_jerk) > 0) {
             jerk = NOZZLE_CONFIG(initial_layer_jerk);
         } else if (NOZZLE_CONFIG(outer_wall_jerk) > 0 && is_external_perimeter(path.role())) {
              jerk = NOZZLE_CONFIG(outer_wall_jerk);
@@ -7660,7 +7715,7 @@ std::string GCode::_extrude(const ExtrusionPath &path, std::string description, 
         }
 
         // Additionally, adjust the value if we are on the first layer (except for brims and skirts)
-        if (this->on_first_layer() && (path.role() != erBrim && path.role() != erSkirt)) {
+        if (path_on_first_layer && (path.role() != erBrim && path.role() != erSkirt)) {
             _mm3_per_mm *= m_config.first_layer_flow_ratio;
         }
     }
@@ -7719,8 +7774,11 @@ std::string GCode::_extrude(const ExtrusionPath &path, std::string description, 
     if (speed == 0)
         speed = filament_max_volumetric_speed / _mm3_per_mm;
     
-    const auto _layer = layer_id();
-    if (this->on_first_layer() || object_layer_over_raft()) {
+    // Use the FirstLayerPlane-aware effective layer index when active so the speed
+    // fade tracks perpendicular distance from the plane on belt printers; otherwise
+    // this falls back to the slicing layer id.
+    const auto _layer = this->effective_layer_index_for_point(path_point_mm);
+    if (path_on_first_layer || object_layer_over_raft()) {
         //BBS: for solid infill of first layer, speed can be higher as long as
         //wall lines have be attached
         if (path.role() != erBottomSurface) {
@@ -7816,7 +7874,7 @@ std::string GCode::_extrude(const ExtrusionPath &path, std::string description, 
     const bool need_overhang_detection = NOZZLE_CONFIG(enable_overhang_speed) ||
         (FILAMENT_CONFIG(enable_overhang_bridge_fan) && m_enable_cooling_markers);
 
-    if (need_overhang_detection && !this->on_first_layer() && !object_layer_over_raft() &&
+    if (need_overhang_detection && !path_on_first_layer && !object_layer_over_raft() &&
         (is_bridge(path.role()) || is_perimeter(path.role()))) {
             bool is_external = is_external_perimeter(path.role());
             double ref_speed   = is_external ? NOZZLE_CONFIG(outer_wall_speed) : NOZZLE_CONFIG(inner_wall_speed);
