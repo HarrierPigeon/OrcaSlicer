@@ -34,6 +34,11 @@ void BeltGCodeWriter::set_belt_back_transform(const PrintConfig &config)
     m_belt_back_transform.init_from_config(config);
 }
 
+void BeltGCodeWriter::set_machine_frame_transform(const PrintConfig &config)
+{
+    m_machine_frame_transform.init_from_config(config);
+}
+
 void BeltGCodeWriter::set_origin_snap(int axis, bool enable, double offset, double bbox_min)
 {
     if (axis >= 0 && axis < 3) {
@@ -49,7 +54,9 @@ Vec3d BeltGCodeWriter::to_machine_coords(const Vec3d &pos) const
     Vec3d p = m_belt_back_transform.apply(pos);
     // Step 2: Apply axis remap (uses inherited base class method).
     Vec3d result = apply_axis_remap(p);
-    // Step 3: Per-axis origin snap.
+    // Step 3: Machine-frame transform (gcode_shear / gcode_scale / post_gcode_remap).
+    result = m_machine_frame_transform.apply(result);
+    // Step 4: Per-axis origin snap.
     for (int i = 0; i < 3; ++i)
         if (m_origin_snap[i])
             result[i] -= (m_origin_bbox_min[i] - m_origin_offset[i]);

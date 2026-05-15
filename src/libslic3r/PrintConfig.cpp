@@ -6367,6 +6367,42 @@ void PrintConfigDef::init_fff_params()
     add_belt_remap("gcode_remap_y", "Y", "Which slicing axis maps to machine Y in G-code output. Applied AFTER slicing, during G-code generation.", RemapAxis::PosY);
     add_belt_remap("gcode_remap_z", "Z", "Which slicing axis maps to machine Z in G-code output. Applied AFTER slicing, during G-code generation.", RemapAxis::PosZ);
 
+    // Machine-frame G-code transforms: applied AFTER back-transform and gcode_remap,
+    // before per-axis origin snap.  Maps Cartesian G-code to the printer's physical machine frame.
+    add_belt_shear_mode ("gcode_shear_x", "Function", BeltShearMode::None);
+    add_belt_shear_angle("gcode_shear_x_angle", "Angle");
+    add_belt_axis_enum  ("gcode_shear_x_from", "From", "Source axis for X shear in the machine-frame stage.", BeltAxis::Z);
+
+    add_belt_shear_mode ("gcode_shear_y", "Function", BeltShearMode::None);
+    add_belt_shear_angle("gcode_shear_y_angle", "Angle");
+    add_belt_axis_enum  ("gcode_shear_y_from", "From", "Source axis for Y shear in the machine-frame stage.", BeltAxis::Z);
+
+    add_belt_shear_mode ("gcode_shear_z", "Function", BeltShearMode::None);
+    add_belt_shear_angle("gcode_shear_z_angle", "Angle");
+    add_belt_axis_enum  ("gcode_shear_z_from", "From", "Source axis for Z shear in the machine-frame stage.", BeltAxis::Y);
+
+    add_belt_scale_mode ("gcode_scale_x", "Function", BeltScaleMode::None);
+    add_belt_scale_angle("gcode_scale_x_angle", "Angle");
+
+    add_belt_scale_mode ("gcode_scale_y", "Function", BeltScaleMode::None);
+    add_belt_scale_angle("gcode_scale_y_angle", "Angle");
+
+    add_belt_scale_mode ("gcode_scale_z", "Function", BeltScaleMode::None);
+    add_belt_scale_angle("gcode_scale_z_angle", "Angle");
+
+    add_belt_remap("post_gcode_remap_x", "X",
+        "Axis remap in the machine-frame stage. Applied AFTER gcode_remap, "
+        "to put coordinates into the printer's physical axis labelling. Default +X: no change.",
+        RemapAxis::PosX);
+    add_belt_remap("post_gcode_remap_y", "Y",
+        "Axis remap in the machine-frame stage. Applied AFTER gcode_remap, "
+        "to put coordinates into the printer's physical axis labelling. Default +Y: no change.",
+        RemapAxis::PosY);
+    add_belt_remap("post_gcode_remap_z", "Z",
+        "Axis remap in the machine-frame stage. Applied AFTER gcode_remap, "
+        "to put coordinates into the printer's physical axis labelling. Default +Z: no change.",
+        RemapAxis::PosZ);
+
     def = this->add("gcode_back_transform", coBool);
     def->label = L("G-code back-transform");
     def->category = L("Printable space");

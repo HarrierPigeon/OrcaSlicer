@@ -17,6 +17,7 @@ void BeltGCode::init_belt_writer(Print &print, bool is_bbl_printers)
     belt_writer->set_belt_angle(print.config().belt_printer_angle.value);
     // Axis remap and build volume max are set by base GCode after init_belt_writer returns.
     belt_writer->set_belt_back_transform(print.config());
+    belt_writer->set_machine_frame_transform(print.config());
     m_writer = std::move(belt_writer);
 
     // Per-axis origin snap config.
@@ -58,6 +59,25 @@ void BeltGCode::write_belt_header(GCodeOutputStream &file, const Print &print)
     file.write_format("; preslice_remap_z = %s\n", full_cfg.opt_serialize("preslice_remap_z").c_str());
     file.write_format("; preslice_remap_global = %d\n", print.config().preslice_remap_global.value ? 1 : 0);
     file.write_format("; belt_preslice_global = %d\n", print.config().belt_preslice_global.value ? 1 : 0);
+    // Machine-frame transform configs
+    file.write_format("; gcode_shear_x = %s\n",       full_cfg.opt_serialize("gcode_shear_x").c_str());
+    file.write_format("; gcode_shear_x_angle = %.1f\n", print.config().gcode_shear_x_angle.value);
+    file.write_format("; gcode_shear_x_from = %s\n",  full_cfg.opt_serialize("gcode_shear_x_from").c_str());
+    file.write_format("; gcode_shear_y = %s\n",       full_cfg.opt_serialize("gcode_shear_y").c_str());
+    file.write_format("; gcode_shear_y_angle = %.1f\n", print.config().gcode_shear_y_angle.value);
+    file.write_format("; gcode_shear_y_from = %s\n",  full_cfg.opt_serialize("gcode_shear_y_from").c_str());
+    file.write_format("; gcode_shear_z = %s\n",       full_cfg.opt_serialize("gcode_shear_z").c_str());
+    file.write_format("; gcode_shear_z_angle = %.1f\n", print.config().gcode_shear_z_angle.value);
+    file.write_format("; gcode_shear_z_from = %s\n",  full_cfg.opt_serialize("gcode_shear_z_from").c_str());
+    file.write_format("; gcode_scale_x = %s\n",       full_cfg.opt_serialize("gcode_scale_x").c_str());
+    file.write_format("; gcode_scale_x_angle = %.1f\n", print.config().gcode_scale_x_angle.value);
+    file.write_format("; gcode_scale_y = %s\n",       full_cfg.opt_serialize("gcode_scale_y").c_str());
+    file.write_format("; gcode_scale_y_angle = %.1f\n", print.config().gcode_scale_y_angle.value);
+    file.write_format("; gcode_scale_z = %s\n",       full_cfg.opt_serialize("gcode_scale_z").c_str());
+    file.write_format("; gcode_scale_z_angle = %.1f\n", print.config().gcode_scale_z_angle.value);
+    file.write_format("; post_gcode_remap_x = %s\n",  full_cfg.opt_serialize("post_gcode_remap_x").c_str());
+    file.write_format("; post_gcode_remap_y = %s\n",  full_cfg.opt_serialize("post_gcode_remap_y").c_str());
+    file.write_format("; post_gcode_remap_z = %s\n",  full_cfg.opt_serialize("post_gcode_remap_z").c_str());
 }
 
 void BeltGCode::on_set_origin(const PrintObject *obj, const Point &inst_shift)
