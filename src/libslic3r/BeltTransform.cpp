@@ -103,9 +103,9 @@ Transform3d BeltTransformPipeline::build_forward_transform(const PrintConfig &co
     bool        scale_active = false;
     Matrix3d    scale        = build_scale_matrix(config, &scale_active);
 
-    // Pipeline: scale * shear * pre_remap
+    // Pipeline: shear * scale * pre_remap (scale applied before shear)
     Transform3d combined = Transform3d::Identity();
-    combined.linear() = scale * shear;
+    combined.linear() = shear * scale;
     combined = combined * pre_remap;
     return combined;
 }

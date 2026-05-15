@@ -22,10 +22,11 @@ void BeltSliceStrategy::apply_to_trafo(Transform3d &trafo,
                                         bool has_remap,
                                         double *out_belt_min_z) const
 {
-    // Shear + scale (belt-only; pre-slice remap is handled separately).
+    // Scale first (in the cube's original frame), then shear maps onto the belt surface.
+    // Reversed order distorts shapes when scale is non-uniform (e.g. Z-compensation).
     if (m_has_shear || m_has_scale) {
         Transform3d belt_xform = Transform3d::Identity();
-        belt_xform.linear() = m_scale * m_shear;
+        belt_xform.linear() = m_shear * m_scale;
         trafo = belt_xform * trafo;
     }
 
