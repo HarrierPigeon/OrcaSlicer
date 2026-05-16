@@ -947,14 +947,25 @@ void PrintObject::slice()
                 Vec3d d(unscale<double>(inst_shift.x()), unscale<double>(inst_shift.y()), 0.);
                 Vec3d c = T.linear() * d - d;
 
-                global_z_offset = c.z();
+                // Per-object shape contribution: BeltSliceStrategy::apply_to_trafo
+                // lifts the mesh by max(0, -m_belt_min_z) to keep slicer-frame Z
+                // above 0.  Two objects at the same bed position but different
+                // m_belt_min_z (e.g. cube vs inverted-cone tip) otherwise end up
+                // at the same print_z, which causes the inverted-cone tip to
+                // start on the same layer as the cube's lowest sheared corner.
+                double belt_surface_z = BeltTransformPipeline::has_preslice_remap(pcfg)
+                    ? BeltTransformPipeline::remap_bbox(*this->model_object(), pcfg).min.z() : 0.;
+                double shear_min_z = m_belt_min_z - belt_surface_z;
+
+                global_z_offset = c.z() + shear_min_z;
                 BOOST_LOG_TRIVIAL(warning) << "[BELTRACE] write m_belt_global_xy_correction tid=" << std::this_thread::get_id()
                     << " obj=" << this << " old=(" << m_belt_global_xy_correction.x() << "," << m_belt_global_xy_correction.y()
                     << ") new=(" << c.x() << "," << c.y() << ")";
                 m_belt_global_xy_correction = Vec2d(c.x(), c.y());
 
                 BOOST_LOG_TRIVIAL(warning) << "Belt preslice_global: correction=("
-                    << c.x() << ", " << c.y() << ", " << c.z() << ")";
+                    << c.x() << ", " << c.y() << ", " << c.z() << ")"
+                    << " shear_min_z=" << shear_min_z << " (m_belt_min_z=" << m_belt_min_z << ")";
             } else {
                 struct GAxis { BeltShearMode mode; double angle; int from; bool global; };
                 GAxis gaxes[3] = {
