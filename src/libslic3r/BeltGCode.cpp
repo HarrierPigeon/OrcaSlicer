@@ -100,9 +100,25 @@ void BeltGCode::on_set_origin(const PrintObject *obj, const Point &inst_shift)
     if (use_global && m_config.belt_printer.value) {
         auto *belt_writer = dynamic_cast<BeltGCodeWriter*>(m_writer.get());
         if (belt_writer) {
-            // Clear snap — not needed with computed corrections
+            // BeltSliceStrategy::apply_to_trafo adds a per-object Z translation
+            // (z_shift_val = max(0, -m_belt_min_z)) to keep slicer-frame Z above 0.
+            // The config-only back_transform doesn't undo this lift, so without
+            // compensation it leaks into the output as a shape-dependent offset.
+            // Use origin_snap (which now operates in the Cartesian frame after my
+            // pipeline reorder) to subtract the back-transformed lift on each axis.
+            double zs = (obj->belt_min_z() < 0.) ? -obj->belt_min_z() : 0.;
+            // Linear contribution of the slicer-frame Z lift in the Cartesian
+            // frame.  Subtract the no-shift result so that any constant
+            // translation in back_transform/axis_remap (e.g. Rev-mode remaps)
+            // doesn't leak into the per-object compensation.
+            Vec3d cart_offset = Vec3d::Zero();
+            if (zs > EPSILON) {
+                cart_offset = belt_writer->to_cartesian(Vec3d(0., 0., zs))
+                            - belt_writer->to_cartesian(Vec3d(0., 0., 0.));
+            }
             for (int a = 0; a < 3; ++a)
-                belt_writer->set_origin_snap(a, false, 0., 0.);
+                belt_writer->set_origin_snap(a, std::abs(cart_offset[a]) > EPSILON,
+                                             0., cart_offset[a]);
         }
 
         // Adjust origin: transform through belt forward pipeline so that
@@ -145,7 +161,12 @@ void BeltGCode::on_set_origin(const PrintObject *obj, const Point &inst_shift)
                 unscale<double>(inst_shift.y()),
                 obj->belt_global_z_offset());
 
-    // Compute this instance's machine-space bbox min
+    // Compute this instance's bbox min in the Cartesian frame (post back_transform
+    // + axis_remap, before machine_frame_transform).  Using to_cartesian instead of
+    // to_machine_coords ensures the 8 axis-aligned bbox corners coincide with the
+    // geometry's extreme points — a property that breaks under shear, which would
+    // mis-normalize non-cubic shapes (inverted cone, benchy) by their bbox-volume
+    // corners rather than their actual lowest geometry point.
     BoundingBoxf3 bb = obj->model_object()->raw_bounding_box();
     Vec3d mn = bb.min.cast<double>(), mx = bb.max.cast<double>();
     Vec3d inst_min(std::numeric_limits<double>::max(),
@@ -155,7 +176,7 @@ void BeltGCode::on_set_origin(const PrintObject *obj, const Point &inst_shift)
         Vec3d c((i & 1) ? mx.x() : mn.x(),
                 (i & 2) ? mx.y() : mn.y(),
                 (i & 4) ? mx.z() : mn.z());
-        Vec3d mc = belt_writer->to_machine_coords(full * c + shift);
+        Vec3d mc = belt_writer->to_cartesian(full * c + shift);
         for (int a = 0; a < 3; ++a)
             inst_min[a] = std::min(inst_min[a], mc[a]);
     }

@@ -25,6 +25,10 @@ public:
     void set_machine_frame_transform(const PrintConfig &config);
     void set_origin_snap(int axis, bool enable, double offset, double bbox_min);
     Vec3d to_machine_coords(const Vec3d &pos) const;
+    // back_transform + axis_remap only (no origin_snap, no machine_frame_transform).
+    // Used by on_set_origin for bbox computation in the Cartesian frame, where
+    // axis-aligned bbox corners coincide with the geometry's extreme points.
+    Vec3d to_cartesian(const Vec3d &pos) const;
 
     // First-layer plane: when set to a non-null active evaluator, travel
     // speed selection consults the plane per-move and uses
