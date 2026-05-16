@@ -320,6 +320,8 @@ bool Print::invalidate_state_by_config_options(const ConfigOptionResolver & /* n
             || opt_key == "belt_scale_z"
             || opt_key == "belt_scale_z_angle"
             || opt_key == "belt_mesh_transform_order"
+            || opt_key == "belt_preslice_global"
+            || opt_key == "preslice_remap_global"
             || opt_key == "preslice_remap_x"
             || opt_key == "preslice_remap_y"
             || opt_key == "preslice_remap_z") {
