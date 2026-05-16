@@ -1,6 +1,7 @@
 #include "BeltSliceStrategy.hpp"
 
 #include <boost/log/trivial.hpp>
+#include <thread>
 
 namespace Slic3r {
 
@@ -48,8 +49,12 @@ void BeltSliceStrategy::apply_to_trafo(Transform3d &trafo,
             z_shift.matrix()(2, 3) = belt_z_shift_val;
             trafo = z_shift * trafo;
         }
-        if (out_belt_min_z)
-            *out_belt_min_z = (min_z != std::numeric_limits<double>::max()) ? min_z : 0.;
+        if (out_belt_min_z) {
+            double new_val = (min_z != std::numeric_limits<double>::max()) ? min_z : 0.;
+            BOOST_LOG_TRIVIAL(warning) << "[BELTRACE] write m_belt_min_z tid=" << std::this_thread::get_id()
+                << " target=" << out_belt_min_z << " old=" << *out_belt_min_z << " new=" << new_val;
+            *out_belt_min_z = new_val;
+        }
     }
 }
 

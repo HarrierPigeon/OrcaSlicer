@@ -3,6 +3,8 @@
 #include "Point.hpp"
 #include "Print.hpp"
 #include "BeltTransform.hpp"
+
+#include <thread>
 #include "BoundingBox.hpp"
 #include "ClipperUtils.hpp"
 #include "ElephantFootCompensation.hpp"
@@ -425,11 +427,15 @@ std::vector<std::set<int>> PrintObject::detect_extruder_geometric_unprintables()
 // 3) Generates perimeters, gap fills and fill regions (fill regions of type stInternal).
 void PrintObject::make_perimeters()
 {
+    BOOST_LOG_TRIVIAL(warning) << "[BELTRACE] make_perimeters request tid=" << std::this_thread::get_id() << " obj=" << this;
     // prerequisites
     this->slice();
 
-    if (! this->set_started(posPerimeters))
+    if (! this->set_started(posPerimeters)) {
+        BOOST_LOG_TRIVIAL(warning) << "[BELTRACE] make_perimeters SKIP tid=" << std::this_thread::get_id() << " obj=" << this << " (already started/done)";
         return;
+    }
+    BOOST_LOG_TRIVIAL(warning) << "[BELTRACE] make_perimeters ENTER tid=" << std::this_thread::get_id() << " obj=" << this;
 
     m_print->set_status(15, L("Generating walls"));
     BOOST_LOG_TRIVIAL(info) << "Generating walls..." << log_memory_info();
@@ -527,6 +533,7 @@ void PrintObject::make_perimeters()
     m_print->throw_if_canceled();
     BOOST_LOG_TRIVIAL(debug) << "Generating perimeters in parallel - end";
 
+    BOOST_LOG_TRIVIAL(warning) << "[BELTRACE] make_perimeters EXIT tid=" << std::this_thread::get_id() << " obj=" << this;
     this->set_done(posPerimeters);
 }
 
@@ -822,7 +829,9 @@ void PrintObject::detect_overhangs_for_lift()
 
 void PrintObject::generate_support_material()
 {
+    BOOST_LOG_TRIVIAL(warning) << "[BELTRACE] generate_support_material request tid=" << std::this_thread::get_id() << " obj=" << this;
     if (this->set_started(posSupportMaterial)) {
+        BOOST_LOG_TRIVIAL(warning) << "[BELTRACE] generate_support_material ENTER tid=" << std::this_thread::get_id() << " obj=" << this;
         this->clear_support_layers();
 
         if(!has_support() && !m_print->get_no_check_flag()) {
@@ -863,7 +872,10 @@ void PrintObject::generate_support_material()
             this->_generate_support_material();
             m_print->throw_if_canceled();
         }
+        BOOST_LOG_TRIVIAL(warning) << "[BELTRACE] generate_support_material EXIT tid=" << std::this_thread::get_id() << " obj=" << this;
         this->set_done(posSupportMaterial);
+    } else {
+        BOOST_LOG_TRIVIAL(warning) << "[BELTRACE] generate_support_material SKIP tid=" << std::this_thread::get_id() << " obj=" << this << " (already started/done)";
     }
 }
 

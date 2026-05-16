@@ -1,5 +1,6 @@
 #include <boost/log/trivial.hpp>
 #include <limits>
+#include <thread>
 
 #include <tbb/parallel_for.h>
 
@@ -837,8 +838,12 @@ void groupingVolumesForBrim(PrintObject* object, LayerPtrs& layers, int firstLay
 // Resulting expolygons of layer regions are marked as Internal.
 void PrintObject::slice()
 {
-    if (! this->set_started(posSlice))
+    BOOST_LOG_TRIVIAL(warning) << "[BELTRACE] slice request tid=" << std::this_thread::get_id() << " obj=" << this;
+    if (! this->set_started(posSlice)) {
+        BOOST_LOG_TRIVIAL(warning) << "[BELTRACE] slice SKIP tid=" << std::this_thread::get_id() << " obj=" << this << " (already started/done)";
         return;
+    }
+    BOOST_LOG_TRIVIAL(warning) << "[BELTRACE] slice ENTER tid=" << std::this_thread::get_id() << " obj=" << this;
     //BBS: add flag to reload scene for shell rendering
     m_print->set_status(5, L("Slicing mesh"), PrintBase::SlicingStatus::RELOAD_SCENE);
     std::vector<coordf_t> layer_height_profile;
@@ -943,6 +948,9 @@ void PrintObject::slice()
                 Vec3d c = T.linear() * d - d;
 
                 global_z_offset = c.z();
+                BOOST_LOG_TRIVIAL(warning) << "[BELTRACE] write m_belt_global_xy_correction tid=" << std::this_thread::get_id()
+                    << " obj=" << this << " old=(" << m_belt_global_xy_correction.x() << "," << m_belt_global_xy_correction.y()
+                    << ") new=(" << c.x() << "," << c.y() << ")";
                 m_belt_global_xy_correction = Vec2d(c.x(), c.y());
 
                 BOOST_LOG_TRIVIAL(warning) << "Belt preslice_global: correction=("
@@ -983,6 +991,8 @@ void PrintObject::slice()
 
             BOOST_LOG_TRIVIAL(warning) << "Belt global: z_offset=" << global_z_offset
                 << " (relative to min across " << this->print()->objects().size() << " objects)";
+            BOOST_LOG_TRIVIAL(warning) << "[BELTRACE] write m_belt_global_z_offset tid=" << std::this_thread::get_id()
+                << " obj=" << this << " old=" << m_belt_global_z_offset << " new=" << global_z_offset;
             m_belt_global_z_offset = global_z_offset;
             if (std::abs(global_z_offset) > EPSILON) {
                 for (Layer *layer : m_layers)
@@ -1003,6 +1013,10 @@ void PrintObject::slice()
     }
 
     // BBS
+    BOOST_LOG_TRIVIAL(warning) << "[BELTRACE] slice EXIT tid=" << std::this_thread::get_id() << " obj=" << this
+        << " layers=" << m_layers.size() << " belt_min_z=" << m_belt_min_z
+        << " belt_global_z_offset=" << m_belt_global_z_offset
+        << " belt_xy=(" << m_belt_global_xy_correction.x() << "," << m_belt_global_xy_correction.y() << ")";
     this->set_done(posSlice);
 }
 
