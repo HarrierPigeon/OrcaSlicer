@@ -102,25 +102,14 @@ void BeltGCode::on_set_origin(const PrintObject *obj, const Point &inst_shift)
     if (use_global && m_config.belt_printer.value) {
         auto *belt_writer = dynamic_cast<BeltGCodeWriter*>(m_writer.get());
         if (belt_writer) {
-            // BeltSliceStrategy::apply_to_trafo adds a per-object Z translation
-            // (z_shift_val = max(0, -m_belt_min_z)) to keep slicer-frame Z above 0.
-            // The config-only back_transform doesn't undo this lift, so without
-            // compensation it leaks into the output as a shape-dependent offset.
-            // Use origin_snap (which now operates in the Cartesian frame after my
-            // pipeline reorder) to subtract the back-transformed lift on each axis.
-            double zs = (obj->belt_min_z() < 0.) ? -obj->belt_min_z() : 0.;
-            // Linear contribution of the slicer-frame Z lift in the Cartesian
-            // frame.  Subtract the no-shift result so that any constant
-            // translation in back_transform/axis_remap (e.g. Rev-mode remaps)
-            // doesn't leak into the per-object compensation.
-            Vec3d cart_offset = Vec3d::Zero();
-            if (zs > EPSILON) {
-                cart_offset = belt_writer->to_cartesian(Vec3d(0., 0., zs))
-                            - belt_writer->to_cartesian(Vec3d(0., 0., 0.));
-            }
+            // The per-object lift (z_shift_val = max(0, -m_belt_min_z)) added by
+            // BeltSliceStrategy::apply_to_trafo is already compensated inside
+            // global_z_offset (via the shear_min_z term in PrintObjectSlice.cpp's
+            // preslice_global branch).  Snap was previously used here for the same
+            // purpose, but with both active the lift gets subtracted twice.  Clear
+            // any leftover snap state from a prior instance.
             for (int a = 0; a < 3; ++a)
-                belt_writer->set_origin_snap(a, std::abs(cart_offset[a]) > EPSILON,
-                                             0., cart_offset[a]);
+                belt_writer->set_origin_snap(a, false, 0., 0.);
         }
 
         // Adjust origin: transform through belt forward pipeline so that
