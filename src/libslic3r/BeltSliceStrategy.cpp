@@ -16,6 +16,7 @@ BeltSliceStrategy::BeltSliceStrategy(const PrintConfig &config)
 {
     m_shear = BeltTransformPipeline::build_shear_matrix(config, &m_has_shear);
     m_scale = BeltTransformPipeline::build_scale_matrix(config, &m_has_scale);
+    m_order = config.belt_mesh_transform_order.value;
 }
 
 void BeltSliceStrategy::apply_to_trafo(Transform3d &trafo,
@@ -23,11 +24,13 @@ void BeltSliceStrategy::apply_to_trafo(Transform3d &trafo,
                                         bool has_remap,
                                         double *out_belt_min_z) const
 {
-    // Scale first (in the cube's original frame), then shear maps onto the belt surface.
-    // Reversed order distorts shapes when scale is non-uniform (e.g. Z-compensation).
+    // ScaleThenShear: applied to a point, scale runs first then shear (m_shear * m_scale).
+    // ShearThenScale: applied to a point, shear runs first then scale (m_scale * m_shear).
     if (m_has_shear || m_has_scale) {
         Transform3d belt_xform = Transform3d::Identity();
-        belt_xform.linear() = m_shear * m_scale;
+        belt_xform.linear() = (m_order == BeltTransformOrder::ScaleThenShear)
+            ? Matrix3d(m_shear * m_scale)
+            : Matrix3d(m_scale * m_shear);
         trafo = belt_xform * trafo;
     }
 

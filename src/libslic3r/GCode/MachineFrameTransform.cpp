@@ -120,9 +120,13 @@ bool MachineFrameTransform::init_from_config(const PrintConfig &config)
     if (!shear_active && !scale_active && !has_post_gcode_remap(config))
         return false;
 
-    // Compose: shear * scale * post_remap (mirrors BeltTransformPipeline::build_forward_transform).
+    // Compose per belt_gcode_transform_order:
+    //   ScaleThenShear: applied to p, scale runs first then shear (shear * scale).
+    //   ShearThenScale: applied to p, shear runs first then scale (scale * shear).
     Transform3d combined = Transform3d::Identity();
-    combined.linear() = shear * scale;
+    combined.linear() = (config.belt_gcode_transform_order.value == BeltTransformOrder::ScaleThenShear)
+        ? Matrix3d(shear * scale)
+        : Matrix3d(scale * shear);
     combined = combined * post_remap;
 
     if (combined.isApprox(Transform3d::Identity()))

@@ -183,6 +183,15 @@ enum class BeltAxis
     Z = 2,
 };
 
+// Order in which the belt shear and scale matrices are composed.
+// ScaleThenShear: applied to a point p, the result is shear(scale(p)).
+// ShearThenScale: applied to a point p, the result is scale(shear(p)).
+enum class BeltTransformOrder
+{
+    ScaleThenShear = 0,
+    ShearThenScale = 1,
+};
+
 enum class RemapAxis
 {
     PosX = 0, PosY = 1, PosZ = 2,
@@ -571,6 +580,7 @@ CONFIG_OPTION_ENUM_DECLARE_STATIC_MAPS(SlicingMode)
 CONFIG_OPTION_ENUM_DECLARE_STATIC_MAPS(BeltShearMode)
 CONFIG_OPTION_ENUM_DECLARE_STATIC_MAPS(BeltScaleMode)
 CONFIG_OPTION_ENUM_DECLARE_STATIC_MAPS(BeltAxis)
+CONFIG_OPTION_ENUM_DECLARE_STATIC_MAPS(BeltTransformOrder)
 CONFIG_OPTION_ENUM_DECLARE_STATIC_MAPS(RemapAxis)
 CONFIG_OPTION_ENUM_DECLARE_STATIC_MAPS(BeltSupportFloorMode)
 CONFIG_OPTION_ENUM_DECLARE_STATIC_MAPS(BeltSupportZOffsetMode)
@@ -1550,6 +1560,8 @@ PRINT_CONFIG_CLASS_DERIVED_DEFINE(
     ((ConfigOptionFloat,                gcode_scale_y_angle))
     ((ConfigOptionEnum<BeltScaleMode>,  gcode_scale_z))
     ((ConfigOptionFloat,                gcode_scale_z_angle))
+    ((ConfigOptionEnum<BeltTransformOrder>, belt_mesh_transform_order))
+    ((ConfigOptionEnum<BeltTransformOrder>, belt_gcode_transform_order))
     ((ConfigOptionEnum<RemapAxis>,      post_gcode_remap_x))
     ((ConfigOptionEnum<RemapAxis>,      post_gcode_remap_y))
     ((ConfigOptionEnum<RemapAxis>,      post_gcode_remap_z))

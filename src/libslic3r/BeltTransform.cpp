@@ -103,9 +103,15 @@ Transform3d BeltTransformPipeline::build_forward_transform(const PrintConfig &co
     bool        scale_active = false;
     Matrix3d    scale        = build_scale_matrix(config, &scale_active);
 
-    // Pipeline: scale * shear * pre_remap (shear applied before scale)
+    // Match the mesh-side ordering selected by belt_mesh_transform_order so
+    // BeltBackTransform inverts the same composition that BeltSliceStrategy
+    // applied to the mesh.
+    //   ScaleThenShear: applied to p, scale runs first then shear (shear * scale).
+    //   ShearThenScale: applied to p, shear runs first then scale (scale * shear).
     Transform3d combined = Transform3d::Identity();
-    combined.linear() = scale * shear;
+    combined.linear() = (config.belt_mesh_transform_order.value == BeltTransformOrder::ScaleThenShear)
+        ? Matrix3d(shear * scale)
+        : Matrix3d(scale * shear);
     combined = combined * pre_remap;
     return combined;
 }

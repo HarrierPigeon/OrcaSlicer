@@ -105,7 +105,9 @@ public:
     // Also sets has_scale_out if non-null.
     static Matrix3d build_scale_matrix(const PrintConfig &config, bool *has_scale_out = nullptr);
 
-    // Combined forward transform: scale * shear * pre_remap.
+    // Combined forward transform.  Shear/scale order is selected by
+    // belt_mesh_transform_order so the result matches what BeltSliceStrategy
+    // applied to the mesh (BeltBackTransform inverts this).
     // Does NOT include the per-object Z-shift.
     static Transform3d build_forward_transform(const PrintConfig &config);
 

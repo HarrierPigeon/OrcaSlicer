@@ -4491,6 +4491,7 @@ void TabPrinter::build_fff()
             line.append_option(optgroup->get_option("belt_scale_z_angle"));
             optgroup->append_line(line);
         }
+        optgroup->append_single_option_line("belt_mesh_transform_order");
         {
             Line line = { L("Pre-slice axis remap"),
                           L("Remap model axes before slicing so the slicer's coordinate system matches "
@@ -4593,6 +4594,7 @@ void TabPrinter::build_fff()
                 line.append_option(mf->get_option("gcode_scale_z_angle"));
                 mf->append_line(line);
             }
+            mf->append_single_option_line("belt_gcode_transform_order");
             {
                 Line line = { L("Post-gcode axis remap"),
                               L("Axis remap in the machine-frame stage. Applied AFTER gcode_remap, "
@@ -5451,6 +5453,7 @@ void TabPrinter::toggle_options()
         toggle_line("belt_printer_infinite_y", is_belt);
         for (auto el : {"belt_shear_x", "belt_shear_y", "belt_shear_z",
                         "belt_scale_x", "belt_scale_y", "belt_scale_z",
+                        "belt_mesh_transform_order",
                         "belt_origin_snap_x", "belt_origin_snap_y", "belt_origin_snap_z"})
             toggle_line(el, is_belt);
 
@@ -5494,6 +5497,7 @@ void TabPrinter::toggle_options()
         // Machine-frame transforms: shown only in belt mode.
         for (auto el : {"gcode_shear_x", "gcode_shear_y", "gcode_shear_z",
                         "gcode_scale_x", "gcode_scale_y", "gcode_scale_z",
+                        "belt_gcode_transform_order",
                         "post_gcode_remap_x"})
             toggle_line(el, is_belt);
 
