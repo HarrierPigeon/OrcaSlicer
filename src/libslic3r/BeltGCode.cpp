@@ -53,6 +53,7 @@ void BeltGCode::write_belt_header(GCodeOutputStream &file, const Print &print)
     file.write_format("; belt_scale_y_angle = %.1f\n", print.config().belt_scale_y_angle.value);
     file.write_format("; belt_scale_z = %s\n",       full_cfg.opt_serialize("belt_scale_z").c_str());
     file.write_format("; belt_scale_z_angle = %.1f\n", print.config().belt_scale_z_angle.value);
+    file.write_format("; belt_mesh_transform_order = %s\n", full_cfg.opt_serialize("belt_mesh_transform_order").c_str());
     // Pre-slice remap configs
     file.write_format("; preslice_remap_x = %s\n", full_cfg.opt_serialize("preslice_remap_x").c_str());
     file.write_format("; preslice_remap_y = %s\n", full_cfg.opt_serialize("preslice_remap_y").c_str());
@@ -75,6 +76,7 @@ void BeltGCode::write_belt_header(GCodeOutputStream &file, const Print &print)
     file.write_format("; gcode_scale_y_angle = %.1f\n", print.config().gcode_scale_y_angle.value);
     file.write_format("; gcode_scale_z = %s\n",       full_cfg.opt_serialize("gcode_scale_z").c_str());
     file.write_format("; gcode_scale_z_angle = %.1f\n", print.config().gcode_scale_z_angle.value);
+    file.write_format("; belt_gcode_transform_order = %s\n", full_cfg.opt_serialize("belt_gcode_transform_order").c_str());
     file.write_format("; post_gcode_remap_x = %s\n",  full_cfg.opt_serialize("post_gcode_remap_x").c_str());
     file.write_format("; post_gcode_remap_y = %s\n",  full_cfg.opt_serialize("post_gcode_remap_y").c_str());
     file.write_format("; post_gcode_remap_z = %s\n",  full_cfg.opt_serialize("post_gcode_remap_z").c_str());
