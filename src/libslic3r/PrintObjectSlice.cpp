@@ -978,13 +978,27 @@ void PrintObject::slice()
                 // (X/Y row shears with global would offset X/Y, not Z — not useful here.)
                 const auto &za = gaxes[2]; // Z row
                 if (za.global && za.mode != BeltShearMode::None && za.from < 2) {
-                    double factor = BeltTransformPipeline::compute_shear_factor(za.mode, za.angle);
+                    // Use the full forward-transform correction (same formula as
+                    // preslice_global) so the per-bed-position offset matches what
+                    // BeltGCode::on_set_origin's T.linear() pre-multiplication
+                    // expects after back-transform.  The simple `cy*tan(α)` form
+                    // is exact only for ScaleThenShear; under ShearThenScale with
+                    // sy != 1 it leaves the object bottom off the belt plane by
+                    // cy*tan(α)*(sy-1)/sy.
+                    Transform3d T = BeltTransformPipeline::build_forward_transform(pcfg);
+                    Vec3d d(unscale<double>(inst_shift.x()), unscale<double>(inst_shift.y()), 0.);
+                    Vec3d c = T.linear() * d - d;
                     double belt_surface_z = BeltTransformPipeline::has_preslice_remap(pcfg)
                         ? BeltTransformPipeline::remap_bbox(*this->model_object(), pcfg).min.z() : 0.;
                     double shear_min_z = m_belt_min_z - belt_surface_z;
-                    Point phys = inst_shift;
-                    double center_on_axis = (za.from == 0) ? unscale<double>(phys.x()) : unscale<double>(phys.y());
-                    global_z_offset += center_on_axis * factor + shear_min_z;
+                    global_z_offset += c.z() + shear_min_z;
+                    BOOST_LOG_TRIVIAL(warning) << "[BELTRACE] write m_belt_global_xy_correction tid=" << std::this_thread::get_id()
+                        << " obj=" << this << " old=(" << m_belt_global_xy_correction.x() << "," << m_belt_global_xy_correction.y()
+                        << ") new=(" << c.x() << "," << c.y() << ")";
+                    m_belt_global_xy_correction = Vec2d(c.x(), c.y());
+                    BOOST_LOG_TRIVIAL(warning) << "Belt per-axis Z-shear-global: correction=("
+                        << c.x() << ", " << c.y() << ", " << c.z() << ")"
+                        << " shear_min_z=" << shear_min_z << " (m_belt_min_z=" << m_belt_min_z << ")";
                 }
 
                 // Pre-slice remap global mode: when on, the remap accounts for the

@@ -89,16 +89,22 @@ void BeltGCode::on_set_origin(const PrintObject *obj, const Point &inst_shift)
     // back_transform(T * origin) = origin (correct machine position).
     // This replaces the bbox-based axis snap with an exact formula.
     //
-    // Two flags trigger this path:
+    // Flags that trigger this path:
     //   belt_preslice_global   — full pipeline (scale * shear * remap) is global
     //   preslice_remap_global  — only the pre-slice remap is global
+    //   belt_shear_z_global    — Z-row shear treated as global (matches per-axis
+    //                            Z-offset added in PrintObjectSlice.cpp)
     // The XY origin adjustment uses the FULL forward transform either way,
     // because the back_transform applied during G-code emission is always the
-    // inverse of the full pipeline. When only the remap is configured, both
-    // flags produce identical math (T == R).
+    // inverse of the full pipeline. Without pre-multiplication under
+    // ShearThenScale order with sy != 1, machine_y of bed position cy ends up
+    // at cy/sy instead of cy, which also leaves the object bottom off the belt
+    // plane.
     bool use_global = m_config.belt_preslice_global.value
         || (m_config.preslice_remap_global.value
-            && BeltTransformPipeline::has_preslice_remap(m_config));
+            && BeltTransformPipeline::has_preslice_remap(m_config))
+        || (m_config.belt_shear_z_global.value
+            && m_config.belt_shear_z.value != BeltShearMode::None);
     if (use_global && m_config.belt_printer.value) {
         auto *belt_writer = dynamic_cast<BeltGCodeWriter*>(m_writer.get());
         if (belt_writer) {
