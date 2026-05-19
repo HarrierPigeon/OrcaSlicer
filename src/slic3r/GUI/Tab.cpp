@@ -1268,6 +1268,13 @@ void Tab::update_mode()
 {
     m_mode = wxGetApp().get_mode();
 
+    // toggle_options reads m_mode to gate Lines whose contents are mode-mixed
+    // (e.g., a multi-option row where some options are Advanced and some Expert):
+    // when all of a Line's options would be hidden, we hide the Line itself.
+    // Without refreshing here, the toggle_visible state stays stale across mode
+    // switches and Lines stay hidden.
+    toggle_options();
+
     update_visibility();
 
     update_changed_tree_ui();
@@ -4551,13 +4558,11 @@ void TabPrinter::build_fff()
             line.append_option(belt_og->get_option("belt_origin_offset_z"));
             belt_og->append_line(line);
         }
-        {
-            Line line = { L("Support floor"), L("Belt floor awareness for support generation and clipping") };
-            line.append_option(belt_og->get_option("belt_support_floor_mode"));
-            line.append_option(belt_og->get_option("belt_support_floor_offset"));
-            line.append_option(belt_og->get_option("belt_support_z_offset_mode"));
-            belt_og->append_line(line);
-        }
+        // Support floor: split across lines so each setting's own mode controls
+        // its visibility (floor_mode = Develop, floor_offset = Advanced, z_offset_mode = Expert).
+        belt_og->append_single_option_line("belt_support_floor_offset");
+        belt_og->append_single_option_line("belt_support_z_offset_mode");
+        belt_og->append_single_option_line("belt_support_floor_mode");
 
         // Machine-frame transforms: applied to G-code after back-transform and
         // gcode_remap, before per-axis origin snap.  Maps Cartesian G-code into
@@ -5584,11 +5589,19 @@ void TabPrinter::toggle_options()
 
         // Belt printer: show belt-specific settings only when belt_printer is enabled.
         bool is_belt = m_config->opt_bool("belt_printer");
+        bool expert_or_above = (m_mode >= comExpert);
         toggle_line("belt_printer_angle", is_belt);
         toggle_line("belt_printer_infinite_y", is_belt);
-        for (auto el : {"belt_shear_x", "belt_shear_y", "belt_shear_z",
-                        "belt_scale_x", "belt_scale_y", "belt_scale_z",
-                        "belt_mesh_transform_order",
+        // Mesh shear/scale: only shear Z and scale Y are shown in Advanced; the others
+        // are Expert-only. Each Line packs all its options on one row, so toggle the
+        // Line here in addition to the per-option mode gating.
+        toggle_line("belt_shear_x", is_belt && expert_or_above);
+        toggle_line("belt_shear_y", is_belt && expert_or_above);
+        toggle_line("belt_shear_z", is_belt);
+        toggle_line("belt_scale_x", is_belt && expert_or_above);
+        toggle_line("belt_scale_y", is_belt);
+        toggle_line("belt_scale_z", is_belt && expert_or_above);
+        for (auto el : {"belt_mesh_transform_order",
                         "belt_origin_snap_x", "belt_origin_snap_y", "belt_origin_snap_z"})
             toggle_line(el, is_belt);
 
@@ -5631,10 +5644,14 @@ void TabPrinter::toggle_options()
         toggle_option("belt_scale_z_angle", is_belt && scz != BeltScaleMode::None);
 
         // Machine-frame transforms: shown only in belt mode.
-        for (auto el : {"gcode_shear_x", "gcode_shear_y", "gcode_shear_z",
-                        "gcode_scale_x", "gcode_scale_y", "gcode_scale_z",
-                        "belt_gcode_transform_order",
-                        "post_gcode_remap_x"})
+        // Mirror the Advanced/Expert split used for mesh shear/scale.
+        toggle_line("gcode_shear_x", is_belt && expert_or_above);
+        toggle_line("gcode_shear_y", is_belt && expert_or_above);
+        toggle_line("gcode_shear_z", is_belt);
+        toggle_line("gcode_scale_x", is_belt && expert_or_above);
+        toggle_line("gcode_scale_y", is_belt);
+        toggle_line("gcode_scale_z", is_belt && expert_or_above);
+        for (auto el : {"belt_gcode_transform_order", "post_gcode_remap_x"})
             toggle_line(el, is_belt);
 
         auto gsx = m_config->option<ConfigOptionEnum<BeltShearMode>>("gcode_shear_x")->value;
@@ -5668,7 +5685,8 @@ void TabPrinter::toggle_options()
         toggle_option("first_layer_plane_offset",    is_belt);
         toggle_option("first_layer_plane_thickness", is_belt);
 
-        toggle_line("belt_support_floor_mode", is_belt);
+        for (auto el : {"belt_support_floor_mode", "belt_support_floor_offset", "belt_support_z_offset_mode"})
+            toggle_line(el, is_belt);
     }
     
 
