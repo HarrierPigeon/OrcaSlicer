@@ -6321,7 +6321,7 @@ void PrintConfigDef::init_fff_params()
     def->set_default_value(new ConfigOptionFloat(0.));
 
     def = this->add("belt_printer", coBool);
-    def->label = L("Belt printer");
+    def->label = L("Enable belt printing");
     def->category = L("Printable space");
     def->tooltip = L("Enable belt printer mode. Belt printers use a conveyor belt as the build surface, "
                      "tilted at an angle (typically 45 degrees). The slicer will rotate the slicing plane "
@@ -6390,7 +6390,7 @@ void PrintConfigDef::init_fff_params()
         def->label = L(label);
         def->category = L("Printable space");
         def->tooltip = L("Apply shear in global coordinates (position-aware) rather than object-local coordinates.");
-        def->mode = comAdvanced;
+        def->mode = comExpert;
         def->set_default_value(new ConfigOptionBool(default_val));
     };
 
@@ -6450,8 +6450,8 @@ void PrintConfigDef::init_fff_params()
         def->enum_keys_map = &ConfigOptionEnum<BeltTransformOrder>::get_enum_values();
         def->enum_values  = {"scale_then_shear", "shear_then_scale"};
         def->enum_labels  = {L("Scale, then shear"), L("Shear, then scale")};
-        def->mode = comAdvanced;
-        def->set_default_value(new ConfigOptionEnum<BeltTransformOrder>(BeltTransformOrder::ScaleThenShear));
+        def->mode = comExpert;
+        def->set_default_value(new ConfigOptionEnum<BeltTransformOrder>(BeltTransformOrder::ShearThenScale));
     };
 
     add_belt_transform_order("belt_mesh_transform_order", "Mesh transform order",
@@ -6461,7 +6461,8 @@ void PrintConfigDef::init_fff_params()
         "follows the same order so that it correctly inverts the mesh transform.");
 
     // G-code axis remap with sign
-    auto add_belt_remap = [this](const char *key, const char *label, const char *tooltip, RemapAxis default_axis) {
+    auto add_belt_remap = [this](const char *key, const char *label, const char *tooltip,
+                                  RemapAxis default_axis, ConfigOptionMode mode = comSimple) {
         auto def = this->add(key, coEnum);
         def->label = L(label);
         def->category = L("Printable space");
@@ -6469,7 +6470,7 @@ void PrintConfigDef::init_fff_params()
         def->enum_keys_map = &ConfigOptionEnum<RemapAxis>::get_enum_values();
         def->enum_values  = {"pos_x", "pos_y", "pos_z", "neg_x", "neg_y", "neg_z", "rev_x", "rev_y", "rev_z"};
         def->enum_labels  = {L("+X"), L("+Y"), L("+Z"), L("-X"), L("-Y"), L("-Z"), L("Rev X"), L("Rev Y"), L("Rev Z")};
-        def->mode = comSimple;  // Visibility controlled by toggle_line in Tab.cpp
+        def->mode = mode;  // Visibility may also be gated by toggle_line in Tab.cpp
         def->set_default_value(new ConfigOptionEnum<RemapAxis>(default_axis));
     };
 
@@ -6479,19 +6480,19 @@ void PrintConfigDef::init_fff_params()
         "your belt printer's physical bed plane. For a printer whose bed is in the XZ plane, "
         "set Y to +Z and Z to +Y (or -Y) to swap the vertical and belt-travel axes. "
         "Default +X: no change.",
-        RemapAxis::PosX);
+        RemapAxis::PosX, comExpert);
     add_belt_remap("preslice_remap_y", "Y",
         "Before slicing, which model-space axis becomes the slicer's Y axis. "
         "The slicer treats Y as one of the two horizontal bed axes. If your physical "
         "belt surface runs along the Z axis, map Y to +Z here so the slicer slices "
         "along the correct plane. Default +Y: no change.",
-        RemapAxis::PosY);
+        RemapAxis::PosY, comExpert);
     add_belt_remap("preslice_remap_z", "Z",
         "Before slicing, which model-space axis becomes the slicer's Z axis (layer stacking direction). "
         "The slicer builds layers upward along this axis. If your printer's layer-stacking "
         "direction is the physical Y axis, map Z to +Y (or -Y for inverted direction). "
         "Rev mode mirrors relative to the build volume maximum. Default +Z: no change.",
-        RemapAxis::PosZ);
+        RemapAxis::PosZ, comExpert);
 
     def = this->add("preslice_remap_global", coBool);
     def->label = L("Global");
@@ -6500,7 +6501,7 @@ void PrintConfigDef::init_fff_params()
                       "Without this, the remap is applied locally around each object's center, so "
                       "objects at different positions don't get a position-dependent contribution. "
                       "Mirrors the per-axis 'Global' option on belt mesh shears, but for the remap.");
-    def->mode = comAdvanced;
+    def->mode = comExpert;
     def->set_default_value(new ConfigOptionBool(false));
 
     add_belt_remap("gcode_remap_x", "X", "Which slicing axis maps to machine X in G-code output. Applied AFTER slicing, during G-code generation.", RemapAxis::PosX);
@@ -6554,8 +6555,8 @@ void PrintConfigDef::init_fff_params()
     def->tooltip = L("Reverse the shear/scale transform applied during slicing so G-code "
                       "coordinates are in the machine's physical coordinate space. "
                       "Requires at least one shear axis with global mode enabled.");
-    def->mode = comSimple;  // Visibility controlled by toggle_line in Tab.cpp
-    def->set_default_value(new ConfigOptionBool(false));
+    def->mode = comExpert;
+    def->set_default_value(new ConfigOptionBool(true));
 
     def = this->add("belt_preslice_global", coBool);
     def->label = L("Global mesh transforms");
@@ -6563,8 +6564,8 @@ void PrintConfigDef::init_fff_params()
     def->tooltip = L("When enabled, pre-slice belt transforms (remap, shear, scale) account for "
                       "each object's bed position, producing correct machine coordinates without "
                       "relying on origin snap. Each instance gets its own PrintObject.");
-    def->mode = comAdvanced;
-    def->set_default_value(new ConfigOptionBool(false));
+    def->mode = comExpert;
+    def->set_default_value(new ConfigOptionBool(true));
 
     // First-layer plane: which surface defines "first layer" for fan / speed /
     // accel decisions.  On belt printers the slicing-frame layer 0 is a tilted
@@ -6583,11 +6584,11 @@ void PrintConfigDef::init_fff_params()
     def->enum_keys_map = &ConfigOptionEnum<FirstLayerPlaneMode>::get_enum_values();
     def->enum_values   = {"auto", "xy", "yz", "xz", "belt_shear"};
     def->enum_labels   = {L("Auto"), L("XY (machine bed)"), L("YZ"), L("XZ"), L("Belt shear plane")};
-    def->mode = comAdvanced;
-    def->set_default_value(new ConfigOptionEnum<FirstLayerPlaneMode>(FirstLayerPlaneMode::Auto));
+    def->mode = comExpert;
+    def->set_default_value(new ConfigOptionEnum<FirstLayerPlaneMode>(FirstLayerPlaneMode::BeltShear));
 
     def = this->add("first_layer_plane_offset", coFloat);
-    def->label = L("Plane offset");
+    def->label = L("Belt plane offset");
     def->category = L("Printable space");
     def->tooltip = L("Shifts the first-layer plane along its normal (mm). For axis-aligned "
                      "planes this is just a coordinate shift. Positive values move the plane "
@@ -6619,7 +6620,7 @@ void PrintConfigDef::init_fff_params()
         std::string tip = std::string("Shift G-code output so the object's bounding box minimum on machine ")
                           + axis_label + " equals the offset value.";
         def->tooltip = L(tip);
-        def->mode = comAdvanced;
+        def->mode = comExpert;
         def->set_default_value(new ConfigOptionBool(false));
 
         def = this->add(key_offset, coFloat);
@@ -6629,7 +6630,7 @@ void PrintConfigDef::init_fff_params()
         def->sidetext = L("mm");
         def->min = -10000;
         def->max = 10000;
-        def->mode = comAdvanced;
+        def->mode = comExpert;
         def->set_default_value(new ConfigOptionFloat(0));
     };
     add_belt_origin_snap("belt_origin_snap_x", "belt_origin_offset_x", "X");
