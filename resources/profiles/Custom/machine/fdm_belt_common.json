@@ -82,8 +82,8 @@
 	"z_hop_types": [
 		"Normal Lift"
 	],
-	"preslice_remap_y": "pos_z",
-	"preslice_remap_z": "pos_y",
+	"post_gcode_remap_y": "pos_z",
+	"post_gcode_remap_z": "pos_y",
 	"printer_extruder_id": [
 		"1"
 	],
