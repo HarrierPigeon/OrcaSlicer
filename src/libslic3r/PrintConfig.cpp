@@ -6305,7 +6305,7 @@ void PrintConfigDef::init_fff_params()
     def->sidetext = u8"\u00B0";
     def->min = -90;
     def->max = 90;
-    def->mode = comAdvanced;
+    def->mode = comExpert;
     def->set_default_value(new ConfigOptionFloat(0.));
 
     def = this->add("build_plate_tilt_y", coFloat);
@@ -6317,7 +6317,7 @@ void PrintConfigDef::init_fff_params()
     def->sidetext = u8"\u00B0";
     def->min = -90;
     def->max = 90;
-    def->mode = comAdvanced;
+    def->mode = comExpert;
     def->set_default_value(new ConfigOptionFloat(0.));
 
     def = this->add("belt_printer", coBool);
