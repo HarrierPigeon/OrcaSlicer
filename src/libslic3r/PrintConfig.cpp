@@ -362,6 +362,12 @@ static t_config_enum_values s_keys_map_BeltAxis {
 };
 CONFIG_OPTION_ENUM_DEFINE_STATIC_MAPS(BeltAxis)
 
+static t_config_enum_values s_keys_map_BeltTransformOrder {
+    { "scale_then_shear", int(BeltTransformOrder::ScaleThenShear) },
+    { "shear_then_scale", int(BeltTransformOrder::ShearThenScale) },
+};
+CONFIG_OPTION_ENUM_DEFINE_STATIC_MAPS(BeltTransformOrder)
+
 static t_config_enum_values s_keys_map_BeltScaleMode {
     { "none",      int(BeltScaleMode::None) },
     { "inv_sin",   int(BeltScaleMode::InvSin) },
@@ -7212,6 +7218,24 @@ void PrintConfigDef::init_fff_params()
     add_belt_scale_mode("belt_scale_z", "Function", BeltScaleMode::None);
     add_belt_scale_angle("belt_scale_z_angle", "Angle");
 
+    auto add_belt_transform_order = [this](const char *key, const char *label, const char *tooltip) {
+        auto def = this->add(key, coEnum);
+        def->label = L(label);
+        def->category = L("Printable space");
+        def->tooltip = L(tooltip);
+        def->enum_keys_map = &ConfigOptionEnum<BeltTransformOrder>::get_enum_values();
+        def->enum_values  = {"scale_then_shear", "shear_then_scale"};
+        def->enum_labels  = {L("Scale, then shear"), L("Shear, then scale")};
+        def->mode = comAdvanced;
+        def->set_default_value(new ConfigOptionEnum<BeltTransformOrder>(BeltTransformOrder::ScaleThenShear));
+    };
+
+    add_belt_transform_order("belt_mesh_transform_order", "Mesh transform order",
+        "Order in which the mesh shear and scale matrices are composed before slicing. "
+        "'Scale, then shear' applies scale first and then shear (current default). "
+        "'Shear, then scale' applies shear first and then scale. The g-code back-transform "
+        "follows the same order so that it correctly inverts the mesh transform.");
+
     // G-code axis remap with sign
     auto add_belt_remap = [this](const char *key, const char *label, const char *tooltip, RemapAxis default_axis) {
         auto def = this->add(key, coEnum);
@@ -7258,6 +7282,47 @@ void PrintConfigDef::init_fff_params()
     add_belt_remap("gcode_remap_x", "X", "Which slicing axis maps to machine X in G-code output. Applied AFTER slicing, during G-code generation.", RemapAxis::PosX);
     add_belt_remap("gcode_remap_y", "Y", "Which slicing axis maps to machine Y in G-code output. Applied AFTER slicing, during G-code generation.", RemapAxis::PosY);
     add_belt_remap("gcode_remap_z", "Z", "Which slicing axis maps to machine Z in G-code output. Applied AFTER slicing, during G-code generation.", RemapAxis::PosZ);
+
+    // Machine-frame G-code transforms: applied AFTER back-transform and gcode_remap,
+    // before per-axis origin snap.  Maps Cartesian G-code to the printer's physical machine frame.
+    add_belt_shear_mode ("gcode_shear_x", "Function", BeltShearMode::None);
+    add_belt_shear_angle("gcode_shear_x_angle", "Angle");
+    add_belt_axis_enum  ("gcode_shear_x_from", "From", "Source axis for X shear in the machine-frame stage.", BeltAxis::Z);
+
+    add_belt_shear_mode ("gcode_shear_y", "Function", BeltShearMode::None);
+    add_belt_shear_angle("gcode_shear_y_angle", "Angle");
+    add_belt_axis_enum  ("gcode_shear_y_from", "From", "Source axis for Y shear in the machine-frame stage.", BeltAxis::Z);
+
+    add_belt_shear_mode ("gcode_shear_z", "Function", BeltShearMode::None);
+    add_belt_shear_angle("gcode_shear_z_angle", "Angle");
+    add_belt_axis_enum  ("gcode_shear_z_from", "From", "Source axis for Z shear in the machine-frame stage.", BeltAxis::Y);
+
+    add_belt_scale_mode ("gcode_scale_x", "Function", BeltScaleMode::None);
+    add_belt_scale_angle("gcode_scale_x_angle", "Angle");
+
+    add_belt_scale_mode ("gcode_scale_y", "Function", BeltScaleMode::None);
+    add_belt_scale_angle("gcode_scale_y_angle", "Angle");
+
+    add_belt_scale_mode ("gcode_scale_z", "Function", BeltScaleMode::None);
+    add_belt_scale_angle("gcode_scale_z_angle", "Angle");
+
+    add_belt_transform_order("belt_gcode_transform_order", "G-code transform order",
+        "Order in which the machine-frame shear and scale matrices are composed when "
+        "applied to G-code coordinates. 'Scale, then shear' applies scale first and then "
+        "shear (current default). 'Shear, then scale' applies shear first and then scale.");
+
+    add_belt_remap("post_gcode_remap_x", "X",
+        "Axis remap in the machine-frame stage. Applied AFTER gcode_remap, "
+        "to put coordinates into the printer's physical axis labelling. Default +X: no change.",
+        RemapAxis::PosX);
+    add_belt_remap("post_gcode_remap_y", "Y",
+        "Axis remap in the machine-frame stage. Applied AFTER gcode_remap, "
+        "to put coordinates into the printer's physical axis labelling. Default +Y: no change.",
+        RemapAxis::PosY);
+    add_belt_remap("post_gcode_remap_z", "Z",
+        "Axis remap in the machine-frame stage. Applied AFTER gcode_remap, "
+        "to put coordinates into the printer's physical axis labelling. Default +Z: no change.",
+        RemapAxis::PosZ);
 
     def = this->add("gcode_back_transform", coBool);
     def->label = L("G-code back-transform");

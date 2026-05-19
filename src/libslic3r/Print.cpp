@@ -109,6 +109,15 @@ bool Print::invalidate_state_by_config_options(const ConfigOptionResolver & /* n
         "gcode_remap_x",
         "gcode_remap_y",
         "gcode_remap_z",
+        // Machine-frame transforms (only affect G-code output, not slicing).
+        "gcode_shear_x", "gcode_shear_x_angle", "gcode_shear_x_from",
+        "gcode_shear_y", "gcode_shear_y_angle", "gcode_shear_y_from",
+        "gcode_shear_z", "gcode_shear_z_angle", "gcode_shear_z_from",
+        "gcode_scale_x", "gcode_scale_x_angle",
+        "gcode_scale_y", "gcode_scale_y_angle",
+        "gcode_scale_z", "gcode_scale_z_angle",
+        "belt_gcode_transform_order",
+        "post_gcode_remap_x", "post_gcode_remap_y", "post_gcode_remap_z",
         "belt_origin_snap_x", "belt_origin_offset_x",
         "belt_origin_snap_y", "belt_origin_offset_y",
         "belt_origin_snap_z", "belt_origin_offset_z",
@@ -336,6 +345,9 @@ bool Print::invalidate_state_by_config_options(const ConfigOptionResolver & /* n
             || opt_key == "belt_scale_y_angle"
             || opt_key == "belt_scale_z"
             || opt_key == "belt_scale_z_angle"
+            || opt_key == "belt_mesh_transform_order"
+            || opt_key == "belt_preslice_global"
+            || opt_key == "preslice_remap_global"
             || opt_key == "preslice_remap_x"
             || opt_key == "preslice_remap_y"
             || opt_key == "preslice_remap_z") {

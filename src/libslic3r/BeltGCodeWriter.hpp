@@ -2,6 +2,7 @@
 
 #include "GCodeWriter.hpp"
 #include "GCode/BeltBackTransform.hpp"
+#include "GCode/MachineFrameTransform.hpp"
 
 namespace Slic3r {
 
@@ -21,8 +22,13 @@ public:
     void set_belt_angle(double angle_deg);
     bool is_belt_printer() const { return m_belt_angle_rad != 0.; }
     void set_belt_back_transform(const PrintConfig &config);
+    void set_machine_frame_transform(const PrintConfig &config);
     void set_origin_snap(int axis, bool enable, double offset, double bbox_min);
     Vec3d to_machine_coords(const Vec3d &pos) const;
+    // back_transform + axis_remap only (no origin_snap, no machine_frame_transform).
+    // Used by on_set_origin for bbox computation in the Cartesian frame, where
+    // axis-aligned bbox corners coincide with the geometry's extreme points.
+    Vec3d to_cartesian(const Vec3d &pos) const;
 
     // First-layer plane: when set to a non-null active evaluator, travel
     // speed selection consults the plane per-move and uses
@@ -47,7 +53,8 @@ protected:
 
 private:
     double          m_belt_angle_rad = 0.;
-    BeltBackTransform m_belt_back_transform;
+    BeltBackTransform     m_belt_back_transform;
+    MachineFrameTransform m_machine_frame_transform;
     bool            m_origin_snap[3]     = {false, false, false};
     double          m_origin_offset[3]   = {0., 0., 0.};
     double          m_origin_bbox_min[3] = {0., 0., 0.};

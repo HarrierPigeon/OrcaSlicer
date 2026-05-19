@@ -17,6 +17,7 @@ void BeltGCode::init_belt_writer(Print &print, bool is_bbl_printers)
     belt_writer->set_belt_angle(print.config().belt_printer_angle.value);
     // Axis remap and build volume max are set by base GCode after init_belt_writer returns.
     belt_writer->set_belt_back_transform(print.config());
+    belt_writer->set_machine_frame_transform(print.config());
     m_writer = std::move(belt_writer);
 
     // Per-axis origin snap config.
@@ -52,12 +53,33 @@ void BeltGCode::write_belt_header(GCodeOutputStream &file, const Print &print)
     file.write_format("; belt_scale_y_angle = %.1f\n", print.config().belt_scale_y_angle.value);
     file.write_format("; belt_scale_z = %s\n",       full_cfg.opt_serialize("belt_scale_z").c_str());
     file.write_format("; belt_scale_z_angle = %.1f\n", print.config().belt_scale_z_angle.value);
+    file.write_format("; belt_mesh_transform_order = %s\n", full_cfg.opt_serialize("belt_mesh_transform_order").c_str());
     // Pre-slice remap configs
     file.write_format("; preslice_remap_x = %s\n", full_cfg.opt_serialize("preslice_remap_x").c_str());
     file.write_format("; preslice_remap_y = %s\n", full_cfg.opt_serialize("preslice_remap_y").c_str());
     file.write_format("; preslice_remap_z = %s\n", full_cfg.opt_serialize("preslice_remap_z").c_str());
     file.write_format("; preslice_remap_global = %d\n", print.config().preslice_remap_global.value ? 1 : 0);
     file.write_format("; belt_preslice_global = %d\n", print.config().belt_preslice_global.value ? 1 : 0);
+    // Machine-frame transform configs
+    file.write_format("; gcode_shear_x = %s\n",       full_cfg.opt_serialize("gcode_shear_x").c_str());
+    file.write_format("; gcode_shear_x_angle = %.1f\n", print.config().gcode_shear_x_angle.value);
+    file.write_format("; gcode_shear_x_from = %s\n",  full_cfg.opt_serialize("gcode_shear_x_from").c_str());
+    file.write_format("; gcode_shear_y = %s\n",       full_cfg.opt_serialize("gcode_shear_y").c_str());
+    file.write_format("; gcode_shear_y_angle = %.1f\n", print.config().gcode_shear_y_angle.value);
+    file.write_format("; gcode_shear_y_from = %s\n",  full_cfg.opt_serialize("gcode_shear_y_from").c_str());
+    file.write_format("; gcode_shear_z = %s\n",       full_cfg.opt_serialize("gcode_shear_z").c_str());
+    file.write_format("; gcode_shear_z_angle = %.1f\n", print.config().gcode_shear_z_angle.value);
+    file.write_format("; gcode_shear_z_from = %s\n",  full_cfg.opt_serialize("gcode_shear_z_from").c_str());
+    file.write_format("; gcode_scale_x = %s\n",       full_cfg.opt_serialize("gcode_scale_x").c_str());
+    file.write_format("; gcode_scale_x_angle = %.1f\n", print.config().gcode_scale_x_angle.value);
+    file.write_format("; gcode_scale_y = %s\n",       full_cfg.opt_serialize("gcode_scale_y").c_str());
+    file.write_format("; gcode_scale_y_angle = %.1f\n", print.config().gcode_scale_y_angle.value);
+    file.write_format("; gcode_scale_z = %s\n",       full_cfg.opt_serialize("gcode_scale_z").c_str());
+    file.write_format("; gcode_scale_z_angle = %.1f\n", print.config().gcode_scale_z_angle.value);
+    file.write_format("; belt_gcode_transform_order = %s\n", full_cfg.opt_serialize("belt_gcode_transform_order").c_str());
+    file.write_format("; post_gcode_remap_x = %s\n",  full_cfg.opt_serialize("post_gcode_remap_x").c_str());
+    file.write_format("; post_gcode_remap_y = %s\n",  full_cfg.opt_serialize("post_gcode_remap_y").c_str());
+    file.write_format("; post_gcode_remap_z = %s\n",  full_cfg.opt_serialize("post_gcode_remap_z").c_str());
 }
 
 void BeltGCode::on_set_origin(const PrintObject *obj, const Point &inst_shift)
@@ -67,20 +89,31 @@ void BeltGCode::on_set_origin(const PrintObject *obj, const Point &inst_shift)
     // back_transform(T * origin) = origin (correct machine position).
     // This replaces the bbox-based axis snap with an exact formula.
     //
-    // Two flags trigger this path:
+    // Flags that trigger this path:
     //   belt_preslice_global   — full pipeline (scale * shear * remap) is global
     //   preslice_remap_global  — only the pre-slice remap is global
+    //   belt_shear_z_global    — Z-row shear treated as global (matches per-axis
+    //                            Z-offset added in PrintObjectSlice.cpp)
     // The XY origin adjustment uses the FULL forward transform either way,
     // because the back_transform applied during G-code emission is always the
-    // inverse of the full pipeline. When only the remap is configured, both
-    // flags produce identical math (T == R).
+    // inverse of the full pipeline. Without pre-multiplication under
+    // ShearThenScale order with sy != 1, machine_y of bed position cy ends up
+    // at cy/sy instead of cy, which also leaves the object bottom off the belt
+    // plane.
     bool use_global = m_config.belt_preslice_global.value
         || (m_config.preslice_remap_global.value
-            && BeltTransformPipeline::has_preslice_remap(m_config));
+            && BeltTransformPipeline::has_preslice_remap(m_config))
+        || (m_config.belt_shear_z_global.value
+            && m_config.belt_shear_z.value != BeltShearMode::None);
     if (use_global && m_config.belt_printer.value) {
         auto *belt_writer = dynamic_cast<BeltGCodeWriter*>(m_writer.get());
         if (belt_writer) {
-            // Clear snap — not needed with computed corrections
+            // The per-object lift (z_shift_val = max(0, -m_belt_min_z)) added by
+            // BeltSliceStrategy::apply_to_trafo is already compensated inside
+            // global_z_offset (via the shear_min_z term in PrintObjectSlice.cpp's
+            // preslice_global branch).  Snap was previously used here for the same
+            // purpose, but with both active the lift gets subtracted twice.  Clear
+            // any leftover snap state from a prior instance.
             for (int a = 0; a < 3; ++a)
                 belt_writer->set_origin_snap(a, false, 0., 0.);
         }
@@ -125,7 +158,12 @@ void BeltGCode::on_set_origin(const PrintObject *obj, const Point &inst_shift)
                 unscale<double>(inst_shift.y()),
                 obj->belt_global_z_offset());
 
-    // Compute this instance's machine-space bbox min
+    // Compute this instance's bbox min in the Cartesian frame (post back_transform
+    // + axis_remap, before machine_frame_transform).  Using to_cartesian instead of
+    // to_machine_coords ensures the 8 axis-aligned bbox corners coincide with the
+    // geometry's extreme points — a property that breaks under shear, which would
+    // mis-normalize non-cubic shapes (inverted cone, benchy) by their bbox-volume
+    // corners rather than their actual lowest geometry point.
     BoundingBoxf3 bb = obj->model_object()->raw_bounding_box();
     Vec3d mn = bb.min.cast<double>(), mx = bb.max.cast<double>();
     Vec3d inst_min(std::numeric_limits<double>::max(),
@@ -135,7 +173,7 @@ void BeltGCode::on_set_origin(const PrintObject *obj, const Point &inst_shift)
         Vec3d c((i & 1) ? mx.x() : mn.x(),
                 (i & 2) ? mx.y() : mn.y(),
                 (i & 4) ? mx.z() : mn.z());
-        Vec3d mc = belt_writer->to_machine_coords(full * c + shift);
+        Vec3d mc = belt_writer->to_cartesian(full * c + shift);
         for (int a = 0; a < 3; ++a)
             inst_min[a] = std::min(inst_min[a], mc[a]);
     }

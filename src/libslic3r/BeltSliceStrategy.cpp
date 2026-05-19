@@ -1,6 +1,7 @@
 #include "BeltSliceStrategy.hpp"
 
 #include <boost/log/trivial.hpp>
+#include <thread>
 
 namespace Slic3r {
 
@@ -15,6 +16,7 @@ BeltSliceStrategy::BeltSliceStrategy(const PrintConfig &config)
 {
     m_shear = BeltTransformPipeline::build_shear_matrix(config, &m_has_shear);
     m_scale = BeltTransformPipeline::build_scale_matrix(config, &m_has_scale);
+    m_order = config.belt_mesh_transform_order.value;
 }
 
 void BeltSliceStrategy::apply_to_trafo(Transform3d &trafo,
@@ -22,10 +24,13 @@ void BeltSliceStrategy::apply_to_trafo(Transform3d &trafo,
                                         bool has_remap,
                                         double *out_belt_min_z) const
 {
-    // Shear + scale (belt-only; pre-slice remap is handled separately).
+    // ScaleThenShear: applied to a point, scale runs first then shear (m_shear * m_scale).
+    // ShearThenScale: applied to a point, shear runs first then scale (m_scale * m_shear).
     if (m_has_shear || m_has_scale) {
         Transform3d belt_xform = Transform3d::Identity();
-        belt_xform.linear() = m_scale * m_shear;
+        belt_xform.linear() = (m_order == BeltTransformOrder::ScaleThenShear)
+            ? Matrix3d(m_shear * m_scale)
+            : Matrix3d(m_scale * m_shear);
         trafo = belt_xform * trafo;
     }
 
@@ -47,8 +52,12 @@ void BeltSliceStrategy::apply_to_trafo(Transform3d &trafo,
             z_shift.matrix()(2, 3) = belt_z_shift_val;
             trafo = z_shift * trafo;
         }
-        if (out_belt_min_z)
-            *out_belt_min_z = (min_z != std::numeric_limits<double>::max()) ? min_z : 0.;
+        if (out_belt_min_z) {
+            double new_val = (min_z != std::numeric_limits<double>::max()) ? min_z : 0.;
+            BOOST_LOG_TRIVIAL(warning) << "[BELTRACE] write m_belt_min_z tid=" << std::this_thread::get_id()
+                << " target=" << out_belt_min_z << " old=" << *out_belt_min_z << " new=" << new_val;
+            *out_belt_min_z = new_val;
+        }
     }
 }
 

@@ -1,5 +1,6 @@
 #include <boost/log/trivial.hpp>
 #include <limits>
+#include <thread>
 
 #include <tbb/parallel_for.h>
 
@@ -847,8 +848,12 @@ void groupingVolumesForBrim(PrintObject* object, LayerPtrs& layers, int firstLay
 // Resulting expolygons of layer regions are marked as Internal.
 void PrintObject::slice()
 {
-    if (! this->set_started(posSlice))
+    BOOST_LOG_TRIVIAL(warning) << "[BELTRACE] slice request tid=" << std::this_thread::get_id() << " obj=" << this;
+    if (! this->set_started(posSlice)) {
+        BOOST_LOG_TRIVIAL(warning) << "[BELTRACE] slice SKIP tid=" << std::this_thread::get_id() << " obj=" << this << " (already started/done)";
         return;
+    }
+    BOOST_LOG_TRIVIAL(warning) << "[BELTRACE] slice ENTER tid=" << std::this_thread::get_id() << " obj=" << this;
     //BBS: add flag to reload scene for shell rendering
     m_print->set_status(5, L("Slicing mesh"), PrintBase::SlicingStatus::RELOAD_SCENE);
     std::vector<coordf_t> layer_height_profile;
@@ -952,11 +957,25 @@ void PrintObject::slice()
                 Vec3d d(unscale<double>(inst_shift.x()), unscale<double>(inst_shift.y()), 0.);
                 Vec3d c = T.linear() * d - d;
 
-                global_z_offset = c.z();
+                // Per-object shape contribution: BeltSliceStrategy::apply_to_trafo
+                // lifts the mesh by max(0, -m_belt_min_z) to keep slicer-frame Z
+                // above 0.  Two objects at the same bed position but different
+                // m_belt_min_z (e.g. cube vs inverted-cone tip) otherwise end up
+                // at the same print_z, which causes the inverted-cone tip to
+                // start on the same layer as the cube's lowest sheared corner.
+                double belt_surface_z = BeltTransformPipeline::has_preslice_remap(pcfg)
+                    ? BeltTransformPipeline::remap_bbox(*this->model_object(), pcfg).min.z() : 0.;
+                double shear_min_z = m_belt_min_z - belt_surface_z;
+
+                global_z_offset = c.z() + shear_min_z;
+                BOOST_LOG_TRIVIAL(warning) << "[BELTRACE] write m_belt_global_xy_correction tid=" << std::this_thread::get_id()
+                    << " obj=" << this << " old=(" << m_belt_global_xy_correction.x() << "," << m_belt_global_xy_correction.y()
+                    << ") new=(" << c.x() << "," << c.y() << ")";
                 m_belt_global_xy_correction = Vec2d(c.x(), c.y());
 
                 BOOST_LOG_TRIVIAL(warning) << "Belt preslice_global: correction=("
-                    << c.x() << ", " << c.y() << ", " << c.z() << ")";
+                    << c.x() << ", " << c.y() << ", " << c.z() << ")"
+                    << " shear_min_z=" << shear_min_z << " (m_belt_min_z=" << m_belt_min_z << ")";
             } else {
                 struct GAxis { BeltShearMode mode; double angle; int from; bool global; };
                 GAxis gaxes[3] = {
@@ -969,13 +988,27 @@ void PrintObject::slice()
                 // (X/Y row shears with global would offset X/Y, not Z — not useful here.)
                 const auto &za = gaxes[2]; // Z row
                 if (za.global && za.mode != BeltShearMode::None && za.from < 2) {
-                    double factor = BeltTransformPipeline::compute_shear_factor(za.mode, za.angle);
+                    // Use the full forward-transform correction (same formula as
+                    // preslice_global) so the per-bed-position offset matches what
+                    // BeltGCode::on_set_origin's T.linear() pre-multiplication
+                    // expects after back-transform.  The simple `cy*tan(α)` form
+                    // is exact only for ScaleThenShear; under ShearThenScale with
+                    // sy != 1 it leaves the object bottom off the belt plane by
+                    // cy*tan(α)*(sy-1)/sy.
+                    Transform3d T = BeltTransformPipeline::build_forward_transform(pcfg);
+                    Vec3d d(unscale<double>(inst_shift.x()), unscale<double>(inst_shift.y()), 0.);
+                    Vec3d c = T.linear() * d - d;
                     double belt_surface_z = BeltTransformPipeline::has_preslice_remap(pcfg)
                         ? BeltTransformPipeline::remap_bbox(*this->model_object(), pcfg).min.z() : 0.;
                     double shear_min_z = m_belt_min_z - belt_surface_z;
-                    Point phys = inst_shift;
-                    double center_on_axis = (za.from == 0) ? unscale<double>(phys.x()) : unscale<double>(phys.y());
-                    global_z_offset += center_on_axis * factor + shear_min_z;
+                    global_z_offset += c.z() + shear_min_z;
+                    BOOST_LOG_TRIVIAL(warning) << "[BELTRACE] write m_belt_global_xy_correction tid=" << std::this_thread::get_id()
+                        << " obj=" << this << " old=(" << m_belt_global_xy_correction.x() << "," << m_belt_global_xy_correction.y()
+                        << ") new=(" << c.x() << "," << c.y() << ")";
+                    m_belt_global_xy_correction = Vec2d(c.x(), c.y());
+                    BOOST_LOG_TRIVIAL(warning) << "Belt per-axis Z-shear-global: correction=("
+                        << c.x() << ", " << c.y() << ", " << c.z() << ")"
+                        << " shear_min_z=" << shear_min_z << " (m_belt_min_z=" << m_belt_min_z << ")";
                 }
 
                 // Pre-slice remap global mode: when on, the remap accounts for the
@@ -993,6 +1026,8 @@ void PrintObject::slice()
 
             BOOST_LOG_TRIVIAL(warning) << "Belt global: z_offset=" << global_z_offset
                 << " (relative to min across " << this->print()->objects().size() << " objects)";
+            BOOST_LOG_TRIVIAL(warning) << "[BELTRACE] write m_belt_global_z_offset tid=" << std::this_thread::get_id()
+                << " obj=" << this << " old=" << m_belt_global_z_offset << " new=" << global_z_offset;
             m_belt_global_z_offset = global_z_offset;
             if (std::abs(global_z_offset) > EPSILON) {
                 for (Layer *layer : m_layers)
@@ -1013,6 +1048,10 @@ void PrintObject::slice()
     }
 
     // BBS
+    BOOST_LOG_TRIVIAL(warning) << "[BELTRACE] slice EXIT tid=" << std::this_thread::get_id() << " obj=" << this
+        << " layers=" << m_layers.size() << " belt_min_z=" << m_belt_min_z
+        << " belt_global_z_offset=" << m_belt_global_z_offset
+        << " belt_xy=(" << m_belt_global_xy_correction.x() << "," << m_belt_global_xy_correction.y() << ")";
     this->set_done(posSlice);
 }
 

@@ -222,6 +222,8 @@ set(lisbslic3r_sources
     GCode/AvoidCrossingPerimeters.hpp
     GCode/BeltBackTransform.cpp
     GCode/BeltBackTransform.hpp
+    GCode/MachineFrameTransform.cpp
+    GCode/MachineFrameTransform.hpp
     GCode/ConflictChecker.cpp
     GCode/ConflictChecker.hpp
     GCode/CoolingBuffer.cpp

@@ -5084,6 +5084,7 @@ void TabPrinter::build_fff()
             line.append_option(optgroup->get_option("belt_scale_z_angle"));
             optgroup->append_line(line);
         }
+        optgroup->append_single_option_line("belt_mesh_transform_order");
         {
             Line line = { L("Pre-slice axis remap"),
                           L("Remap model axes before slicing so the slicer's coordinate system matches "
@@ -5141,6 +5142,63 @@ void TabPrinter::build_fff()
             line.append_option(optgroup->get_option("belt_support_z_offset_mode"));
             optgroup->append_line(line);
         }
+
+        // Machine-frame transforms: applied to G-code after back-transform and
+        // gcode_remap, before per-axis origin snap.  Maps Cartesian G-code into
+        // the printer's physical machine frame.
+        {
+            auto mf = page->new_optgroup(L("Machine frame transforms"), L"param_advanced");
+            {
+                Line line = { L("G-code shear X"), L("Shear applied to the X axis in the machine-frame stage (after back-transform and gcode_remap).") };
+                line.append_option(mf->get_option("gcode_shear_x"));
+                line.append_option(mf->get_option("gcode_shear_x_angle"));
+                line.append_option(mf->get_option("gcode_shear_x_from"));
+                mf->append_line(line);
+            }
+            {
+                Line line = { L("G-code shear Y"), L("Shear applied to the Y axis in the machine-frame stage (after back-transform and gcode_remap).") };
+                line.append_option(mf->get_option("gcode_shear_y"));
+                line.append_option(mf->get_option("gcode_shear_y_angle"));
+                line.append_option(mf->get_option("gcode_shear_y_from"));
+                mf->append_line(line);
+            }
+            {
+                Line line = { L("G-code shear Z"), L("Shear applied to the Z axis in the machine-frame stage (after back-transform and gcode_remap).") };
+                line.append_option(mf->get_option("gcode_shear_z"));
+                line.append_option(mf->get_option("gcode_shear_z_angle"));
+                line.append_option(mf->get_option("gcode_shear_z_from"));
+                mf->append_line(line);
+            }
+            {
+                Line line = { L("G-code scale X"), L("Scale applied to the X axis in the machine-frame stage.") };
+                line.append_option(mf->get_option("gcode_scale_x"));
+                line.append_option(mf->get_option("gcode_scale_x_angle"));
+                mf->append_line(line);
+            }
+            {
+                Line line = { L("G-code scale Y"), L("Scale applied to the Y axis in the machine-frame stage.") };
+                line.append_option(mf->get_option("gcode_scale_y"));
+                line.append_option(mf->get_option("gcode_scale_y_angle"));
+                mf->append_line(line);
+            }
+            {
+                Line line = { L("G-code scale Z"), L("Scale applied to the Z axis in the machine-frame stage.") };
+                line.append_option(mf->get_option("gcode_scale_z"));
+                line.append_option(mf->get_option("gcode_scale_z_angle"));
+                mf->append_line(line);
+            }
+            mf->append_single_option_line("belt_gcode_transform_order");
+            {
+                Line line = { L("Post-gcode axis remap"),
+                              L("Axis remap in the machine-frame stage. Applied AFTER gcode_remap, "
+                                "to put coordinates into the printer's physical axis labelling.") };
+                line.append_option(mf->get_option("post_gcode_remap_x"));
+                line.append_option(mf->get_option("post_gcode_remap_y"));
+                line.append_option(mf->get_option("post_gcode_remap_z"));
+                mf->append_line(line);
+            }
+        }
+
         option = optgroup->get_option("thumbnails");
         option.opt.full_width = true;
         optgroup->append_single_option_line(option, "printer_basic_information_advanced#g-code-thumbnails");
@@ -6201,6 +6259,7 @@ void TabPrinter::toggle_options()
         toggle_line("belt_printer_infinite_y", is_belt);
         for (auto el : {"belt_shear_x", "belt_shear_y", "belt_shear_z",
                         "belt_scale_x", "belt_scale_y", "belt_scale_z",
+                        "belt_mesh_transform_order",
                         "belt_origin_snap_x", "belt_origin_snap_y", "belt_origin_snap_z"})
             toggle_line(el, is_belt);
 
@@ -6240,6 +6299,34 @@ void TabPrinter::toggle_options()
 
         auto scz = m_config->option<ConfigOptionEnum<BeltScaleMode>>("belt_scale_z")->value;
         toggle_option("belt_scale_z_angle", is_belt && scz != BeltScaleMode::None);
+
+        // Machine-frame transforms: shown only in belt mode.
+        for (auto el : {"gcode_shear_x", "gcode_shear_y", "gcode_shear_z",
+                        "gcode_scale_x", "gcode_scale_y", "gcode_scale_z",
+                        "belt_gcode_transform_order",
+                        "post_gcode_remap_x"})
+            toggle_line(el, is_belt);
+
+        auto gsx = m_config->option<ConfigOptionEnum<BeltShearMode>>("gcode_shear_x")->value;
+        toggle_option("gcode_shear_x_angle", is_belt && gsx != BeltShearMode::None);
+        toggle_option("gcode_shear_x_from",  is_belt && gsx != BeltShearMode::None);
+
+        auto gsy = m_config->option<ConfigOptionEnum<BeltShearMode>>("gcode_shear_y")->value;
+        toggle_option("gcode_shear_y_angle", is_belt && gsy != BeltShearMode::None);
+        toggle_option("gcode_shear_y_from",  is_belt && gsy != BeltShearMode::None);
+
+        auto gsz = m_config->option<ConfigOptionEnum<BeltShearMode>>("gcode_shear_z")->value;
+        toggle_option("gcode_shear_z_angle", is_belt && gsz != BeltShearMode::None);
+        toggle_option("gcode_shear_z_from",  is_belt && gsz != BeltShearMode::None);
+
+        auto gscx = m_config->option<ConfigOptionEnum<BeltScaleMode>>("gcode_scale_x")->value;
+        toggle_option("gcode_scale_x_angle", is_belt && gscx != BeltScaleMode::None);
+
+        auto gscy = m_config->option<ConfigOptionEnum<BeltScaleMode>>("gcode_scale_y")->value;
+        toggle_option("gcode_scale_y_angle", is_belt && gscy != BeltScaleMode::None);
+
+        auto gscz = m_config->option<ConfigOptionEnum<BeltScaleMode>>("gcode_scale_z")->value;
+        toggle_option("gcode_scale_z_angle", is_belt && gscz != BeltScaleMode::None);
 
         // Origin snap is superseded by belt_preslice_global
         toggle_option("belt_origin_offset_x", is_belt && m_config->opt_bool("belt_origin_snap_x") && !belt_global);

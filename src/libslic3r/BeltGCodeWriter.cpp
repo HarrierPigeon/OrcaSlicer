@@ -34,6 +34,11 @@ void BeltGCodeWriter::set_belt_back_transform(const PrintConfig &config)
     m_belt_back_transform.init_from_config(config);
 }
 
+void BeltGCodeWriter::set_machine_frame_transform(const PrintConfig &config)
+{
+    m_machine_frame_transform.init_from_config(config);
+}
+
 void BeltGCodeWriter::set_origin_snap(int axis, bool enable, double offset, double bbox_min)
 {
     if (axis >= 0 && axis < 3) {
@@ -43,17 +48,26 @@ void BeltGCodeWriter::set_origin_snap(int axis, bool enable, double offset, doub
     }
 }
 
+Vec3d BeltGCodeWriter::to_cartesian(const Vec3d &pos) const
+{
+    // back_transform → axis_remap, no origin_snap, no machine_frame_transform.
+    return apply_axis_remap(m_belt_back_transform.apply(pos));
+}
+
 Vec3d BeltGCodeWriter::to_machine_coords(const Vec3d &pos) const
 {
-    // Step 1: Undo the shear/scale applied during slicing.
-    Vec3d p = m_belt_back_transform.apply(pos);
-    // Step 2: Apply axis remap (uses inherited base class method).
-    Vec3d result = apply_axis_remap(p);
-    // Step 3: Per-axis origin snap.
+    // Step 1+2: To Cartesian (back_transform + axis_remap).
+    Vec3d result = to_cartesian(pos);
+    // Step 3: Per-axis origin snap (computed in the Cartesian frame).
     for (int i = 0; i < 3; ++i)
         if (m_origin_snap[i])
             result[i] -= (m_origin_bbox_min[i] - m_origin_offset[i]);
-    return result;
+    // Step 4: Machine-frame transform (gcode_shear / gcode_scale / post_gcode_remap)
+    // applied LAST so it acts as a global linear transform on the placed coords.
+    // Order matters: putting it before origin_snap would feed sheared bbox corners
+    // into the snap's per-object min calculation, mis-normalizing non-cubic geometries
+    // (the corners of the original bbox aren't extreme points of the sheared shape).
+    return m_machine_frame_transform.apply(result);
 }
 
 // ---- Overridden movement methods ------------------------------------------

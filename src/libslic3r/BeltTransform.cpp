@@ -103,9 +103,15 @@ Transform3d BeltTransformPipeline::build_forward_transform(const PrintConfig &co
     bool        scale_active = false;
     Matrix3d    scale        = build_scale_matrix(config, &scale_active);
 
-    // Pipeline: scale * shear * pre_remap
+    // Match the mesh-side ordering selected by belt_mesh_transform_order so
+    // BeltBackTransform inverts the same composition that BeltSliceStrategy
+    // applied to the mesh.
+    //   ScaleThenShear: applied to p, scale runs first then shear (shear * scale).
+    //   ShearThenScale: applied to p, shear runs first then scale (scale * shear).
     Transform3d combined = Transform3d::Identity();
-    combined.linear() = scale * shear;
+    combined.linear() = (config.belt_mesh_transform_order.value == BeltTransformOrder::ScaleThenShear)
+        ? Matrix3d(shear * scale)
+        : Matrix3d(scale * shear);
     combined = combined * pre_remap;
     return combined;
 }
@@ -160,19 +166,30 @@ BeltTransformPipeline::BeltHeightResult compute_belt_height_and_floor_impl(
     BeltTransformPipeline::BeltHeightResult result;
     result.object_height = original_height;
 
-    // Extract Z-axis shear/scale config.
+    // Extract Z-axis shear/scale + per-axis scale + transform order from config.
     BeltShearMode z_shear_mode;
     double        z_shear_angle;
     BeltScaleMode z_scale_mode;
     double        z_scale_angle;
     int           z_shear_from;
+    BeltScaleMode from_scale_mode;   // scale on the shear's source axis
+    double        from_scale_angle;
+    BeltTransformOrder order;
 
     if constexpr (std::is_same_v<Config, PrintConfig>) {
-        z_shear_mode  = config.belt_shear_z.value;
-        z_shear_angle = config.belt_shear_z_angle.value;
-        z_scale_mode  = config.belt_scale_z.value;
-        z_scale_angle = config.belt_scale_z_angle.value;
-        z_shear_from  = int(config.belt_shear_z_from.value);
+        z_shear_mode      = config.belt_shear_z.value;
+        z_shear_angle     = config.belt_shear_z_angle.value;
+        z_scale_mode      = config.belt_scale_z.value;
+        z_scale_angle     = config.belt_scale_z_angle.value;
+        z_shear_from      = int(config.belt_shear_z_from.value);
+        order             = config.belt_mesh_transform_order.value;
+        if (z_shear_from == 0) {
+            from_scale_mode  = config.belt_scale_x.value;
+            from_scale_angle = config.belt_scale_x_angle.value;
+        } else {
+            from_scale_mode  = config.belt_scale_y.value;
+            from_scale_angle = config.belt_scale_y_angle.value;
+        }
     } else {
         // DynamicPrintConfig path
         auto get_shear = [&](const char *key) {
@@ -191,11 +208,23 @@ BeltTransformPipeline::BeltHeightResult compute_belt_height_and_floor_impl(
             auto *opt = config.template option<ConfigOptionEnum<BeltAxis>>(key);
             return opt ? int(opt->value) : 1;
         };
+        auto get_order = [&](const char *key) {
+            auto *opt = config.template option<ConfigOptionEnum<BeltTransformOrder>>(key);
+            return opt ? opt->value : BeltTransformOrder::ScaleThenShear;
+        };
         z_shear_mode  = get_shear("belt_shear_z");
         z_shear_angle = get_float("belt_shear_z_angle");
         z_scale_mode  = get_scale("belt_scale_z");
         z_scale_angle = get_float("belt_scale_z_angle");
         z_shear_from  = get_axis("belt_shear_z_from");
+        order         = get_order("belt_mesh_transform_order");
+        if (z_shear_from == 0) {
+            from_scale_mode  = get_scale("belt_scale_x");
+            from_scale_angle = get_float("belt_scale_x_angle");
+        } else {
+            from_scale_mode  = get_scale("belt_scale_y");
+            from_scale_angle = get_float("belt_scale_y_angle");
+        }
     }
 
     bool has_z_shear = z_shear_mode != BeltShearMode::None;
@@ -206,7 +235,8 @@ BeltTransformPipeline::BeltHeightResult compute_belt_height_and_floor_impl(
 
     double shear_factor = has_z_shear
         ? BeltTransformPipeline::compute_shear_factor(z_shear_mode, z_shear_angle) : 0.;
-    double scale_z = BeltTransformPipeline::compute_scale_factor(z_scale_mode, z_scale_angle);
+    double scale_z    = BeltTransformPipeline::compute_scale_factor(z_scale_mode, z_scale_angle);
+    double scale_from = BeltTransformPipeline::compute_scale_factor(from_scale_mode, from_scale_angle);
 
     if (has_z_shear && std::abs(shear_factor) > EPSILON) {
         int from = z_shear_from;
@@ -214,14 +244,29 @@ BeltTransformPipeline::BeltHeightResult compute_belt_height_and_floor_impl(
         double max_rz = std::numeric_limits<double>::lowest();
         for (double vz : {bb.min.z(), bb.max.z()})
             for (double vs : {bb.min(from), bb.max(from)}) {
-                double new_z = scale_z * (vz + shear_factor * vs);
+                // Mesh-frame new_z computed per ordering.
+                //   scale-then-shear: Z_s = sz*Z_m + s_from*tan(α)*from_m
+                //   shear-then-scale: Z_s = sz*(Z_m + tan(α)*from_m)
+                double new_z = (order == BeltTransformOrder::ScaleThenShear)
+                    ? scale_z * vz + scale_from * shear_factor * vs
+                    : scale_z * (vz + shear_factor * vs);
                 min_rz = std::min(min_rz, new_z);
                 max_rz = std::max(max_rz, new_z);
             }
-        result.object_height              = max_rz - min_rz;
-        result.floor_params.shear_factor  = shear_factor;
-        result.floor_params.from_axis     = from;
-        result.floor_params.z_shift       = bb.min.z() + ((min_rz < 0.) ? -min_rz : 0.);
+        result.object_height          = max_rz - min_rz;
+        // Effective slicer-frame slope of the belt surface (Z_m=0 line):
+        //   scale-then-shear: Z_s = tan(α) * Y_s          → slope = tan(α)
+        //   shear-then-scale: Z_s = sz/s_from * tan(α) * Y_s → slope = sz*tan(α)/s_from
+        // The downstream cutoff formula `Y_s = (print_z - z_shift) / slope`
+        // and floor_print_z(Y_s) = slope * Y_s + z_shift use this slope.
+        double effective_shear = (order == BeltTransformOrder::ScaleThenShear)
+            ? shear_factor
+            : (std::abs(scale_from) > EPSILON
+                ? scale_z * shear_factor / scale_from
+                : shear_factor);
+        result.floor_params.shear_factor = effective_shear;
+        result.floor_params.from_axis    = from;
+        result.floor_params.z_shift      = bb.min.z() + ((min_rz < 0.) ? -min_rz : 0.);
     } else {
         result.object_height = original_height * scale_z;
     }
