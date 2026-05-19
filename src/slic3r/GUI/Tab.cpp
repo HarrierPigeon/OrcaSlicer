@@ -1562,6 +1562,13 @@ void Tab::update_mode()
 {
     m_mode = wxGetApp().get_mode();
 
+    // toggle_options reads m_mode to gate Lines whose contents are mode-mixed
+    // (e.g., a multi-option row where some options are Advanced and some Expert):
+    // when all of a Line's options would be hidden, we hide the Line itself.
+    // Without refreshing here, the toggle_visible state stays stale across mode
+    // switches and Lines stay hidden.
+    toggle_options();
+
     update_visibility();
 
     update_changed_tree_ui();
@@ -5036,75 +5043,77 @@ void TabPrinter::build_fff()
         //option.opt.full_width = true;
         //optgroup->append_single_option_line(option);
         optgroup->append_single_option_line("disable_m73", "printer_basic_information_advanced#disable-set-remaining-print-time");
-        optgroup->append_single_option_line("build_plate_tilt_x");
-        optgroup->append_single_option_line("build_plate_tilt_y");
-        optgroup->append_single_option_line("belt_printer");
-        optgroup->append_single_option_line("belt_printer_angle");
-        optgroup->append_single_option_line("belt_printer_infinite_y");
+
+        // Belt printer: dedicated section. Everything except the "Enable belt printing"
+        // checkbox is hidden when belt_printer is off (see TabPrinter::toggle_options).
+        auto belt_og = page->new_optgroup(L("Belt printer"), L"param_advanced");
+        belt_og->append_single_option_line("belt_printer");
+        belt_og->append_single_option_line("belt_printer_angle");
+        belt_og->append_single_option_line("belt_printer_infinite_y");
         // Per-axis shear: group mode + angle + source on one row per axis
         {
             Line line = { L("Mesh shear X"), L("Shear applied to the X axis before slicing") };
-            line.append_option(optgroup->get_option("belt_shear_x"));
-            line.append_option(optgroup->get_option("belt_shear_x_angle"));
-            line.append_option(optgroup->get_option("belt_shear_x_from"));
-            line.append_option(optgroup->get_option("belt_shear_x_global"));
-            optgroup->append_line(line);
+            line.append_option(belt_og->get_option("belt_shear_x"));
+            line.append_option(belt_og->get_option("belt_shear_x_angle"));
+            line.append_option(belt_og->get_option("belt_shear_x_from"));
+            line.append_option(belt_og->get_option("belt_shear_x_global"));
+            belt_og->append_line(line);
         }
         {
             Line line = { L("Mesh shear Y"), L("Shear applied to the Y axis before slicing") };
-            line.append_option(optgroup->get_option("belt_shear_y"));
-            line.append_option(optgroup->get_option("belt_shear_y_angle"));
-            line.append_option(optgroup->get_option("belt_shear_y_from"));
-            line.append_option(optgroup->get_option("belt_shear_y_global"));
-            optgroup->append_line(line);
+            line.append_option(belt_og->get_option("belt_shear_y"));
+            line.append_option(belt_og->get_option("belt_shear_y_angle"));
+            line.append_option(belt_og->get_option("belt_shear_y_from"));
+            line.append_option(belt_og->get_option("belt_shear_y_global"));
+            belt_og->append_line(line);
         }
         {
             Line line = { L("Mesh shear Z"), L("Shear applied to the Z axis before slicing") };
-            line.append_option(optgroup->get_option("belt_shear_z"));
-            line.append_option(optgroup->get_option("belt_shear_z_angle"));
-            line.append_option(optgroup->get_option("belt_shear_z_from"));
-            line.append_option(optgroup->get_option("belt_shear_z_global"));
-            optgroup->append_line(line);
+            line.append_option(belt_og->get_option("belt_shear_z"));
+            line.append_option(belt_og->get_option("belt_shear_z_angle"));
+            line.append_option(belt_og->get_option("belt_shear_z_from"));
+            line.append_option(belt_og->get_option("belt_shear_z_global"));
+            belt_og->append_line(line);
         }
         {
             Line line = { L("Mesh scale X"), L("Scale applied to the X axis before slicing") };
-            line.append_option(optgroup->get_option("belt_scale_x"));
-            line.append_option(optgroup->get_option("belt_scale_x_angle"));
-            optgroup->append_line(line);
+            line.append_option(belt_og->get_option("belt_scale_x"));
+            line.append_option(belt_og->get_option("belt_scale_x_angle"));
+            belt_og->append_line(line);
         }
         {
             Line line = { L("Mesh scale Y"), L("Scale applied to the Y axis before slicing") };
-            line.append_option(optgroup->get_option("belt_scale_y"));
-            line.append_option(optgroup->get_option("belt_scale_y_angle"));
-            optgroup->append_line(line);
+            line.append_option(belt_og->get_option("belt_scale_y"));
+            line.append_option(belt_og->get_option("belt_scale_y_angle"));
+            belt_og->append_line(line);
         }
         {
             Line line = { L("Mesh scale Z"), L("Scale applied to the Z axis before slicing") };
-            line.append_option(optgroup->get_option("belt_scale_z"));
-            line.append_option(optgroup->get_option("belt_scale_z_angle"));
-            optgroup->append_line(line);
+            line.append_option(belt_og->get_option("belt_scale_z"));
+            line.append_option(belt_og->get_option("belt_scale_z_angle"));
+            belt_og->append_line(line);
         }
-        optgroup->append_single_option_line("belt_mesh_transform_order");
+        belt_og->append_single_option_line("belt_mesh_transform_order");
         {
             Line line = { L("Pre-slice axis remap"),
                           L("Remap model axes before slicing so the slicer's coordinate system matches "
                             "the physical bed orientation. For belt printers whose bed is NOT in the XY plane, "
                             "use this to swap axes so layers are stacked in the correct physical direction.") };
-            line.append_option(optgroup->get_option("preslice_remap_x"));
-            line.append_option(optgroup->get_option("preslice_remap_y"));
-            line.append_option(optgroup->get_option("preslice_remap_z"));
-            line.append_option(optgroup->get_option("preslice_remap_global"));
-            optgroup->append_line(line);
+            line.append_option(belt_og->get_option("preslice_remap_x"));
+            line.append_option(belt_og->get_option("preslice_remap_y"));
+            line.append_option(belt_og->get_option("preslice_remap_z"));
+            line.append_option(belt_og->get_option("preslice_remap_global"));
+            belt_og->append_line(line);
         }
         {
             Line line = { L("G-code axis remap (post-slice)"), L("Remap slicing-frame axes to machine axes in G-code output. Applied AFTER slicing, during G-code generation.") };
-            line.append_option(optgroup->get_option("gcode_remap_x"));
-            line.append_option(optgroup->get_option("gcode_remap_y"));
-            line.append_option(optgroup->get_option("gcode_remap_z"));
-            optgroup->append_line(line);
+            line.append_option(belt_og->get_option("gcode_remap_x"));
+            line.append_option(belt_og->get_option("gcode_remap_y"));
+            line.append_option(belt_og->get_option("gcode_remap_z"));
+            belt_og->append_line(line);
         }
-        optgroup->append_single_option_line("belt_preslice_global");
-        optgroup->append_single_option_line("gcode_back_transform");
+        belt_og->append_single_option_line("belt_preslice_global");
+        belt_og->append_single_option_line("gcode_back_transform");
         {
             Line line = { L("First layer plane"),
                           L("Reference plane used to decide which extrusions get first-layer "
@@ -5112,42 +5121,49 @@ void TabPrinter::build_fff()
                             "printers, Auto resolves to the tilted belt-shear plane so that "
                             "first-layer treatment follows perpendicular distance from the belt "
                             "surface, not slicing layer index.") };
-            line.append_option(optgroup->get_option("first_layer_plane"));
-            line.append_option(optgroup->get_option("first_layer_plane_offset"));
-            line.append_option(optgroup->get_option("first_layer_plane_thickness"));
-            optgroup->append_line(line);
+            line.append_option(belt_og->get_option("first_layer_plane"));
+            line.append_option(belt_og->get_option("first_layer_plane_offset"));
+            line.append_option(belt_og->get_option("first_layer_plane_thickness"));
+            belt_og->append_line(line);
         }
         {
             Line line = { L("Origin snap X"), L("Snap object bbox min X to offset in G-code output") };
-            line.append_option(optgroup->get_option("belt_origin_snap_x"));
-            line.append_option(optgroup->get_option("belt_origin_offset_x"));
-            optgroup->append_line(line);
+            line.append_option(belt_og->get_option("belt_origin_snap_x"));
+            line.append_option(belt_og->get_option("belt_origin_offset_x"));
+            belt_og->append_line(line);
         }
         {
             Line line = { L("Origin snap Y"), L("Snap object bbox min Y to offset in G-code output") };
-            line.append_option(optgroup->get_option("belt_origin_snap_y"));
-            line.append_option(optgroup->get_option("belt_origin_offset_y"));
-            optgroup->append_line(line);
+            line.append_option(belt_og->get_option("belt_origin_snap_y"));
+            line.append_option(belt_og->get_option("belt_origin_offset_y"));
+            belt_og->append_line(line);
         }
         {
             Line line = { L("Origin snap Z"), L("Snap object bbox min Z to offset in G-code output") };
-            line.append_option(optgroup->get_option("belt_origin_snap_z"));
-            line.append_option(optgroup->get_option("belt_origin_offset_z"));
-            optgroup->append_line(line);
+            line.append_option(belt_og->get_option("belt_origin_snap_z"));
+            line.append_option(belt_og->get_option("belt_origin_offset_z"));
+            belt_og->append_line(line);
         }
-        {
-            Line line = { L("Support floor"), L("Belt floor awareness for support generation and clipping") };
-            line.append_option(optgroup->get_option("belt_support_floor_mode"));
-            line.append_option(optgroup->get_option("belt_support_floor_offset"));
-            line.append_option(optgroup->get_option("belt_support_z_offset_mode"));
-            optgroup->append_line(line);
-        }
+        // Support floor: split across lines so each setting's own mode controls
+        // its visibility (floor_mode = Develop, floor_offset = Advanced, z_offset_mode = Expert).
+        belt_og->append_single_option_line("belt_support_floor_offset");
+        belt_og->append_single_option_line("belt_support_z_offset_mode");
+        belt_og->append_single_option_line("belt_support_floor_mode");
 
         // Machine-frame transforms: applied to G-code after back-transform and
         // gcode_remap, before per-axis origin snap.  Maps Cartesian G-code into
         // the printer's physical machine frame.
         {
             auto mf = page->new_optgroup(L("Machine frame transforms"), L"param_advanced");
+            {
+                Line line = { L("Post-gcode axis remap"),
+                              L("Axis remap in the machine-frame stage. Applied AFTER gcode_remap, "
+                                "to put coordinates into the printer's physical axis labelling.") };
+                line.append_option(mf->get_option("post_gcode_remap_x"));
+                line.append_option(mf->get_option("post_gcode_remap_y"));
+                line.append_option(mf->get_option("post_gcode_remap_z"));
+                mf->append_line(line);
+            }
             {
                 Line line = { L("G-code shear X"), L("Shear applied to the X axis in the machine-frame stage (after back-transform and gcode_remap).") };
                 line.append_option(mf->get_option("gcode_shear_x"));
@@ -5188,15 +5204,6 @@ void TabPrinter::build_fff()
                 mf->append_line(line);
             }
             mf->append_single_option_line("belt_gcode_transform_order");
-            {
-                Line line = { L("Post-gcode axis remap"),
-                              L("Axis remap in the machine-frame stage. Applied AFTER gcode_remap, "
-                                "to put coordinates into the printer's physical axis labelling.") };
-                line.append_option(mf->get_option("post_gcode_remap_x"));
-                line.append_option(mf->get_option("post_gcode_remap_y"));
-                line.append_option(mf->get_option("post_gcode_remap_z"));
-                mf->append_line(line);
-            }
         }
 
         option = optgroup->get_option("thumbnails");
@@ -5243,6 +5250,8 @@ void TabPrinter::build_fff()
         optgroup->append_single_option_line("use_firmware_retraction", "printer_basic_information_advanced#use-firmware-retraction");
         // optgroup->append_single_option_line("spaghetti_detector");
         optgroup->append_single_option_line("time_cost", "printer_basic_information_advanced#time-cost");
+        optgroup->append_single_option_line("build_plate_tilt_x");
+        optgroup->append_single_option_line("build_plate_tilt_y");
 
         optgroup = page->new_optgroup(L("Plugin Configuration"), L"param_gcode");
         optgroup->append_single_option_line("printer_plugin_config_overrides");
@@ -6255,24 +6264,33 @@ void TabPrinter::toggle_options()
 
         // Belt printer: show belt-specific settings only when belt_printer is enabled.
         bool is_belt = m_config->opt_bool("belt_printer");
+        bool expert_or_above = (m_mode >= comExpert);
         toggle_line("belt_printer_angle", is_belt);
         toggle_line("belt_printer_infinite_y", is_belt);
-        for (auto el : {"belt_shear_x", "belt_shear_y", "belt_shear_z",
-                        "belt_scale_x", "belt_scale_y", "belt_scale_z",
-                        "belt_mesh_transform_order",
+        // Mesh shear/scale: only shear Z and scale Y are shown in Advanced; the others
+        // are Expert-only. Each Line packs all its options on one row, so toggle the
+        // Line here in addition to the per-option mode gating.
+        toggle_line("belt_shear_x", is_belt && expert_or_above);
+        toggle_line("belt_shear_y", is_belt && expert_or_above);
+        toggle_line("belt_shear_z", is_belt);
+        toggle_line("belt_scale_x", is_belt && expert_or_above);
+        toggle_line("belt_scale_y", is_belt);
+        toggle_line("belt_scale_z", is_belt && expert_or_above);
+        for (auto el : {"belt_mesh_transform_order",
                         "belt_origin_snap_x", "belt_origin_snap_y", "belt_origin_snap_z"})
             toggle_line(el, is_belt);
 
-        // Remap options: visible when belt mode is on OR when UI is in developer mode.
-        bool show_remap = is_belt || (m_mode >= comDevelop);
+        // Remap, back-transform, and global mesh-transforms toggles are gated by belt
+        // mode here; finer mode-based visibility (Advanced vs Expert) is handled by
+        // each option's ConfigOptionMode in PrintConfig.cpp.
         for (auto el : {"preslice_remap_x", "gcode_remap_x", "gcode_back_transform"})
-            toggle_line(el, show_remap);
-        toggle_line("belt_preslice_global", show_remap);
+            toggle_line(el, is_belt);
+        toggle_line("belt_preslice_global", is_belt);
 
         bool belt_global = is_belt && m_config->opt_bool("belt_preslice_global");
 
         // preslice_remap_global: superseded by belt_preslice_global
-        toggle_option("preslice_remap_global", show_remap && !belt_global);
+        toggle_option("preslice_remap_global", is_belt && !belt_global);
 
         // Gray out angle/from sub-options when their parent shear/scale mode is None.
         // Per-axis globals are superseded when belt_preslice_global is on.
@@ -6301,10 +6319,14 @@ void TabPrinter::toggle_options()
         toggle_option("belt_scale_z_angle", is_belt && scz != BeltScaleMode::None);
 
         // Machine-frame transforms: shown only in belt mode.
-        for (auto el : {"gcode_shear_x", "gcode_shear_y", "gcode_shear_z",
-                        "gcode_scale_x", "gcode_scale_y", "gcode_scale_z",
-                        "belt_gcode_transform_order",
-                        "post_gcode_remap_x"})
+        // Mirror the Advanced/Expert split used for mesh shear/scale.
+        toggle_line("gcode_shear_x", is_belt && expert_or_above);
+        toggle_line("gcode_shear_y", is_belt && expert_or_above);
+        toggle_line("gcode_shear_z", is_belt);
+        toggle_line("gcode_scale_x", is_belt && expert_or_above);
+        toggle_line("gcode_scale_y", is_belt);
+        toggle_line("gcode_scale_z", is_belt && expert_or_above);
+        for (auto el : {"belt_gcode_transform_order", "post_gcode_remap_x"})
             toggle_line(el, is_belt);
 
         auto gsx = m_config->option<ConfigOptionEnum<BeltShearMode>>("gcode_shear_x")->value;
@@ -6334,14 +6356,12 @@ void TabPrinter::toggle_options()
         toggle_option("belt_origin_offset_z", is_belt && m_config->opt_bool("belt_origin_snap_z") && !belt_global);
 
         // First-layer plane: visible alongside the rest of belt-printer settings.
-        // The Auto default keeps legacy XY behavior on non-belt printers, so it's
-        // safe to also show it in the developer mode for non-belt printers.
-        bool show_first_layer_plane = is_belt || (m_mode >= comDevelop);
-        toggle_line("first_layer_plane", show_first_layer_plane);
-        toggle_option("first_layer_plane_offset",    show_first_layer_plane);
-        toggle_option("first_layer_plane_thickness", show_first_layer_plane);
+        toggle_line("first_layer_plane", is_belt);
+        toggle_option("first_layer_plane_offset",    is_belt);
+        toggle_option("first_layer_plane_thickness", is_belt);
 
-        toggle_line("belt_support_floor_mode", is_belt);
+        for (auto el : {"belt_support_floor_mode", "belt_support_floor_offset", "belt_support_z_offset_mode"})
+            toggle_line(el, is_belt);
     }
 
 
