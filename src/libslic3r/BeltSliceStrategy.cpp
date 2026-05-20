@@ -38,12 +38,19 @@ void BeltSliceStrategy::apply_to_trafo(Transform3d &trafo,
     }
 
     // Z-shift — detect if mesh clips below build plate after transforms.
+    // Each mesh vertex must be brought into object space via mv->get_matrix()
+    // before applying the full trafo (which is in object space).  Missing this
+    // step on assemblies (where per-volume get_matrix() positions each volume
+    // within the object) causes min_z to be computed against mesh-local vertex
+    // coordinates rather than object-space coordinates, so volumes translated
+    // along the slicer's Z axis are silently excluded from the bound check.
     if (has_remap || m_has_shear || m_has_scale || m_has_rotation) {
         double min_z = std::numeric_limits<double>::max();
         for (const ModelVolume *mv : model_volumes) {
             if (!mv->is_model_part()) continue;
+            Transform3d vol_trafo = trafo * mv->get_matrix();
             for (const stl_vertex &v : mv->mesh().its.vertices) {
-                Vec3d pt = trafo * v.cast<double>();
+                Vec3d pt = vol_trafo * v.cast<double>();
                 min_z = std::min(min_z, pt.z());
             }
         }
