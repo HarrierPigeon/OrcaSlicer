@@ -322,14 +322,15 @@ static std::vector<std::vector<ExPolygons>> slices_to_regions(
                 }
             } else {
                 zs_complex.reserve(zs.size());
-                // region.bbox is computed in pre-belt-shear slicer space (see PrintApply.cpp::trafo_for_bbox).
-                // When belt transforms are active, layer Z values are in post-shear/scale/remap space,
+                // region.bbox is computed in pre-belt-transform slicer space (see PrintApply.cpp::trafo_for_bbox).
+                // When belt transforms are active, layer Z values are in post-rotation/shear/scale/remap space,
                 // so the Z components of region.bbox aren't comparable to z. Skipping the Z filter here
                 // pushes those layers into the parallel_for path below, which handles multi-volume
                 // clipping per layer without relying on the bbox Z range.
                 const bool bbox_z_in_layer_frame = !(print_config.belt_printer.value &&
                     (BeltTransformPipeline::has_shear(print_config)
                         || BeltTransformPipeline::has_scale(print_config)
+                        || BeltTransformPipeline::has_rotation(print_config)
                         || BeltTransformPipeline::has_preslice_remap(print_config)));
                 for (; z_idx < zs.size() && zs[z_idx] < layer_range.layer_height_range.second; ++ z_idx) {
                     float z                          = zs[z_idx];

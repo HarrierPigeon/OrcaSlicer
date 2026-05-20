@@ -1536,6 +1536,9 @@ Print::ApplyStatus Print::apply(const Model &model, DynamicPrintConfig new_full_
             // so each gets independent layer Z values.
             bool belt_force_separate = m_config.belt_printer.value && (
                 (m_config.belt_shear_z_global.value && m_config.belt_shear_z.value != BeltShearMode::None)
+                || (m_config.belt_slice_rotation_global.value
+                    && m_config.belt_slice_rotation.value != BeltRotationAxis::None
+                    && std::abs(m_config.belt_slice_rotation_angle.value) > EPSILON)
                 || m_config.belt_preslice_global.value
                 || (m_config.preslice_remap_global.value && BeltTransformPipeline::has_preslice_remap(m_config)));
             model_object_status.print_instances = print_objects_from_model_object(*model_object, this->shrinkage_compensation(), belt_force_separate);
@@ -1629,6 +1632,9 @@ Print::ApplyStatus Print::apply(const Model &model, DynamicPrintConfig new_full_
         if (belt_instances_shifted
             && m_config.belt_printer.value
             && ((m_config.belt_shear_z_global.value && m_config.belt_shear_z.value != BeltShearMode::None)
+                || (m_config.belt_slice_rotation_global.value
+                    && m_config.belt_slice_rotation.value != BeltRotationAxis::None
+                    && std::abs(m_config.belt_slice_rotation_angle.value) > EPSILON)
                 || m_config.belt_preslice_global.value
                 || (m_config.preslice_remap_global.value && BeltTransformPipeline::has_preslice_remap(m_config)))) {
             for (PrintObject *object : m_objects)
