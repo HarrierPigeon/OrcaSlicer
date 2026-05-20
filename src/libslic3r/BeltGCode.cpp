@@ -53,6 +53,10 @@ void BeltGCode::write_belt_header(GCodeOutputStream &file, const Print &print)
     file.write_format("; belt_scale_y_angle = %.1f\n", print.config().belt_scale_y_angle.value);
     file.write_format("; belt_scale_z = %s\n",       full_cfg.opt_serialize("belt_scale_z").c_str());
     file.write_format("; belt_scale_z_angle = %.1f\n", print.config().belt_scale_z_angle.value);
+    // Slicing rotation configs
+    file.write_format("; belt_slice_rotation = %s\n", full_cfg.opt_serialize("belt_slice_rotation").c_str());
+    file.write_format("; belt_slice_rotation_angle = %.1f\n", print.config().belt_slice_rotation_angle.value);
+    file.write_format("; belt_slice_rotation_global = %d\n", print.config().belt_slice_rotation_global.value ? 1 : 0);
     file.write_format("; belt_mesh_transform_order = %s\n", full_cfg.opt_serialize("belt_mesh_transform_order").c_str());
     // Pre-slice remap configs
     file.write_format("; preslice_remap_x = %s\n", full_cfg.opt_serialize("preslice_remap_x").c_str());
@@ -104,7 +108,10 @@ void BeltGCode::on_set_origin(const PrintObject *obj, const Point &inst_shift)
         || (m_config.preslice_remap_global.value
             && BeltTransformPipeline::has_preslice_remap(m_config))
         || (m_config.belt_shear_z_global.value
-            && m_config.belt_shear_z.value != BeltShearMode::None);
+            && m_config.belt_shear_z.value != BeltShearMode::None)
+        || (m_config.belt_slice_rotation_global.value
+            && m_config.belt_slice_rotation.value != BeltRotationAxis::None
+            && std::abs(m_config.belt_slice_rotation_angle.value) > EPSILON);
     if (use_global && m_config.belt_printer.value) {
         auto *belt_writer = dynamic_cast<BeltGCodeWriter*>(m_writer.get());
         if (belt_writer) {

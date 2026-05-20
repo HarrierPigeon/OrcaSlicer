@@ -194,6 +194,17 @@ enum class BeltAxis
     Z = 2,
 };
 
+// Axis around which the mesh is rotated before slicing, when
+// `belt_slice_rotation` is set.  None disables the rotation stage.
+// Distinct from BeltAxis because BeltAxis carries no "None" semantics.
+enum class BeltRotationAxis
+{
+    None = 0,
+    X    = 1,
+    Y    = 2,
+    Z    = 3,
+};
+
 // Order in which the belt shear and scale matrices are composed.
 // ScaleThenShear: applied to a point p, the result is shear(scale(p)).
 // ShearThenScale: applied to a point p, the result is scale(shear(p)).
@@ -231,8 +242,9 @@ enum class BeltSupportZOffsetMode
 //
 // Auto resolves to:
 //   - XY (inactive, legacy behavior) for non-belt printers and for belt
-//     printers with no Z-axis shear.
-//   - BeltShear for belt printers with belt_shear_z != None.
+//     printers with no active belt-side transform.
+//   - BeltAffine for belt printers with any active belt-side affine
+//     transform (Z shear, slicing rotation, or both).
 //
 // XY is also used as an explicit "opt out" mode that forces legacy
 // per-layer first-layer detection even on belt printers.
@@ -242,7 +254,7 @@ enum class FirstLayerPlaneMode
     XY,
     YZ,
     XZ,
-    BeltShear,
+    BeltAffine,   // formerly BeltShear; renamed to reflect rotation support
 };
 
 enum SupportMaterialPattern {
@@ -607,6 +619,7 @@ CONFIG_OPTION_ENUM_DECLARE_STATIC_MAPS(SlicingMode)
 CONFIG_OPTION_ENUM_DECLARE_STATIC_MAPS(BeltShearMode)
 CONFIG_OPTION_ENUM_DECLARE_STATIC_MAPS(BeltScaleMode)
 CONFIG_OPTION_ENUM_DECLARE_STATIC_MAPS(BeltAxis)
+CONFIG_OPTION_ENUM_DECLARE_STATIC_MAPS(BeltRotationAxis)
 CONFIG_OPTION_ENUM_DECLARE_STATIC_MAPS(BeltTransformOrder)
 CONFIG_OPTION_ENUM_DECLARE_STATIC_MAPS(RemapAxis)
 CONFIG_OPTION_ENUM_DECLARE_STATIC_MAPS(BeltSupportFloorMode)
@@ -1579,6 +1592,12 @@ PRINT_CONFIG_CLASS_DERIVED_DEFINE(
     ((ConfigOptionFloat,                belt_scale_y_angle))
     ((ConfigOptionEnum<BeltScaleMode>,  belt_scale_z))
     ((ConfigOptionFloat,                belt_scale_z_angle))
+    // Global mesh rotation as an alternative to per-axis shear/scale (isometric
+    // slicing transform).  Composes with shear in the pipeline math; UI gates
+    // them as mutually exclusive.
+    ((ConfigOptionEnum<BeltRotationAxis>, belt_slice_rotation))
+    ((ConfigOptionFloat,                  belt_slice_rotation_angle))
+    ((ConfigOptionBool,                   belt_slice_rotation_global))
     ((ConfigOptionEnum<RemapAxis>,  preslice_remap_x))
     ((ConfigOptionEnum<RemapAxis>,  preslice_remap_y))
     ((ConfigOptionEnum<RemapAxis>,  preslice_remap_z))

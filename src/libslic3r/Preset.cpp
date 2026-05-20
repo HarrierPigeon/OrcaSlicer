@@ -1329,6 +1329,7 @@ static std::vector<std::string> s_Preset_printer_options {
     "belt_shear_y", "belt_shear_y_angle", "belt_shear_y_from", "belt_shear_y_global",
     "belt_shear_z", "belt_shear_z_angle", "belt_shear_z_from", "belt_shear_z_global",
     "belt_scale_x", "belt_scale_x_angle", "belt_scale_y", "belt_scale_y_angle", "belt_scale_z", "belt_scale_z_angle",
+    "belt_slice_rotation", "belt_slice_rotation_angle", "belt_slice_rotation_global",
     "belt_mesh_transform_order",
     "preslice_remap_x", "preslice_remap_y", "preslice_remap_z", "preslice_remap_global",
     "gcode_remap_x", "gcode_remap_y", "gcode_remap_z", "gcode_back_transform",

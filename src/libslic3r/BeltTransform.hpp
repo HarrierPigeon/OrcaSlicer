@@ -92,6 +92,12 @@ public:
                std::abs(sz - 1.) > EPSILON;
     }
 
+    static bool has_rotation(const PrintConfig &config)
+    {
+        return config.belt_slice_rotation.value != BeltRotationAxis::None &&
+               std::abs(config.belt_slice_rotation_angle.value) > EPSILON;
+    }
+
     // ---- Matrix builders --------------------------------------------------
 
     // Build the pre-slice axis remap transform (includes Rev-mode translation).
@@ -104,6 +110,11 @@ public:
     // Build the 3x3 diagonal scale matrix.  Returns Identity if no scale.
     // Also sets has_scale_out if non-null.
     static Matrix3d build_scale_matrix(const PrintConfig &config, bool *has_scale_out = nullptr);
+
+    // Build the 3x3 rotation matrix from belt_slice_rotation* config.
+    // Returns Identity if rotation axis is None or angle is ~0.
+    // Also sets has_rot_out if non-null.
+    static Matrix3d build_rotation_matrix(const PrintConfig &config, bool *has_rot_out = nullptr);
 
     // Combined forward transform.  Shear/scale order is selected by
     // belt_mesh_transform_order so the result matches what BeltSliceStrategy

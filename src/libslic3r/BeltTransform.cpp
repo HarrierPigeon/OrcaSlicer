@@ -95,23 +95,47 @@ Matrix3d BeltTransformPipeline::build_scale_matrix(const PrintConfig &config, bo
     return scale;
 }
 
+Matrix3d BeltTransformPipeline::build_rotation_matrix(const PrintConfig &config, bool *has_rot_out)
+{
+    BeltRotationAxis axis = config.belt_slice_rotation.value;
+    double angle_deg = config.belt_slice_rotation_angle.value;
+    bool active = axis != BeltRotationAxis::None && std::abs(angle_deg) > EPSILON;
+    if (has_rot_out) *has_rot_out = active;
+    if (!active)
+        return Matrix3d::Identity();
+    double angle_rad = Geometry::deg2rad(angle_deg);
+    Vec3d unit_axis;
+    switch (axis) {
+    case BeltRotationAxis::X: unit_axis = Vec3d::UnitX(); break;
+    case BeltRotationAxis::Y: unit_axis = Vec3d::UnitY(); break;
+    case BeltRotationAxis::Z: unit_axis = Vec3d::UnitZ(); break;
+    default:                  return Matrix3d::Identity();
+    }
+    return Eigen::AngleAxisd(angle_rad, unit_axis).toRotationMatrix();
+}
+
 Transform3d BeltTransformPipeline::build_forward_transform(const PrintConfig &config)
 {
-    Transform3d pre_remap   = build_preslice_remap(config);
+    Transform3d pre_remap    = build_preslice_remap(config);
     bool        shear_active = false;
     Matrix3d    shear        = build_shear_matrix(config, &shear_active);
     bool        scale_active = false;
     Matrix3d    scale        = build_scale_matrix(config, &scale_active);
+    bool        rot_active   = false;
+    Matrix3d    rot          = build_rotation_matrix(config, &rot_active);
 
     // Match the mesh-side ordering selected by belt_mesh_transform_order so
     // BeltBackTransform inverts the same composition that BeltSliceStrategy
     // applied to the mesh.
     //   ScaleThenShear: applied to p, scale runs first then shear (shear * scale).
     //   ShearThenScale: applied to p, shear runs first then scale (scale * shear).
-    Transform3d combined = Transform3d::Identity();
-    combined.linear() = (config.belt_mesh_transform_order.value == BeltTransformOrder::ScaleThenShear)
+    // Rotation is applied AFTER shear/scale: rot * shear_scale * pre_remap.
+    Matrix3d shear_scale = (config.belt_mesh_transform_order.value == BeltTransformOrder::ScaleThenShear)
         ? Matrix3d(shear * scale)
         : Matrix3d(scale * shear);
+
+    Transform3d combined = Transform3d::Identity();
+    combined.linear() = Matrix3d(rot * shear_scale);
     combined = combined * pre_remap;
     return combined;
 }
@@ -166,7 +190,7 @@ BeltTransformPipeline::BeltHeightResult compute_belt_height_and_floor_impl(
     BeltTransformPipeline::BeltHeightResult result;
     result.object_height = original_height;
 
-    // Extract Z-axis shear/scale + per-axis scale + transform order from config.
+    // Extract Z-axis shear/scale + per-axis scale + transform order + rotation from config.
     BeltShearMode z_shear_mode;
     double        z_shear_angle;
     BeltScaleMode z_scale_mode;
@@ -175,6 +199,8 @@ BeltTransformPipeline::BeltHeightResult compute_belt_height_and_floor_impl(
     BeltScaleMode from_scale_mode;   // scale on the shear's source axis
     double        from_scale_angle;
     BeltTransformOrder order;
+    BeltRotationAxis   rot_axis;
+    double             rot_angle;
 
     if constexpr (std::is_same_v<Config, PrintConfig>) {
         z_shear_mode      = config.belt_shear_z.value;
@@ -183,6 +209,8 @@ BeltTransformPipeline::BeltHeightResult compute_belt_height_and_floor_impl(
         z_scale_angle     = config.belt_scale_z_angle.value;
         z_shear_from      = int(config.belt_shear_z_from.value);
         order             = config.belt_mesh_transform_order.value;
+        rot_axis          = config.belt_slice_rotation.value;
+        rot_angle         = config.belt_slice_rotation_angle.value;
         if (z_shear_from == 0) {
             from_scale_mode  = config.belt_scale_x.value;
             from_scale_angle = config.belt_scale_x_angle.value;
@@ -212,12 +240,18 @@ BeltTransformPipeline::BeltHeightResult compute_belt_height_and_floor_impl(
             auto *opt = config.template option<ConfigOptionEnum<BeltTransformOrder>>(key);
             return opt ? opt->value : BeltTransformOrder::ScaleThenShear;
         };
+        auto get_rot_axis = [&](const char *key) {
+            auto *opt = config.template option<ConfigOptionEnum<BeltRotationAxis>>(key);
+            return opt ? opt->value : BeltRotationAxis::None;
+        };
         z_shear_mode  = get_shear("belt_shear_z");
         z_shear_angle = get_float("belt_shear_z_angle");
         z_scale_mode  = get_scale("belt_scale_z");
         z_scale_angle = get_float("belt_scale_z_angle");
         z_shear_from  = get_axis("belt_shear_z_from");
         order         = get_order("belt_mesh_transform_order");
+        rot_axis      = get_rot_axis("belt_slice_rotation");
+        rot_angle     = get_float("belt_slice_rotation_angle");
         if (z_shear_from == 0) {
             from_scale_mode  = get_scale("belt_scale_x");
             from_scale_angle = get_float("belt_scale_x_angle");
@@ -227,10 +261,11 @@ BeltTransformPipeline::BeltHeightResult compute_belt_height_and_floor_impl(
         }
     }
 
-    bool has_z_shear = z_shear_mode != BeltShearMode::None;
-    bool has_z_scale = z_scale_mode != BeltScaleMode::None;
+    bool has_z_shear  = z_shear_mode != BeltShearMode::None;
+    bool has_z_scale  = z_scale_mode != BeltScaleMode::None;
+    bool has_rotation = rot_axis != BeltRotationAxis::None && std::abs(rot_angle) > EPSILON;
 
-    if (!has_z_shear && !has_z_scale)
+    if (!has_z_shear && !has_z_scale && !has_rotation)
         return result;
 
     double shear_factor = has_z_shear
@@ -267,6 +302,51 @@ BeltTransformPipeline::BeltHeightResult compute_belt_height_and_floor_impl(
         result.floor_params.shear_factor = effective_shear;
         result.floor_params.from_axis    = from;
         result.floor_params.z_shift      = bb.min.z() + ((min_rz < 0.) ? -min_rz : 0.);
+    } else if (has_rotation) {
+        // Rotation-only path (no Z-shear): sweep 8 bbox corners through R.
+        double angle_rad = Geometry::deg2rad(rot_angle);
+        Vec3d unit_axis;
+        switch (rot_axis) {
+        case BeltRotationAxis::X: unit_axis = Vec3d::UnitX(); break;
+        case BeltRotationAxis::Y: unit_axis = Vec3d::UnitY(); break;
+        case BeltRotationAxis::Z: unit_axis = Vec3d::UnitZ(); break;
+        default:                  unit_axis = Vec3d::UnitX(); break;
+        }
+        Matrix3d R = Eigen::AngleAxisd(angle_rad, unit_axis).toRotationMatrix();
+        double min_rz = std::numeric_limits<double>::max();
+        double max_rz = std::numeric_limits<double>::lowest();
+        for (int i = 0; i < 8; ++i) {
+            Vec3d c((i & 1) ? bb.max.x() : bb.min.x(),
+                    (i & 2) ? bb.max.y() : bb.min.y(),
+                    (i & 4) ? bb.max.z() : bb.min.z());
+            double z = (R * c).z();
+            min_rz = std::min(min_rz, z);
+            max_rz = std::max(max_rz, z);
+        }
+        // Optional Z-scale still applies multiplicatively if both are set.
+        result.object_height = (max_rz - min_rz) * (has_z_scale ? scale_z : 1.0);
+
+        // Belt floor in slicer-frame is the image of z_machine = 0 under R.
+        //   R(+α, X): point (·, y, 0) → (·, cos α · y, sin α · y) ⇒ z = tan(α) · y_s
+        //   R(+α, Y): point (x, ·, 0) → (cos α · x, ·, -sin α · x) ⇒ z = -tan(α) · x_s
+        //   R(+α, Z): point (·, ·, 0) → (·, ·, 0); no tilt → no floor
+        double sin_a = std::sin(angle_rad), cos_a = std::cos(angle_rad);
+        switch (rot_axis) {
+        case BeltRotationAxis::X:
+            result.floor_params.shear_factor = (std::abs(cos_a) > EPSILON) ?  sin_a / cos_a : 0.;
+            result.floor_params.from_axis    = 1; // Y
+            break;
+        case BeltRotationAxis::Y:
+            result.floor_params.shear_factor = (std::abs(cos_a) > EPSILON) ? -sin_a / cos_a : 0.;
+            result.floor_params.from_axis    = 0; // X
+            break;
+        case BeltRotationAxis::Z:
+        default:
+            result.floor_params.shear_factor = 0.0;
+            result.floor_params.from_axis    = 1;
+            break;
+        }
+        result.floor_params.z_shift = bb.min.z() + ((min_rz < 0.) ? -min_rz : 0.);
     } else {
         result.object_height = original_height * scale_z;
     }

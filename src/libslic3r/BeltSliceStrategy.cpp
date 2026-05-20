@@ -14,9 +14,10 @@ std::unique_ptr<BeltSliceStrategy> BeltSliceStrategy::create(const PrintConfig &
 
 BeltSliceStrategy::BeltSliceStrategy(const PrintConfig &config)
 {
-    m_shear = BeltTransformPipeline::build_shear_matrix(config, &m_has_shear);
-    m_scale = BeltTransformPipeline::build_scale_matrix(config, &m_has_scale);
-    m_order = config.belt_mesh_transform_order.value;
+    m_shear    = BeltTransformPipeline::build_shear_matrix(config, &m_has_shear);
+    m_scale    = BeltTransformPipeline::build_scale_matrix(config, &m_has_scale);
+    m_rotation = BeltTransformPipeline::build_rotation_matrix(config, &m_has_rotation);
+    m_order    = config.belt_mesh_transform_order.value;
 }
 
 void BeltSliceStrategy::apply_to_trafo(Transform3d &trafo,
@@ -26,16 +27,18 @@ void BeltSliceStrategy::apply_to_trafo(Transform3d &trafo,
 {
     // ScaleThenShear: applied to a point, scale runs first then shear (m_shear * m_scale).
     // ShearThenScale: applied to a point, shear runs first then scale (m_scale * m_shear).
-    if (m_has_shear || m_has_scale) {
-        Transform3d belt_xform = Transform3d::Identity();
-        belt_xform.linear() = (m_order == BeltTransformOrder::ScaleThenShear)
+    // Rotation (if active) is applied AFTER shear/scale, matching build_forward_transform.
+    if (m_has_shear || m_has_scale || m_has_rotation) {
+        Matrix3d shear_scale = (m_order == BeltTransformOrder::ScaleThenShear)
             ? Matrix3d(m_shear * m_scale)
             : Matrix3d(m_scale * m_shear);
+        Transform3d belt_xform = Transform3d::Identity();
+        belt_xform.linear() = Matrix3d(m_rotation * shear_scale);
         trafo = belt_xform * trafo;
     }
 
     // Z-shift — detect if mesh clips below build plate after transforms.
-    if (has_remap || m_has_shear || m_has_scale) {
+    if (has_remap || m_has_shear || m_has_scale || m_has_rotation) {
         double min_z = std::numeric_limits<double>::max();
         for (const ModelVolume *mv : model_volumes) {
             if (!mv->is_model_part()) continue;
