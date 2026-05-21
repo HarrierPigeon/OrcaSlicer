@@ -4462,7 +4462,23 @@ void TabPrinter::build_fff()
         belt_og->append_single_option_line("belt_printer");
         belt_og->append_single_option_line("belt_printer_angle");
         belt_og->append_single_option_line("belt_printer_infinite_y");
-        // Per-axis shear: group mode + angle + source on one row per axis
+        // Mesh rotate (default belt-side transform): isometric, no distortion.
+        // Shown above the per-axis shear/scale rows because most users should
+        // pick rotation; shear/scale is the expert escape hatch.
+        {
+            Line line = { L("Mesh rotate"),
+                          L("Global mesh rotation applied before slicing.  Isometric "
+                            "(no distortion); the back-transform inverts it before the "
+                            "machine-frame remap.  Default belt transform.  Mutually "
+                            "exclusive with per-axis shear/scale in the UI.") };
+            line.append_option(belt_og->get_option("belt_slice_rotation"));
+            line.append_option(belt_og->get_option("belt_slice_rotation_angle"));
+            line.append_option(belt_og->get_option("belt_slice_rotation_global"));
+            belt_og->append_line(line);
+        }
+        // Per-axis shear/scale: expert escape hatch for non-rigid belt transforms
+        // (BlackBelt-style 1/sin scaling, asymmetric belt geometries, etc.).
+        // Group mode + angle + source on one row per axis.
         {
             Line line = { L("Mesh shear X"), L("Shear applied to the X axis before slicing") };
             line.append_option(belt_og->get_option("belt_shear_x"));
@@ -4506,17 +4522,6 @@ void TabPrinter::build_fff()
             belt_og->append_line(line);
         }
         belt_og->append_single_option_line("belt_mesh_transform_order");
-        {
-            Line line = { L("Slicing rotation"),
-                          L("Global mesh rotation applied before slicing, as an alternative to "
-                            "per-axis shear/scale. Isometric (no distortion); the back-transform "
-                            "inverts it before the machine-frame remap. Mutually exclusive with "
-                            "shear/scale in the UI.") };
-            line.append_option(belt_og->get_option("belt_slice_rotation"));
-            line.append_option(belt_og->get_option("belt_slice_rotation_angle"));
-            line.append_option(belt_og->get_option("belt_slice_rotation_global"));
-            belt_og->append_line(line);
-        }
         {
             Line line = { L("Pre-slice axis remap"),
                           L("Remap model axes before slicing so the slicer's coordinate system matches "
@@ -5605,17 +5610,19 @@ void TabPrinter::toggle_options()
         bool expert_or_above = (m_mode >= comExpert);
         toggle_line("belt_printer_angle", is_belt);
         toggle_line("belt_printer_infinite_y", is_belt);
-        // Mesh shear/scale: only shear Z and scale Y are shown in Advanced; the others
-        // are Expert-only. Each Line packs all its options on one row, so toggle the
-        // Line here in addition to the per-option mode gating.
+        // Mesh rotate: advanced (visible by default in belt mode).
+        toggle_line("belt_slice_rotation", is_belt);
+        // Mesh shear/scale: expert-only (the rigid rotation above is the
+        // primary belt transform; shear/scale is reserved for power users
+        // matching BlackBelt-style 1/sin scale or asymmetric belt geometries).
         toggle_line("belt_shear_x", is_belt && expert_or_above);
         toggle_line("belt_shear_y", is_belt && expert_or_above);
-        toggle_line("belt_shear_z", is_belt);
+        toggle_line("belt_shear_z", is_belt && expert_or_above);
         toggle_line("belt_scale_x", is_belt && expert_or_above);
-        toggle_line("belt_scale_y", is_belt);
+        toggle_line("belt_scale_y", is_belt && expert_or_above);
         toggle_line("belt_scale_z", is_belt && expert_or_above);
-        for (auto el : {"belt_mesh_transform_order", "belt_slice_rotation",
-                        "belt_origin_snap_x", "belt_origin_snap_y", "belt_origin_snap_z"})
+        toggle_line("belt_mesh_transform_order", is_belt && expert_or_above);
+        for (auto el : {"belt_origin_snap_x", "belt_origin_snap_y", "belt_origin_snap_z"})
             toggle_line(el, is_belt);
 
         // Remap, back-transform, and global mesh-transforms toggles are gated by belt

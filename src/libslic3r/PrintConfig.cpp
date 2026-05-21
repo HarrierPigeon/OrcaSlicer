@@ -6440,9 +6440,9 @@ void PrintConfigDef::init_fff_params()
     add_belt_axis_enum  ("belt_shear_y_from", "From", "Source axis for Y shear.", BeltAxis::Z, comExpert);
     add_belt_shear_global("belt_shear_y_global", "Global");
 
-    add_belt_shear_mode ("belt_shear_z", "Function", BeltShearMode::PosTan);
-    add_belt_shear_angle("belt_shear_z_angle", "Angle");
-    add_belt_axis_enum  ("belt_shear_z_from", "From", "Source axis for Z shear.", BeltAxis::Y);
+    add_belt_shear_mode ("belt_shear_z", "Function", BeltShearMode::None, comExpert);
+    add_belt_shear_angle("belt_shear_z_angle", "Angle", comExpert);
+    add_belt_axis_enum  ("belt_shear_z_from", "From", "Source axis for Z shear.", BeltAxis::Y, comExpert);
     add_belt_shear_global("belt_shear_z_global", "Global", true);
 
     // Per-axis scale controls for belt printer
@@ -6474,8 +6474,8 @@ void PrintConfigDef::init_fff_params()
     add_belt_scale_mode ("belt_scale_x", "Function", BeltScaleMode::None, comExpert);
     add_belt_scale_angle("belt_scale_x_angle", "Angle", comExpert);
 
-    add_belt_scale_mode ("belt_scale_y", "Function", BeltScaleMode::None);
-    add_belt_scale_angle("belt_scale_y_angle", "Angle");
+    add_belt_scale_mode ("belt_scale_y", "Function", BeltScaleMode::None, comExpert);
+    add_belt_scale_angle("belt_scale_y_angle", "Angle", comExpert);
 
     add_belt_scale_mode ("belt_scale_z", "Function", BeltScaleMode::None, comExpert);
     add_belt_scale_angle("belt_scale_z_angle", "Angle", comExpert);
@@ -6510,9 +6510,10 @@ void PrintConfigDef::init_fff_params()
     def->category = L("Printable space");
     def->tooltip = L("Treat the slicing rotation as part of the global forward transform "
                      "that BeltBackTransform inverts before the machine-frame remap. "
-                     "Required for rotation-mode belt printers; mirrors belt_shear_z_global.");
-    def->mode = comExpert;
-    def->set_default_value(new ConfigOptionBool(false));
+                     "Required for rotation-mode belt printers; mirrors belt_shear_z_global. "
+                     "Defaults to on because virtually all rotation-mode printers need it.");
+    def->mode = comAdvanced;
+    def->set_default_value(new ConfigOptionBool(true));
 
     auto add_belt_transform_order = [this](const char *key, const char *label, const char *tooltip) {
         auto def = this->add(key, coEnum);
