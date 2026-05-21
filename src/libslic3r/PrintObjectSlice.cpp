@@ -992,6 +992,30 @@ void PrintObject::slice()
             double shear_min_z = m_belt_min_z - belt_surface_z;
             double global_z_offset = shear_min_z;
 
+            // Centering correction: trafo_centered pretranslates by
+            // -m_center_offset.{x,y}.  Under the belt forward transform, the
+            // Y component of that pretranslate couples into slicer-Z (shear:
+            // tan*c.y, rotation: sin*c.y).  BeltBackTransform inverts the
+            // rotation/shear but doesn't undo centering, so this Z component
+            // leaks into machine output as a position offset whenever
+            // m_center_offset != 0.  When a user moves a volume within an
+            // assembly such that the combined bbox center shifts, this shows
+            // up as a small Z translation in the print.  Compensate by adding
+            // the Z component of the centering through the forward transform.
+            {
+                Transform3d T_fwd = BeltTransformPipeline::build_forward_transform(pcfg);
+                Vec3d c_off(unscale<double>(m_center_offset.x()),
+                            unscale<double>(m_center_offset.y()),
+                            0.);
+                double centering_z_corr = (T_fwd.linear() * c_off).z();
+                global_z_offset += centering_z_corr;
+                BOOST_LOG_TRIVIAL(warning) << "[BELT-DEBUG] centering correction"
+                    << " obj=" << this->model_object()->name
+                    << " m_center_offset_mm=(" << c_off.x() << "," << c_off.y() << ")"
+                    << " centering_z_corr=" << centering_z_corr
+                    << " (added to global_z_offset)";
+            }
+
             // [BELT-DEBUG] Per-object summary so Case A vs Case B can be compared
             // side-by-side.  Lays out every value that feeds into the final layer
             // print_z adjustment.
