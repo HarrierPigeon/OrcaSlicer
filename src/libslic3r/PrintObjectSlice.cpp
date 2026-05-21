@@ -992,6 +992,36 @@ void PrintObject::slice()
             double shear_min_z = m_belt_min_z - belt_surface_z;
             double global_z_offset = shear_min_z;
 
+            // [BELT-DEBUG] Per-object summary so Case A vs Case B can be compared
+            // side-by-side.  Lays out every value that feeds into the final layer
+            // print_z adjustment.
+            {
+                BoundingBoxf3 raw_bb = this->model_object()->raw_bounding_box();
+                BOOST_LOG_TRIVIAL(warning) << "[BELT-DEBUG] slice() per-object summary"
+                    << " obj=" << this->model_object()->name
+                    << " n_volumes=" << this->model_object()->volumes.size()
+                    << " raw_bbox.min=(" << raw_bb.min.x() << "," << raw_bb.min.y() << "," << raw_bb.min.z() << ")"
+                    << " raw_bbox.max=(" << raw_bb.max.x() << "," << raw_bb.max.y() << "," << raw_bb.max.z() << ")"
+                    << " raw_bbox.center=(" << raw_bb.center().x() << "," << raw_bb.center().y() << ")"
+                    << " m_center_offset=(" << unscale<double>(m_center_offset.x()) << "," << unscale<double>(m_center_offset.y()) << ")"
+                    << " inst_shift=(" << unscale<double>(inst_shift.x()) << "," << unscale<double>(inst_shift.y()) << ")"
+                    << " m_belt_min_z=" << m_belt_min_z
+                    << " belt_surface_z=" << belt_surface_z
+                    << " shear_min_z=" << shear_min_z;
+                // Per-volume bbox + get_matrix translation so order/composition is visible.
+                int vi = 0;
+                for (const ModelVolume *mv : this->model_object()->volumes) {
+                    if (!mv->is_model_part()) { ++vi; continue; }
+                    BoundingBoxf3 vol_bb = mv->mesh().transformed_bounding_box(mv->get_matrix());
+                    BOOST_LOG_TRIVIAL(warning) << "[BELT-DEBUG]   vol[" << vi
+                        << "] id=" << mv->id().id << " name='" << mv->name << "'"
+                        << " get_matrix.translation=(" << mv->get_matrix().translation().x() << "," << mv->get_matrix().translation().y() << "," << mv->get_matrix().translation().z() << ")"
+                        << " object_bbox.min=(" << vol_bb.min.x() << "," << vol_bb.min.y() << "," << vol_bb.min.z() << ")"
+                        << " object_bbox.max=(" << vol_bb.max.x() << "," << vol_bb.max.y() << "," << vol_bb.max.z() << ")";
+                    ++vi;
+                }
+            }
+
             if (pcfg.belt_preslice_global.value) {
                 // Global pre-slice mode: compute full correction c = (T.linear() - I) * d
                 // where T is the belt forward transform and d is the bed position.
@@ -1070,6 +1100,15 @@ void PrintObject::slice()
             BOOST_LOG_TRIVIAL(warning) << "[BELTRACE] write m_belt_global_z_offset tid=" << std::this_thread::get_id()
                 << " obj=" << this << " old=" << m_belt_global_z_offset << " new=" << global_z_offset;
             m_belt_global_z_offset = global_z_offset;
+            // [BELT-DEBUG] Final breakdown of all contributions to layer.print_z
+            // and where the first / last layer end up post-adjustment.
+            BOOST_LOG_TRIVIAL(warning) << "[BELT-DEBUG] global_z_offset breakdown"
+                << " obj=" << this->model_object()->name
+                << " shear_min_z=" << shear_min_z
+                << " total_global_z_offset=" << global_z_offset
+                << " xy_correction=(" << m_belt_global_xy_correction.x() << "," << m_belt_global_xy_correction.y() << ")"
+                << " belt_floor_z_shift_before=" << (m_slicing_params.belt_floor_z_shift)
+                << " n_layers=" << m_layers.size();
             if (std::abs(global_z_offset) > EPSILON) {
                 for (Layer *layer : m_layers)
                     layer->print_z += global_z_offset;
@@ -1077,6 +1116,12 @@ void PrintObject::slice()
                 // values — the support generator sees globally-offset object
                 // layer print_z, so belt_floor_z_shift must match.
                 m_slicing_params.belt_floor_z_shift += global_z_offset;
+            }
+            if (!m_layers.empty()) {
+                BOOST_LOG_TRIVIAL(warning) << "[BELT-DEBUG]   post-adjustment"
+                    << " first_layer.print_z=" << m_layers.front()->print_z
+                    << " last_layer.print_z=" << m_layers.back()->print_z
+                    << " belt_floor_z_shift_after=" << m_slicing_params.belt_floor_z_shift;
             }
             if (!m_layers.empty()) {
                 BOOST_LOG_TRIVIAL(warning) << "Belt global: first_layer_z=" << m_layers.front()->print_z
