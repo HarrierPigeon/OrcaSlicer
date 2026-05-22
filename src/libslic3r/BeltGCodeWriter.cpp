@@ -57,17 +57,39 @@ Vec3d BeltGCodeWriter::to_cartesian(const Vec3d &pos) const
 Vec3d BeltGCodeWriter::to_machine_coords(const Vec3d &pos) const
 {
     // Step 1+2: To Cartesian (back_transform + axis_remap).
-    Vec3d result = to_cartesian(pos);
+    Vec3d after_back = m_belt_back_transform.apply(pos);
+    Vec3d result     = apply_axis_remap(after_back);
+    Vec3d after_remap = result;
     // Step 3: Per-axis origin snap (computed in the Cartesian frame).
     for (int i = 0; i < 3; ++i)
         if (m_origin_snap[i])
             result[i] -= (m_origin_bbox_min[i] - m_origin_offset[i]);
+    Vec3d after_snap = result;
     // Step 4: Machine-frame transform (gcode_shear / gcode_scale / post_gcode_remap)
     // applied LAST so it acts as a global linear transform on the placed coords.
     // Order matters: putting it before origin_snap would feed sheared bbox corners
     // into the snap's per-object min calculation, mis-normalizing non-cubic geometries
     // (the corners of the original bbox aren't extreme points of the sheared shape).
-    return m_machine_frame_transform.apply(result);
+    Vec3d final = m_machine_frame_transform.apply(result);
+
+    // [BELT-DEBUG] One-shot log per layer transition (i.e. when the input Z
+    // crosses an integer mm boundary) to keep the log volume manageable while
+    // still capturing one sample per ~5 layers.  Shows the full pipeline so
+    // Case A vs Case B can be compared step-by-step.
+    static thread_local int s_last_logged_z = std::numeric_limits<int>::min();
+    int z_bucket = static_cast<int>(std::floor(pos.z() * 5.0));  // every 0.2mm
+    if (z_bucket != s_last_logged_z) {
+        s_last_logged_z = z_bucket;
+        BOOST_LOG_TRIVIAL(warning) << "[BELT-DEBUG] to_machine_coords"
+            << " slicer_in=(" << pos.x() << "," << pos.y() << "," << pos.z() << ")"
+            << " after_back=(" << after_back.x() << "," << after_back.y() << "," << after_back.z() << ")"
+            << " after_remap=(" << after_remap.x() << "," << after_remap.y() << "," << after_remap.z() << ")"
+            << " after_snap=(" << after_snap.x() << "," << after_snap.y() << "," << after_snap.z() << ")"
+            << " final=(" << final.x() << "," << final.y() << "," << final.z() << ")"
+            << " mft_active=" << m_machine_frame_transform.is_active()
+            << " back_active=" << m_belt_back_transform.is_active();
+    }
+    return final;
 }
 
 // ---- Overridden movement methods ------------------------------------------

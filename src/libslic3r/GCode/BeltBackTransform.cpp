@@ -15,9 +15,12 @@ bool BeltBackTransform::init_from_config(const PrintConfig &config)
     bool has_global_shear = config.belt_shear_x_global.value ||
                             config.belt_shear_y_global.value ||
                             config.belt_shear_z_global.value;
+    bool has_global_rotation = config.belt_slice_rotation_global.value
+                            && config.belt_slice_rotation.value != BeltRotationAxis::None;
     bool has_preslice_global = config.belt_preslice_global.value
                             || config.preslice_remap_global.value;
-    if (!has_global_shear && !has_preslice_global && !BeltTransformPipeline::has_preslice_remap(config))
+    if (!has_global_shear && !has_global_rotation && !has_preslice_global
+        && !BeltTransformPipeline::has_preslice_remap(config))
         return false;
 
     // Build the forward pipeline (scale * shear * pre_remap) and store its inverse.

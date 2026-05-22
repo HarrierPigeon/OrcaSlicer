@@ -362,6 +362,14 @@ static t_config_enum_values s_keys_map_BeltAxis {
 };
 CONFIG_OPTION_ENUM_DEFINE_STATIC_MAPS(BeltAxis)
 
+static t_config_enum_values s_keys_map_BeltRotationAxis {
+    { "none", int(BeltRotationAxis::None) },
+    { "x",    int(BeltRotationAxis::X) },
+    { "y",    int(BeltRotationAxis::Y) },
+    { "z",    int(BeltRotationAxis::Z) },
+};
+CONFIG_OPTION_ENUM_DEFINE_STATIC_MAPS(BeltRotationAxis)
+
 static t_config_enum_values s_keys_map_BeltTransformOrder {
     { "scale_then_shear", int(BeltTransformOrder::ScaleThenShear) },
     { "shear_then_scale", int(BeltTransformOrder::ShearThenScale) },
@@ -410,7 +418,10 @@ static t_config_enum_values s_keys_map_FirstLayerPlaneMode {
     { "xy",          int(FirstLayerPlaneMode::XY) },
     { "yz",          int(FirstLayerPlaneMode::YZ) },
     { "xz",          int(FirstLayerPlaneMode::XZ) },
-    { "belt_shear",  int(FirstLayerPlaneMode::BeltShear) },
+    { "belt_affine", int(FirstLayerPlaneMode::BeltAffine) },
+    // Back-compat alias: pre-rotation builds serialised this mode as
+    // "belt_shear".  Accept it on parse so old 3MFs / presets keep loading.
+    { "belt_shear",  int(FirstLayerPlaneMode::BeltAffine) },
 };
 CONFIG_OPTION_ENUM_DEFINE_STATIC_MAPS(FirstLayerPlaneMode)
 
@@ -7183,9 +7194,9 @@ void PrintConfigDef::init_fff_params()
     add_belt_axis_enum  ("belt_shear_y_from", "From", "Source axis for Y shear.", BeltAxis::Z, comExpert);
     add_belt_shear_global("belt_shear_y_global", "Global");
 
-    add_belt_shear_mode ("belt_shear_z", "Function", BeltShearMode::PosTan);
-    add_belt_shear_angle("belt_shear_z_angle", "Angle");
-    add_belt_axis_enum  ("belt_shear_z_from", "From", "Source axis for Z shear.", BeltAxis::Y);
+    add_belt_shear_mode ("belt_shear_z", "Function", BeltShearMode::None, comExpert);
+    add_belt_shear_angle("belt_shear_z_angle", "Angle", comExpert);
+    add_belt_axis_enum  ("belt_shear_z_from", "From", "Source axis for Z shear.", BeltAxis::Y, comExpert);
     add_belt_shear_global("belt_shear_z_global", "Global", true);
 
     // Per-axis scale controls for belt printer
@@ -7217,11 +7228,46 @@ void PrintConfigDef::init_fff_params()
     add_belt_scale_mode ("belt_scale_x", "Function", BeltScaleMode::None, comExpert);
     add_belt_scale_angle("belt_scale_x_angle", "Angle", comExpert);
 
-    add_belt_scale_mode ("belt_scale_y", "Function", BeltScaleMode::None);
-    add_belt_scale_angle("belt_scale_y_angle", "Angle");
+    add_belt_scale_mode ("belt_scale_y", "Function", BeltScaleMode::None, comExpert);
+    add_belt_scale_angle("belt_scale_y_angle", "Angle", comExpert);
 
     add_belt_scale_mode ("belt_scale_z", "Function", BeltScaleMode::None, comExpert);
     add_belt_scale_angle("belt_scale_z_angle", "Angle", comExpert);
+
+    // Global slicing rotation (alternative to per-axis shear+scale).
+    def = this->add("belt_slice_rotation", coEnum);
+    def->label = L("Slicing rotation axis");
+    def->category = L("Printable space");
+    def->tooltip = L("Rotate the mesh by this axis before slicing. Use this for an "
+                     "isometric (no shear distortion) belt slicing transform. "
+                     "Mutually exclusive with the per-axis shear/scale controls "
+                     "in the UI; the pipeline composes them if both are set in JSON.");
+    def->enum_keys_map = &ConfigOptionEnum<BeltRotationAxis>::get_enum_values();
+    def->enum_values  = {"none", "x", "y", "z"};
+    def->enum_labels  = {L("None"), L("X"), L("Y"), L("Z")};
+    def->mode = comAdvanced;
+    def->set_default_value(new ConfigOptionEnum<BeltRotationAxis>(BeltRotationAxis::None));
+
+    def = this->add("belt_slice_rotation_angle", coFloat);
+    def->label = L("Slicing rotation angle");
+    def->category = L("Printable space");
+    def->tooltip = L("Magnitude of the slicing rotation, in degrees. Positive values "
+                     "rotate counter-clockwise looking down the positive axis.");
+    def->sidetext = L("°");
+    def->min = -180.;
+    def->max = 180.;
+    def->mode = comAdvanced;
+    def->set_default_value(new ConfigOptionFloat(0.));
+
+    def = this->add("belt_slice_rotation_global", coBool);
+    def->label = L("Global");
+    def->category = L("Printable space");
+    def->tooltip = L("Treat the slicing rotation as part of the global forward transform "
+                     "that BeltBackTransform inverts before the machine-frame remap. "
+                     "Required for rotation-mode belt printers; mirrors belt_shear_z_global. "
+                     "Defaults to on because virtually all rotation-mode printers need it.");
+    def->mode = comAdvanced;
+    def->set_default_value(new ConfigOptionBool(true));
 
     auto add_belt_transform_order = [this](const char *key, const char *label, const char *tooltip) {
         auto def = this->add(key, coEnum);
@@ -7351,7 +7397,8 @@ void PrintConfigDef::init_fff_params()
     // First-layer plane: which surface defines "first layer" for fan / speed /
     // accel decisions.  On belt printers the slicing-frame layer 0 is a tilted
     // slab that no longer corresponds to the physical first printed layer.
-    // Auto picks BeltShear when belt_shear_z != None, otherwise XY (legacy).
+    // Auto picks BeltAffine when any belt-side affine transform is active
+    // (Z shear or slicing rotation), otherwise XY (legacy).
     def = this->add("first_layer_plane", coEnum);
     def->label = L("First layer plane");
     def->category = L("Printable space");
@@ -7359,14 +7406,15 @@ void PrintConfigDef::init_fff_params()
                      "first-layer settings (no fan, slow speed, initial-layer accel/jerk, "
                      "deferred temperature drop). On belt printers a single slicing layer "
                      "contains paths at many machine-Z values, so layer-index based detection "
-                     "fails. Auto resolves to Belt shear plane when belt_shear_z is non-None, "
-                     "otherwise XY (legacy).  Pick XY explicitly to opt out and force the "
-                     "legacy slicing-layer-0 detection.");
+                     "fails. Auto resolves to Belt affine plane when any belt-side affine "
+                     "transform (Z shear or slicing rotation) is active, otherwise XY (legacy). "
+                     "Pick XY explicitly to opt out and force the legacy slicing-layer-0 "
+                     "detection.");
     def->enum_keys_map = &ConfigOptionEnum<FirstLayerPlaneMode>::get_enum_values();
-    def->enum_values   = {"auto", "xy", "yz", "xz", "belt_shear"};
-    def->enum_labels   = {L("Auto"), L("XY (machine bed)"), L("YZ"), L("XZ"), L("Belt shear plane")};
+    def->enum_values   = {"auto", "xy", "yz", "xz", "belt_affine"};
+    def->enum_labels   = {L("Auto"), L("XY (machine bed)"), L("YZ"), L("XZ"), L("Belt affine plane")};
     def->mode = comExpert;
-    def->set_default_value(new ConfigOptionEnum<FirstLayerPlaneMode>(FirstLayerPlaneMode::BeltShear));
+    def->set_default_value(new ConfigOptionEnum<FirstLayerPlaneMode>(FirstLayerPlaneMode::BeltAffine));
 
     def = this->add("first_layer_plane_offset", coFloat);
     def->label = L("Belt plane offset");

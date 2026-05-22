@@ -84,12 +84,12 @@ FirstLayerPlane::FirstLayerPlane(const PrintConfig &config)
     // -------- Resolve Auto -------------------------------------------------
     FirstLayerPlaneMode mode = config.first_layer_plane.value;
     if (mode == FirstLayerPlaneMode::Auto) {
-        if (config.belt_printer.value &&
-            config.belt_shear_z.value != BeltShearMode::None) {
-            mode = FirstLayerPlaneMode::BeltShear;
-        } else {
-            mode = FirstLayerPlaneMode::XY;
-        }
+        bool belt_affine_active = config.belt_printer.value &&
+            (config.belt_shear_z.value != BeltShearMode::None ||
+             (config.belt_slice_rotation.value != BeltRotationAxis::None &&
+              std::abs(config.belt_slice_rotation_angle.value) > EPSILON));
+        mode = belt_affine_active ? FirstLayerPlaneMode::BeltAffine
+                                  : FirstLayerPlaneMode::XY;
     }
     m_mode = mode;
 
@@ -130,7 +130,7 @@ FirstLayerPlane::FirstLayerPlane(const PrintConfig &config)
         m_active = true;
         return;
 
-    case FirstLayerPlaneMode::BeltShear: {
+    case FirstLayerPlaneMode::BeltAffine: {
         // Compute the slicing-frame plane that maps to machine_Z = user_offset
         // under the gcode axis remap (and optional back-transform).
         MachineZAffine mz = compute_machine_z_affine(config);

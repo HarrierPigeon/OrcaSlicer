@@ -34,11 +34,13 @@ public:
 private:
     explicit BeltSliceStrategy(const PrintConfig &config);
 
-    bool               m_has_shear  = false;
-    bool               m_has_scale  = false;
-    Matrix3d           m_shear      = Matrix3d::Identity();
-    Matrix3d           m_scale      = Matrix3d::Identity();
-    BeltTransformOrder m_order      = BeltTransformOrder::ScaleThenShear;
+    bool               m_has_shear    = false;
+    bool               m_has_scale    = false;
+    bool               m_has_rotation = false;
+    Matrix3d           m_shear        = Matrix3d::Identity();
+    Matrix3d           m_scale        = Matrix3d::Identity();
+    Matrix3d           m_rotation     = Matrix3d::Identity();
+    BeltTransformOrder m_order        = BeltTransformOrder::ScaleThenShear;
 };
 
 } // namespace Slic3r
