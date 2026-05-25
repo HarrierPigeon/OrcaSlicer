@@ -7,8 +7,9 @@ namespace Slic3r {
 
 bool MachineFrameTransform::init_from_config(const PrintConfig &config)
 {
-    m_active    = false;
-    m_transform = Transform3d::Identity();
+    m_active            = false;
+    m_transform         = Transform3d::Identity();
+    m_transform_inverse = Transform3d::Identity();
 
     if (!config.belt_printer.value)
         return false;
@@ -59,8 +60,9 @@ bool MachineFrameTransform::init_from_config(const PrintConfig &config)
     if (combined.isApprox(Transform3d::Identity()))
         return false;
 
-    m_transform = combined;
-    m_active    = true;
+    m_transform         = combined;
+    m_transform_inverse = combined.inverse();
+    m_active            = true;
     return true;
 }
 
@@ -69,6 +71,13 @@ Vec3d MachineFrameTransform::apply(const Vec3d &pos) const
     if (!m_active)
         return pos;
     return m_transform * pos;
+}
+
+Vec3d MachineFrameTransform::apply_inverse(const Vec3d &pos) const
+{
+    if (!m_active)
+        return pos;
+    return m_transform_inverse * pos;
 }
 
 } // namespace Slic3r

@@ -7,6 +7,7 @@
 #include "libslic3r/PrintConfig.hpp"
 #include "libslic3r/CustomGCode.hpp"
 #include "libslic3r/MultiNozzleUtils.hpp"
+#include "libslic3r/GCode/MachineFrameTransform.hpp"
 
 #include <cstdint>
 #include <array>
@@ -1144,6 +1145,12 @@ class Print;
         //BBS: x, y offset for gcode generated
         double          m_x_offset{ 0 };
         double          m_y_offset{ 0 };
+
+        // Belt-printer post-gcode shear/scale/post_remap. Used by
+        // check_multi_extruder_gcode_valid to undo the machine-frame
+        // transform on move positions so bounds checks operate in the
+        // pre-machine-frame (build-volume) frame.
+        MachineFrameTransform m_machine_frame_transform;
 
         unsigned int m_line_id;
         unsigned int m_last_line_id;

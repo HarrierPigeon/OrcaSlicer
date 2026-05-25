@@ -2765,6 +2765,32 @@ bool GCodeProcessor::check_multi_extruder_gcode_valid(const int                 
         return ps;
     };
 
+    // Belt-printer post-gcode shear/scale/post_remap is applied as the final
+    // step of BeltGCodeWriter::to_machine_coords, so MoveVertex.position is
+    // in the printer's machine frame.  Undo it here so XY area and Z height
+    // checks operate in the build-volume frame that printable_area /
+    // printable_height are defined in.  For non-belt printers
+    // (is_active() == false) apply_inverse is identity and behaviour is
+    // unchanged from before.
+    const bool machine_frame_active = m_machine_frame_transform.is_active();
+    auto compare_pos = [&](const GCodeProcessorResult::MoveVertex &move) -> Vec3d {
+        Vec3d pos = move.position.cast<double>();
+        if (!machine_frame_active)
+            return pos;
+        Vec3d extruder_off = Vec3d::Zero();
+        if (size_t(move.extruder_id) < m_extruder_offsets.size())
+            extruder_off = m_extruder_offsets[move.extruder_id].cast<double>();
+        // Strip plate + extruder offsets to recover the raw machine-frame
+        // coordinate that was emitted into the G-code (see store_move_vertex).
+        Vec3d machine(pos.x() - m_x_offset - extruder_off.x(),
+                      pos.y() - m_y_offset - extruder_off.y(),
+                      pos.z() - extruder_off.z() + m_z_offset);
+        Vec3d build = m_machine_frame_transform.apply_inverse(machine);
+        // Re-apply plate offset so the result matches plate_printable_poly,
+        // which is translated by plate_offset below.
+        return Vec3d(build.x() + m_x_offset, build.y() + m_y_offset, build.z());
+    };
+
     struct GCodePosInfo
     {
         Points pos;
@@ -2775,28 +2801,23 @@ bool GCodeProcessor::check_multi_extruder_gcode_valid(const int                 
     std::map<int, std::map<int, GCodePosInfo>> gcode_path_pos; // object_id, filament_id, pos
     for (const GCodeProcessorResult::MoveVertex &move : m_result.moves) {
         // sometimes, the start line extrude was outside the edge of plate a little, this is allowed, so do not include into the gcode_path_pos
-        if (move.type == EMoveType::Extrude /* && move.extrusion_role != ExtrusionRole::erFlush || move.type == EMoveType::Travel*/)
+        if (move.type == EMoveType::Extrude /* && move.extrusion_role != ExtrusionRole::erFlush || move.type == EMoveType::Travel*/) {
+            const Vec3d cp = compare_pos(move);
+            // For belt printers we read Z from the inverse-transformed position
+            // (post-origin-snap, pre-machine-frame).  Otherwise keep the
+            // original print_z source (the slicer's layer-Z comment) so
+            // non-belt behaviour is bit-for-bit unchanged.
+            const float z_for_height = machine_frame_active ? float(cp.z()) : move.print_z;
             if (move.extrusion_role == ExtrusionRole::erCustom) {
-                /*if (move.is_arc_move_with_interpolation_points()) {
-                    for (int i = 0; i < move.interpolation_points.size(); i++) {
-                        gcode_path_pos[move.object_label_id][int(move.extruder_id)].pos_custom.emplace_back(to_2d(move.interpolation_points[i].cast<double>()));
-                    }
-                } else {*/
-                    gcode_path_pos[move.object_label_id][int(move.extruder_id)].pos_custom.emplace_back(to_2d(move.position.cast<double>()));
-                //}
+                gcode_path_pos[move.object_label_id][int(move.extruder_id)].pos_custom.emplace_back(to_2d(cp));
                 gcode_path_pos[move.object_label_id][int(move.extruder_id)].max_print_z_custom =
-                    std::max(gcode_path_pos[move.object_label_id][int(move.extruder_id)].max_print_z_custom, move.print_z);
+                    std::max(gcode_path_pos[move.object_label_id][int(move.extruder_id)].max_print_z_custom, z_for_height);
             } else {
-                /*if (move.is_arc_move_with_interpolation_points()) {
-                    for (int i = 0; i < move.interpolation_points.size(); i++) {
-                        gcode_path_pos[move.object_label_id][int(move.extruder_id)].pos.emplace_back(to_2d(move.interpolation_points[i].cast<double>()));
-                    }
-                } else {*/
-                    gcode_path_pos[move.object_label_id][int(move.extruder_id)].pos.emplace_back(to_2d(move.position.cast<double>()));
-                //}
+                gcode_path_pos[move.object_label_id][int(move.extruder_id)].pos.emplace_back(to_2d(cp));
                 gcode_path_pos[move.object_label_id][int(move.extruder_id)].max_print_z = std::max(gcode_path_pos[move.object_label_id][int(move.extruder_id)].max_print_z,
-                                                                                                   move.print_z);
+                                                                                                   z_for_height);
             }
+        }
     }
 
     bool valid = true;
@@ -3035,6 +3056,11 @@ void GCodeProcessor::apply_config(const PrintConfig& config)
         m_first_layer_height = std::abs(initial_layer_print_height->value);
 
     m_result.printable_height = config.printable_height;
+
+    // Belt printer: cache the post-gcode machine-frame transform so the
+    // multi-extruder validator can undo it and compare against build-volume
+    // bounds rather than machine-frame positions.
+    m_machine_frame_transform.init_from_config(config);
 
     auto filament_maps = config.option<ConfigOptionInts>("filament_map");
     if (filament_maps != nullptr) {
