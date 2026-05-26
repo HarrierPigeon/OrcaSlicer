@@ -203,6 +203,7 @@ private:
     //BBS: add shell bounding box
     BoundingBoxf3 m_shell_bounding_box;
     float m_max_print_height{ 0.0f };
+    bool  m_machine_frame_transform_active{ false };
     float m_z_offset{ 0.0f };
 
     ConfigOptionMode m_user_mode;
@@ -289,6 +290,7 @@ public:
     std::vector<int> get_plater_extruder();
 
     const float                get_max_print_height() const { return m_max_print_height; }
+    bool                       is_machine_frame_transform_active() const { return m_machine_frame_transform_active; }
     const BoundingBoxf3& get_paths_bounding_box() const { return m_paths_bounding_box; }
     const BoundingBoxf3& get_max_bounding_box() const { return m_max_bounding_box; }
     const BoundingBoxf3& get_shell_bounding_box() const { return m_shell_bounding_box; }

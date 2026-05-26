@@ -1521,6 +1521,7 @@ void GCodeViewer::load_as_gcode(const GCodeProcessorResult& gcode_result, const 
         m_custom_gcode_per_print_z = gcode_result.custom_gcode_per_print_z;
 
     m_max_print_height = gcode_result.printable_height;
+    m_machine_frame_transform_active = gcode_result.machine_frame_transform_active;
     m_z_offset = gcode_result.z_offset;
 
 
@@ -1736,6 +1737,7 @@ void GCodeViewer::reset()
     m_paths_bounding_box = BoundingBoxf3();
     m_max_bounding_box = BoundingBoxf3();
     m_max_print_height = 0.0f;
+    m_machine_frame_transform_active = false;
     m_z_offset = 0.0f;
     m_extruders_count = 0;
     m_filament_diameters = std::vector<float>();

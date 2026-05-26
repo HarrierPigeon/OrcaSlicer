@@ -285,6 +285,11 @@ class Print;
         // as gcode_Z + this offset, so the designed-view back-transform must subtract it
         // to recover the model's belt coordinate.
         float belt_z_origin{ 0.f };
+        // Belt printer: post-gcode shear/scale/post_remap is configured and
+        // non-identity.  When set, the layer Z values in `moves` are in the
+        // machine frame and should not be compared against `printable_height`
+        // (which lives in the build-volume frame).
+        bool machine_frame_transform_active{ false };
         RemapAxis preslice_remap_x{ RemapAxis::PosX };
         RemapAxis preslice_remap_y{ RemapAxis::PosY };
         RemapAxis preslice_remap_z{ RemapAxis::PosZ };
@@ -377,6 +382,7 @@ class Print;
             initial_layer_time = other.initial_layer_time;
             belt_tilt_angle = other.belt_tilt_angle;
             belt_z_origin = other.belt_z_origin;
+            machine_frame_transform_active = other.machine_frame_transform_active;
             preslice_remap_x = other.preslice_remap_x;
             preslice_remap_y = other.preslice_remap_y;
             preslice_remap_z = other.preslice_remap_z;

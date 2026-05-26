@@ -2530,6 +2530,7 @@ void GCodeProcessorResult::reset() {
     long_retraction_when_cut = false;
     timelapse_warning_code = 0;
     printable_height = 0.0f;
+    machine_frame_transform_active = false;
     settings_ids.reset();
     filaments_count = 0;
     backtrace_enabled = false;
@@ -3061,6 +3062,7 @@ void GCodeProcessor::apply_config(const PrintConfig& config)
     // multi-extruder validator can undo it and compare against build-volume
     // bounds rather than machine-frame positions.
     m_machine_frame_transform.init_from_config(config);
+    m_result.machine_frame_transform_active = m_machine_frame_transform.is_active();
 
     auto filament_maps = config.option<ConfigOptionInts>("filament_map");
     if (filament_maps != nullptr) {
