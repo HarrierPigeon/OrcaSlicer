@@ -589,6 +589,14 @@ private:
     double                                  m_belt_min_z { 0.0 };
     // Belt printer: XY correction from global pre-slice mode, applied to G-code origin.
     Vec2d                                   m_belt_global_xy_correction { Vec2d::Zero() };
+    // Belt printer: exact belt_floor_z_shift computed during posSlice from a
+    // vertex-level scan of the post-transform mesh.  Cached separately from
+    // m_slicing_params so that rebuilding m_slicing_params on a non-belt-affecting
+    // invalidation (e.g. support config change) doesn't replace the exact value
+    // with the bbox approximation seeded by create_from_config().  Cleared when
+    // posSlice is invalidated.
+    double                                  m_belt_floor_z_shift_cached { 0.0 };
+    bool                                    m_belt_floor_z_shift_cache_valid { false };
 public:
     double belt_global_z_offset() const { return m_belt_global_z_offset; }
     double belt_min_z() const { return m_belt_min_z; }
