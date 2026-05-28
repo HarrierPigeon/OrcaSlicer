@@ -1,6 +1,7 @@
 #include "BeltGCodeWriter.hpp"
 #include "FirstLayerPlane.hpp"
 #include "Geometry.hpp"
+#include <boost/log/trivial.hpp>
 
 namespace Slic3r {
 
