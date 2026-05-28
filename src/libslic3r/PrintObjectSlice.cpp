@@ -1164,6 +1164,13 @@ void PrintObject::slice()
                     << " center_offset=(" << unscale<double>(m_center_offset.x())
                     << ", " << unscale<double>(m_center_offset.y()) << ")";
             }
+
+            // Cache the final patched belt_floor_z_shift so a later support-only
+            // invalidation can rebuild m_slicing_params without losing this exact
+            // (vertex-scan-derived) value.  update_slicing_parameters() will
+            // restore it after create_from_config() seeds the bbox approximation.
+            m_belt_floor_z_shift_cached      = m_slicing_params.belt_floor_z_shift;
+            m_belt_floor_z_shift_cache_valid = true;
         }
     }
 
