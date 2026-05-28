@@ -1117,10 +1117,7 @@ void GLVolumeCollection::render(GLVolumeCollection::ERenderType       type,
             shader->set_uniform("print_volume.type", -1);
         }
         
-        bool  enable_support;
-        int   support_threshold_angle = get_selection_support_threshold_angle(enable_support);
-
-        float normal_z  = -::cos(Geometry::deg2rad((float) support_threshold_angle));
+        const float normal_z = get_selection_support_normal_z();
 
         // Compute up direction accounting for build plate tilt
         Vec3f up_direction = Vec3f::UnitZ();
