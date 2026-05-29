@@ -1573,9 +1573,10 @@ PRINT_CONFIG_CLASS_DERIVED_DEFINE(
     ((ConfigOptionFloat,               build_plate_tilt_y))
     // Belt printer settings (printer-level).
     ((ConfigOptionBool,                belt_printer))
-    ((ConfigOptionFloat,               belt_printer_angle))
     ((ConfigOptionBool,                belt_printer_infinite_y))
-    // Mesh rotation applied before slicing — the sole mesh-side belt transform.
+    // Mesh rotation applied before slicing — the sole mesh-side belt transform and
+    // the single source of truth for the physical belt tilt (its angle + axis drive
+    // bed rendering, support gravity tilt, and the bed-exclusion projection).
     // Isometric (no distortion); the g-code back-transform inverts it before the
     // machine-frame remap.  (Shear & scale are applied to the g-code, not the
     // mesh — see gcode_shear_* / gcode_scale_* below.)
@@ -1605,9 +1606,6 @@ PRINT_CONFIG_CLASS_DERIVED_DEFINE(
     ((ConfigOptionEnum<BeltScaleMode>,  gcode_scale_z))
     ((ConfigOptionFloat,                gcode_scale_z_angle))
     ((ConfigOptionEnum<BeltTransformOrder>, belt_gcode_transform_order))
-    ((ConfigOptionEnum<RemapAxis>,      post_gcode_remap_x))
-    ((ConfigOptionEnum<RemapAxis>,      post_gcode_remap_y))
-    ((ConfigOptionEnum<RemapAxis>,      post_gcode_remap_z))
     ((ConfigOptionBool,                 gcode_back_transform))
     ((ConfigOptionBool,                 belt_preslice_global))
     ((ConfigOptionEnum<FirstLayerPlaneMode>, first_layer_plane))

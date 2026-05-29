@@ -14,7 +14,6 @@ void BeltGCode::init_belt_writer(Print &print, bool is_bbl_printers)
 
     auto belt_writer = std::make_unique<BeltGCodeWriter>();
     belt_writer->set_is_bbl_machine(is_bbl_printers);
-    belt_writer->set_belt_angle(print.config().belt_printer_angle.value);
     // Axis remap and build volume max are set by base GCode after init_belt_writer returns.
     belt_writer->set_belt_back_transform(print.config());
     belt_writer->set_machine_frame_transform(print.config());
@@ -34,11 +33,9 @@ void BeltGCode::write_belt_header(GCodeOutputStream &file, const Print &print)
     if (!print.config().belt_printer.value)
         return;
 
-    file.write_format("; belt_printer_angle = %.1f\n", print.config().belt_printer_angle.value);
-    // Shear configs
     const auto &full_cfg = print.full_print_config();
-    // Scale configs
-    // Slicing rotation configs
+    // Slicing rotation: the belt tilt (axis + angle) and the single source of truth
+    // for the physical tilt the G-code viewer uses to enable belt view.
     file.write_format("; belt_slice_rotation = %s\n", full_cfg.opt_serialize("belt_slice_rotation").c_str());
     file.write_format("; belt_slice_rotation_angle = %.1f\n", print.config().belt_slice_rotation_angle.value);
     file.write_format("; belt_slice_rotation_global = %d\n", print.config().belt_slice_rotation_global.value ? 1 : 0);
@@ -65,9 +62,6 @@ void BeltGCode::write_belt_header(GCodeOutputStream &file, const Print &print)
     file.write_format("; gcode_scale_z = %s\n",       full_cfg.opt_serialize("gcode_scale_z").c_str());
     file.write_format("; gcode_scale_z_angle = %.1f\n", print.config().gcode_scale_z_angle.value);
     file.write_format("; belt_gcode_transform_order = %s\n", full_cfg.opt_serialize("belt_gcode_transform_order").c_str());
-    file.write_format("; post_gcode_remap_x = %s\n",  full_cfg.opt_serialize("post_gcode_remap_x").c_str());
-    file.write_format("; post_gcode_remap_y = %s\n",  full_cfg.opt_serialize("post_gcode_remap_y").c_str());
-    file.write_format("; post_gcode_remap_z = %s\n",  full_cfg.opt_serialize("post_gcode_remap_z").c_str());
 }
 
 void BeltGCode::on_set_origin(const PrintObject *obj, const Point &inst_shift)

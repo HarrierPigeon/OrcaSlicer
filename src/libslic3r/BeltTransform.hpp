@@ -86,6 +86,35 @@ public:
                std::abs(config.belt_slice_rotation_angle.value) > EPSILON;
     }
 
+    // Physical belt tilt derived from the slicing rotation — the single source of
+    // truth for bed rendering, support gravity tilt and the bed-exclusion
+    // projection.  Returns the tilt magnitude in degrees split onto the X and Y
+    // build-plate tilt axes according to the rotation axis:
+    //   rotation about X  → tilt_x = angle   (gantry tilts in the YZ plane)
+    //   rotation about Y  → tilt_y = angle   (gantry tilts in the XZ plane)
+    //   rotation about Z / None → no tilt    (in-plane spin doesn't tilt the belt)
+    // The magnitude uses abs(angle) so a negative rotation still reports a positive
+    // physical tilt.
+    struct PhysicalTilt { double tilt_x_deg = 0.; double tilt_y_deg = 0.; };
+
+    static PhysicalTilt physical_tilt(BeltRotationAxis axis, double angle_deg)
+    {
+        PhysicalTilt t;
+        double mag = std::abs(angle_deg);
+        switch (axis) {
+        case BeltRotationAxis::X: t.tilt_x_deg = mag; break;
+        case BeltRotationAxis::Y: t.tilt_y_deg = mag; break;
+        default: break; // Z / None: no physical tilt
+        }
+        return t;
+    }
+
+    static PhysicalTilt physical_tilt(const PrintConfig &config)
+    {
+        return physical_tilt(config.belt_slice_rotation.value,
+                             config.belt_slice_rotation_angle.value);
+    }
+
     // ---- Matrix builders --------------------------------------------------
 
     // Build the pre-slice axis remap transform (includes Rev-mode translation).

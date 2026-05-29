@@ -11345,10 +11345,15 @@ void Plater::priv::set_bed_shape(const Pointfs       &shape,
         const auto *belt_opt = config->option<ConfigOptionBool>("belt_printer");
         bool is_belt = belt_opt && belt_opt->value;
         if (is_belt) {
-            double belt_angle = config->opt_float("belt_printer_angle");
+            // The slicing rotation is the single source of truth for the belt tilt:
+            // its magnitude is the physical tilt angle and its axis is the tilt axis.
+            auto rot_axis = config->option<ConfigOptionEnum<BeltRotationAxis>>("belt_slice_rotation")->value;
+            double rot_angle = config->opt_float("belt_slice_rotation_angle");
+            double belt_angle = std::abs(rot_angle);              // physical tilt magnitude
+            int    tilt_axis  = (rot_axis == BeltRotationAxis::Y) ? 1 : 0;
             bool infinite_y = config->opt_bool("belt_printer_infinite_y");
             bed.build_volume().set_belt_printer(true, belt_angle, infinite_y);
-            bed.set_belt_printer(true, static_cast<float>(belt_angle));
+            bed.set_belt_printer(true, static_cast<float>(belt_angle), tilt_axis);
             if (preview)
                 preview->get_canvas3d()->get_gcode_viewer().set_belt_printer(true, static_cast<float>(belt_angle));
 
@@ -11356,13 +11361,6 @@ void Plater::priv::set_bed_shape(const Pointfs       &shape,
             // viewer.  The sole mesh transform is the slicing rotation; build its
             // matrix from config and hand the viewer its inverse (rotation is
             // orthogonal, so the inverse is the transpose).
-            auto get_rot_axis = [this]() -> BeltRotationAxis {
-                auto opt = config->option<ConfigOptionEnum<BeltRotationAxis>>("belt_slice_rotation");
-                return opt ? opt->value : BeltRotationAxis::None;
-            };
-            BeltRotationAxis rot_axis  = get_rot_axis();
-            double           rot_angle = config->opt_float("belt_slice_rotation_angle");
-
             Transform3d forward = Transform3d::Identity();
             if (rot_axis != BeltRotationAxis::None && std::abs(rot_angle) > EPSILON) {
                 Vec3d unit_axis = Vec3d::UnitX();
@@ -13718,10 +13716,10 @@ void Plater::load_gcode(const wxString& filename)
 
     current_print.set_gcode_file_ready();
 
-    // Belt printer: detect belt_printer_angle from loaded G-code header and enable
+    // Belt printer: detect the belt tilt from the loaded G-code header and enable
     // belt view mode on the GCodeViewer so the "Show designed view" toggle appears.
-    if (current_result->belt_printer_angle > 0.f) {
-        float angle = current_result->belt_printer_angle;
+    if (current_result->belt_tilt_angle > 0.f) {
+        float angle = current_result->belt_tilt_angle;
         p->preview->get_canvas3d()->get_gcode_viewer().set_belt_printer(true, angle);
     } else {
         p->preview->get_canvas3d()->get_gcode_viewer().set_belt_printer(false, 0.f);

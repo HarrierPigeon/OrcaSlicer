@@ -125,6 +125,8 @@ private:
     // Belt printer state for rendering.
     bool  m_is_belt_printer = false;
     float m_belt_angle = 0.f;
+    // Tilt axis: 0 = X (belt travels along Y, the common case), 1 = Y.
+    int   m_belt_tilt_axis = 0;
 
 public:
     Bed3D() = default;
@@ -146,10 +148,14 @@ public:
     const BuildVolume& build_volume() const { return m_build_volume; }
     BuildVolume& build_volume() { return m_build_volume; }
 
-    // Belt printer bed settings.
-    void set_belt_printer(bool enabled, float angle_deg) { m_is_belt_printer = enabled; m_belt_angle = angle_deg; }
+    // Belt printer bed settings.  tilt_axis: 0 = X (belt along Y), 1 = Y.
+    void set_belt_printer(bool enabled, float angle_deg, int tilt_axis = 0) {
+        m_is_belt_printer = enabled; m_belt_angle = angle_deg; m_belt_tilt_axis = tilt_axis;
+    }
     bool is_belt_printer() const { return m_is_belt_printer; }
     float belt_angle() const { return m_belt_angle; }
+    // Unit vector of the tilt axis in bed space.
+    Vec3d belt_tilt_unit_axis() const { return m_belt_tilt_axis == 1 ? Vec3d::UnitY() : Vec3d::UnitX(); }
 
     // Was the model provided, or was it generated procedurally?
     Type get_type() const { return m_type; }

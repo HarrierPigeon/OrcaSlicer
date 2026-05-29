@@ -3072,10 +3072,11 @@ void GCodeProcessor::process_tags(const std::string_view comment, bool producers
         return;
     }
 
-    // Belt printer angle detection from G-code header comment.
-    if (boost::starts_with(comment, " belt_printer_angle = ")) {
+    // Belt printer: derive the physical tilt magnitude from the slicing-rotation
+    // angle header comment (used to enable the preview's belt view).
+    if (boost::starts_with(comment, " belt_slice_rotation_angle = ")) {
         try {
-            m_result.belt_printer_angle = std::stof(std::string(comment.substr(22)));
+            m_result.belt_tilt_angle = std::abs(std::stof(std::string(comment.substr(29))));
         } catch (...) {}
         return;
     }

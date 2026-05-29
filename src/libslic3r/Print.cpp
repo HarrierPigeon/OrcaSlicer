@@ -112,7 +112,6 @@ bool Print::invalidate_state_by_config_options(const ConfigOptionResolver & /* n
         "gcode_scale_y", "gcode_scale_y_angle",
         "gcode_scale_z", "gcode_scale_z_angle",
         "belt_gcode_transform_order",
-        "post_gcode_remap_x", "post_gcode_remap_y", "post_gcode_remap_z",
         "belt_origin_snap_x", "belt_origin_offset_x",
         "belt_origin_snap_y", "belt_origin_offset_y",
         "belt_origin_snap_z", "belt_origin_offset_z",
@@ -301,7 +300,6 @@ bool Print::invalidate_state_by_config_options(const ConfigOptionResolver & /* n
             || opt_key == "build_plate_tilt_y"
             // Belt printer transform options change the mesh geometry before slicing.
             || opt_key == "belt_printer"
-            || opt_key == "belt_printer_angle"
             || opt_key == "belt_slice_rotation"
             || opt_key == "belt_slice_rotation_angle"
             || opt_key == "belt_slice_rotation_global"

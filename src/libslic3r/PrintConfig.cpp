@@ -1,5 +1,6 @@
 #include "PrintConfig.hpp"
 #include "PrintConfigConstants.hpp"
+#include "BeltTransform.hpp"
 #include "ClipperUtils.hpp"
 #include "Config.hpp"
 #include "Geometry.hpp"
@@ -6382,18 +6383,6 @@ void PrintConfigDef::init_fff_params()
     def->mode = comAdvanced;
     def->set_default_value(new ConfigOptionBool(false));
 
-    def = this->add("belt_printer_angle", coFloat);
-    def->label = L("Belt angle");
-    def->category = L("Printable space");
-    def->tooltip = L("The tilt angle of the belt surface in degrees. "
-                     "Most belt printers use a 45-degree angle. "
-                     "This controls the rotation applied to the slicing plane and G-code coordinates.");
-    def->sidetext = u8"\u00B0";
-    def->min = 0;
-    def->max = 90;
-    def->mode = comAdvanced;
-    def->set_default_value(new ConfigOptionFloat(45.));
-
     def = this->add("belt_printer_infinite_y", coBool);
     def->label = L("Infinite Y axis");
     def->category = L("Printable space");
@@ -6403,30 +6392,35 @@ void PrintConfigDef::init_fff_params()
     def->mode = comAdvanced;
     def->set_default_value(new ConfigOptionBool(true));
 
-    // Mesh rotation applied before slicing — the sole mesh-side belt transform.
+    // Mesh rotation applied before slicing — the sole mesh-side belt transform AND
+    // the single source of truth for the physical belt tilt (bed rendering, support
+    // gravity tilt and bed-exclusion projection all derive their angle from this).
     def = this->add("belt_slice_rotation", coEnum);
-    def->label = L("Slicing rotation axis");
+    def->label = L("Belt tilt axis");
     def->category = L("Printable space");
-    def->tooltip = L("Rotate the mesh by this axis before slicing. This is the belt "
-                     "printer's mesh transform: an isometric (no distortion) rotation "
-                     "that the g-code back-transform inverts before the machine-frame "
-                     "shear/scale and remap are applied.");
+    def->tooltip = L("Axis the mesh is rotated about before slicing. This is the belt "
+                     "printer's tilt: an isometric (no distortion) rotation that also "
+                     "drives bed rendering and support gravity tilt, and that the g-code "
+                     "back-transform inverts before the machine-frame shear/scale and remap. "
+                     "X is the typical gantry tilt (belt travels along Y).");
     def->enum_keys_map = &ConfigOptionEnum<BeltRotationAxis>::get_enum_values();
     def->enum_values  = {"none", "x", "y", "z"};
     def->enum_labels  = {L("None"), L("X"), L("Y"), L("Z")};
     def->mode = comAdvanced;
-    def->set_default_value(new ConfigOptionEnum<BeltRotationAxis>(BeltRotationAxis::None));
+    def->set_default_value(new ConfigOptionEnum<BeltRotationAxis>(BeltRotationAxis::X));
 
     def = this->add("belt_slice_rotation_angle", coFloat);
-    def->label = L("Slicing rotation angle");
+    def->label = L("Belt tilt angle");
     def->category = L("Printable space");
-    def->tooltip = L("Magnitude of the slicing rotation, in degrees. Positive values "
-                     "rotate counter-clockwise looking down the positive axis.");
+    def->tooltip = L("Tilt angle of the belt surface, in degrees. Most belt printers use "
+                     "45°. Positive values rotate counter-clockwise looking down the "
+                     "positive tilt axis; the magnitude is also the physical belt tilt "
+                     "used for bed rendering and support gravity.");
     def->sidetext = L("°");
     def->min = -180.;
     def->max = 180.;
     def->mode = comAdvanced;
-    def->set_default_value(new ConfigOptionFloat(0.));
+    def->set_default_value(new ConfigOptionFloat(45.));
 
     def = this->add("belt_slice_rotation_global", coBool);
     def->label = L("Global");
@@ -6588,19 +6582,6 @@ void PrintConfigDef::init_fff_params()
         "Order in which the machine-frame shear and scale matrices are composed when "
         "applied to G-code coordinates. 'Scale, then shear' applies scale first and then "
         "shear (current default). 'Shear, then scale' applies shear first and then scale.");
-
-    add_belt_remap("post_gcode_remap_x", "X",
-        "Axis remap in the machine-frame stage. Applied AFTER gcode_remap, "
-        "to put coordinates into the printer's physical axis labelling. Default +X: no change.",
-        RemapAxis::PosX);
-    add_belt_remap("post_gcode_remap_y", "Y",
-        "Axis remap in the machine-frame stage. Applied AFTER gcode_remap, "
-        "to put coordinates into the printer's physical axis labelling. Default +Y: no change.",
-        RemapAxis::PosY);
-    add_belt_remap("post_gcode_remap_z", "Z",
-        "Axis remap in the machine-frame stage. Applied AFTER gcode_remap, "
-        "to put coordinates into the printer's physical axis labelling. Default +Z: no change.",
-        RemapAxis::PosZ);
 
     def = this->add("gcode_back_transform", coBool);
     def->label = L("G-code back-transform");
@@ -11749,16 +11730,22 @@ Polygons get_bed_excluded_area(const PrintConfig& cfg)
 {
     const Pointfs exclude_area_points = cfg.bed_exclude_area.values;
 
-    // Belt printer: project exclusion zone points from belt surface to machine-frame XY.
-    // On the belt surface, Z=0, so machine_Y = belt_Y * cos(angle).
+    // Belt printer: project exclusion zone points from the belt surface to machine-frame XY.
+    // On the belt surface Z=0, so the in-plane axis foreshortens by cos(tilt).  The tilt
+    // axis decides which bed axis foreshortens: tilt about X (belt along Y) scales Y,
+    // tilt about Y (belt along X) scales X.  Derived from belt_slice_rotation.
     const bool is_belt = cfg.belt_printer.value;
-    const double belt_cos = is_belt ? std::cos(Geometry::deg2rad(cfg.belt_printer_angle.value)) : 1.0;
+    const auto tilt    = BeltTransformPipeline::physical_tilt(
+        cfg.belt_slice_rotation.value, cfg.belt_slice_rotation_angle.value);
+    const double cos_x = is_belt ? std::cos(Geometry::deg2rad(tilt.tilt_x_deg)) : 1.0; // foreshortens Y
+    const double cos_y = is_belt ? std::cos(Geometry::deg2rad(tilt.tilt_y_deg)) : 1.0; // foreshortens X
 
     Polygon exclude_poly;
     for (int i = 0; i < exclude_area_points.size(); i++) {
         auto pt = exclude_area_points[i];
-        double y = is_belt ? pt.y() * belt_cos : pt.y();
-        exclude_poly.points.emplace_back(scale_(pt.x()), scale_(y));
+        double x = is_belt ? pt.x() * cos_y : pt.x();
+        double y = is_belt ? pt.y() * cos_x : pt.y();
+        exclude_poly.points.emplace_back(scale_(x), scale_(y));
     }
 
     exclude_poly.make_counter_clockwise();

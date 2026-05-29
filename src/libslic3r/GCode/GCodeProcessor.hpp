@@ -245,8 +245,9 @@ class Print;
         bool support_traditional_timelapse{true};
         float printable_height;
         float z_offset;
-        // Belt printer: angle for coordinate transformation in preview.
-        float belt_printer_angle{ 0.f };
+        // Belt printer: physical tilt magnitude (deg) parsed from the slicing-rotation
+        // header comment; used to enable the preview's belt view.
+        float belt_tilt_angle{ 0.f };
         RemapAxis preslice_remap_x{ RemapAxis::PosX };
         RemapAxis preslice_remap_y{ RemapAxis::PosY };
         RemapAxis preslice_remap_z{ RemapAxis::PosZ };
@@ -315,7 +316,7 @@ class Print;
             optimal_assignment = other.optimal_assignment;
             filament_change_count_map = other.filament_change_count_map;
             initial_layer_time = other.initial_layer_time;
-            belt_printer_angle = other.belt_printer_angle;
+            belt_tilt_angle = other.belt_tilt_angle;
             preslice_remap_x = other.preslice_remap_x;
             preslice_remap_y = other.preslice_remap_y;
             preslice_remap_z = other.preslice_remap_z;

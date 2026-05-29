@@ -1318,7 +1318,7 @@ static std::vector<std::string> s_Preset_machine_limits_options {
 
 static std::vector<std::string> s_Preset_printer_options {
     "printer_technology",
-    "printable_area", "extruder_printable_area", "bed_exclude_area","bed_custom_texture", "bed_custom_model", "build_plate_tilt_x", "build_plate_tilt_y", "belt_printer", "belt_printer_angle", "belt_printer_infinite_y",
+    "printable_area", "extruder_printable_area", "bed_exclude_area","bed_custom_texture", "bed_custom_model", "build_plate_tilt_x", "build_plate_tilt_y", "belt_printer", "belt_printer_infinite_y",
     "belt_slice_rotation", "belt_slice_rotation_angle", "belt_slice_rotation_global",
     "preslice_remap_x", "preslice_remap_y", "preslice_remap_z", "preslice_remap_global",
     "gcode_remap_x", "gcode_remap_y", "gcode_remap_z", "gcode_back_transform",
@@ -1329,7 +1329,6 @@ static std::vector<std::string> s_Preset_printer_options {
     "gcode_scale_y", "gcode_scale_y_angle",
     "gcode_scale_z", "gcode_scale_z_angle",
     "belt_gcode_transform_order",
-    "post_gcode_remap_x", "post_gcode_remap_y", "post_gcode_remap_z",
     "belt_preslice_global",
     "first_layer_plane", "first_layer_plane_offset", "first_layer_plane_thickness",
     "belt_origin_snap_x", "belt_origin_offset_x",
