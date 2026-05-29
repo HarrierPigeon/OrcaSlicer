@@ -4492,13 +4492,6 @@ void TabPrinter::build_fff()
             line.append_option(belt_og->get_option("preslice_remap_global"));
             belt_og->append_line(line);
         }
-        {
-            Line line = { L("G-code axis remap (post-slice)"), L("Remap slicing-frame axes to machine axes in G-code output. Applied AFTER slicing, during G-code generation.") };
-            line.append_option(belt_og->get_option("gcode_remap_x"));
-            line.append_option(belt_og->get_option("gcode_remap_y"));
-            line.append_option(belt_og->get_option("gcode_remap_z"));
-            belt_og->append_line(line);
-        }
         belt_og->append_single_option_line("belt_preslice_global");
         belt_og->append_single_option_line("gcode_back_transform");
         {
@@ -4542,6 +4535,13 @@ void TabPrinter::build_fff()
         // the printer's physical machine frame.
         {
             auto mf = page->new_optgroup(L("Machine frame transforms"), L"param_advanced");
+            {
+                Line line = { L("G-code axis remap (post-slice)"), L("Remap slicing-frame axes to machine axes in G-code output. Applied AFTER slicing, during G-code generation.") };
+                line.append_option(mf->get_option("gcode_remap_x"));
+                line.append_option(mf->get_option("gcode_remap_y"));
+                line.append_option(mf->get_option("gcode_remap_z"));
+                mf->append_line(line);
+            }
             {
                 Line line = { L("G-code shear X"), L("Shear applied to the X axis in the machine-frame stage (after back-transform and gcode_remap).") };
                 line.append_option(mf->get_option("gcode_shear_x"));
