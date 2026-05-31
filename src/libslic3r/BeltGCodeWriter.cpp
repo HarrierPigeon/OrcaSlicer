@@ -76,7 +76,7 @@ Vec3d BeltGCodeWriter::to_machine_coords(const Vec3d &pos) const
     int z_bucket = static_cast<int>(std::floor(pos.z() * 5.0));  // every 0.2mm
     if (z_bucket != s_last_logged_z) {
         s_last_logged_z = z_bucket;
-        BOOST_LOG_TRIVIAL(warning) << "[BELT-DEBUG] to_machine_coords"
+        BOOST_LOG_TRIVIAL(trace) << "[BELT-DEBUG] to_machine_coords"
             << " slicer_in=(" << pos.x() << "," << pos.y() << "," << pos.z() << ")"
             << " after_back=(" << after_back.x() << "," << after_back.y() << "," << after_back.z() << ")"
             << " after_remap=(" << after_remap.x() << "," << after_remap.y() << "," << after_remap.z() << ")"
