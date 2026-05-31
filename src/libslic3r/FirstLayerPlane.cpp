@@ -85,9 +85,8 @@ FirstLayerPlane::FirstLayerPlane(const PrintConfig &config)
     FirstLayerPlaneMode mode = config.first_layer_plane.value;
     if (mode == FirstLayerPlaneMode::Auto) {
         bool belt_affine_active = config.belt_printer.value &&
-            (config.belt_shear_z.value != BeltShearMode::None ||
-             (config.belt_slice_rotation.value != BeltRotationAxis::None &&
-              std::abs(config.belt_slice_rotation_angle.value) > EPSILON));
+            config.belt_slice_rotation.value != BeltRotationAxis::None &&
+            std::abs(config.belt_slice_rotation_angle.value) > EPSILON;
         mode = belt_affine_active ? FirstLayerPlaneMode::BeltAffine
                                   : FirstLayerPlaneMode::XY;
     }

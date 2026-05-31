@@ -1807,29 +1807,13 @@ PRINT_CONFIG_CLASS_DERIVED_DEFINE(
     ((ConfigOptionFloat,               build_plate_tilt_y))
     // Belt printer settings (printer-level).
     ((ConfigOptionBool,                belt_printer))
-    ((ConfigOptionFloat,               belt_printer_angle))
     ((ConfigOptionBool,                belt_printer_infinite_y))
-    ((ConfigOptionEnum<BeltShearMode>,  belt_shear_x))
-    ((ConfigOptionFloat,                belt_shear_x_angle))
-    ((ConfigOptionEnum<BeltAxis>,       belt_shear_x_from))
-    ((ConfigOptionBool,                 belt_shear_x_global))
-    ((ConfigOptionEnum<BeltShearMode>,  belt_shear_y))
-    ((ConfigOptionFloat,                belt_shear_y_angle))
-    ((ConfigOptionEnum<BeltAxis>,       belt_shear_y_from))
-    ((ConfigOptionBool,                 belt_shear_y_global))
-    ((ConfigOptionEnum<BeltShearMode>,  belt_shear_z))
-    ((ConfigOptionFloat,                belt_shear_z_angle))
-    ((ConfigOptionEnum<BeltAxis>,       belt_shear_z_from))
-    ((ConfigOptionBool,                 belt_shear_z_global))
-    ((ConfigOptionEnum<BeltScaleMode>,  belt_scale_x))
-    ((ConfigOptionFloat,                belt_scale_x_angle))
-    ((ConfigOptionEnum<BeltScaleMode>,  belt_scale_y))
-    ((ConfigOptionFloat,                belt_scale_y_angle))
-    ((ConfigOptionEnum<BeltScaleMode>,  belt_scale_z))
-    ((ConfigOptionFloat,                belt_scale_z_angle))
-    // Global mesh rotation as an alternative to per-axis shear/scale (isometric
-    // slicing transform).  Composes with shear in the pipeline math; UI gates
-    // them as mutually exclusive.
+    // Mesh rotation applied before slicing — the sole mesh-side belt transform and
+    // the single source of truth for the physical belt tilt (its angle + axis drive
+    // bed rendering, support gravity tilt, and the bed-exclusion projection).
+    // Isometric (no distortion); the g-code back-transform inverts it before the
+    // machine-frame remap.  (Shear & scale are applied to the g-code, not the
+    // mesh — see gcode_shear_* / gcode_scale_* below.)
     ((ConfigOptionEnum<BeltRotationAxis>, belt_slice_rotation))
     ((ConfigOptionFloat,                  belt_slice_rotation_angle))
     ((ConfigOptionBool,                   belt_slice_rotation_global))
@@ -1855,11 +1839,7 @@ PRINT_CONFIG_CLASS_DERIVED_DEFINE(
     ((ConfigOptionFloat,                gcode_scale_y_angle))
     ((ConfigOptionEnum<BeltScaleMode>,  gcode_scale_z))
     ((ConfigOptionFloat,                gcode_scale_z_angle))
-    ((ConfigOptionEnum<BeltTransformOrder>, belt_mesh_transform_order))
     ((ConfigOptionEnum<BeltTransformOrder>, belt_gcode_transform_order))
-    ((ConfigOptionEnum<RemapAxis>,      post_gcode_remap_x))
-    ((ConfigOptionEnum<RemapAxis>,      post_gcode_remap_y))
-    ((ConfigOptionEnum<RemapAxis>,      post_gcode_remap_z))
     ((ConfigOptionBool,                 gcode_back_transform))
     ((ConfigOptionBool,                 belt_preslice_global))
     ((ConfigOptionEnum<FirstLayerPlaneMode>, first_layer_plane))

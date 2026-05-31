@@ -12377,80 +12377,33 @@ void Plater::priv::set_bed_shape(const Pointfs       &shape,
         const auto *belt_opt = config->option<ConfigOptionBool>("belt_printer");
         bool is_belt = belt_opt && belt_opt->value;
         if (is_belt) {
-            double belt_angle = config->opt_float("belt_printer_angle");
+            // The slicing rotation is the single source of truth for the belt tilt:
+            // its magnitude is the physical tilt angle and its axis is the tilt axis.
+            auto rot_axis = config->option<ConfigOptionEnum<BeltRotationAxis>>("belt_slice_rotation")->value;
+            double rot_angle = config->opt_float("belt_slice_rotation_angle");
+            double belt_angle = std::abs(rot_angle);              // physical tilt magnitude
+            int    tilt_axis  = (rot_axis == BeltRotationAxis::Y) ? 1 : 0;
             bool infinite_y = config->opt_bool("belt_printer_infinite_y");
             bed.build_volume().set_belt_printer(true, belt_angle, infinite_y);
-            bed.set_belt_printer(true, static_cast<float>(belt_angle));
+            bed.set_belt_printer(true, static_cast<float>(belt_angle), tilt_axis);
             if (preview)
                 preview->get_canvas3d()->get_gcode_viewer().set_belt_printer(true, static_cast<float>(belt_angle));
 
-            // Compute the inverse of the full belt shear+scale transform for the G-code viewer.
-            auto compute_shear_factor = [](BeltShearMode mode, double angle_deg) -> double {
-                double angle_rad = Geometry::deg2rad(angle_deg);
-                double sin_a = std::sin(angle_rad);
-                double cos_a = std::cos(angle_rad);
-                switch (mode) {
-                case BeltShearMode::PosCot: return (sin_a > EPSILON) ?  cos_a / sin_a : 0.;
-                case BeltShearMode::NegCot: return (sin_a > EPSILON) ? -cos_a / sin_a : 0.;
-                case BeltShearMode::PosTan: return (cos_a > EPSILON) ?  sin_a / cos_a : 0.;
-                case BeltShearMode::NegTan: return (cos_a > EPSILON) ? -sin_a / cos_a : 0.;
-                default: return 0.;
+            // Compute the inverse of the mesh-side belt transform for the G-code
+            // viewer.  The sole mesh transform is the slicing rotation; build its
+            // matrix from config and hand the viewer its inverse (rotation is
+            // orthogonal, so the inverse is the transpose).
+            Transform3d forward = Transform3d::Identity();
+            if (rot_axis != BeltRotationAxis::None && std::abs(rot_angle) > EPSILON) {
+                Vec3d unit_axis = Vec3d::UnitX();
+                switch (rot_axis) {
+                case BeltRotationAxis::X: unit_axis = Vec3d::UnitX(); break;
+                case BeltRotationAxis::Y: unit_axis = Vec3d::UnitY(); break;
+                case BeltRotationAxis::Z: unit_axis = Vec3d::UnitZ(); break;
+                default: break;
                 }
-            };
-            auto compute_scale_factor = [](BeltScaleMode mode, double angle_deg) -> double {
-                if (mode == BeltScaleMode::None) return 1.;
-                double angle_rad = Geometry::deg2rad(angle_deg);
-                double sin_a = std::sin(angle_rad);
-                double cos_a = std::cos(angle_rad);
-                switch (mode) {
-                case BeltScaleMode::InvSin: return (sin_a > EPSILON) ? 1. / sin_a : 1.;
-                case BeltScaleMode::InvCos: return (cos_a > EPSILON) ? 1. / cos_a : 1.;
-                case BeltScaleMode::Sin:    return sin_a;
-                case BeltScaleMode::Cos:    return cos_a;
-                default: return 1.;
-                }
-            };
-
-            // Read shear configs.
-            auto get_shear_mode = [this](const char *key) -> BeltShearMode {
-                auto opt = config->option<ConfigOptionEnum<BeltShearMode>>(key);
-                return opt ? opt->value : BeltShearMode::None;
-            };
-            auto get_axis = [this](const char *key) -> BeltAxis {
-                auto opt = config->option<ConfigOptionEnum<BeltAxis>>(key);
-                return opt ? opt->value : BeltAxis::X;
-            };
-            auto get_scale_mode = [this](const char *key) -> BeltScaleMode {
-                auto opt = config->option<ConfigOptionEnum<BeltScaleMode>>(key);
-                return opt ? opt->value : BeltScaleMode::None;
-            };
-
-            struct AxisShear { BeltShearMode mode; double angle; int from; };
-            AxisShear axes[3] = {
-                { get_shear_mode("belt_shear_x"), config->opt_float("belt_shear_x_angle"), int(get_axis("belt_shear_x_from")) },
-                { get_shear_mode("belt_shear_y"), config->opt_float("belt_shear_y_angle"), int(get_axis("belt_shear_y_from")) },
-                { get_shear_mode("belt_shear_z"), config->opt_float("belt_shear_z_angle"), int(get_axis("belt_shear_z_from")) },
-            };
-
-            Transform3d belt_shear = Transform3d::Identity();
-            for (int row = 0; row < 3; ++row) {
-                if (axes[row].mode != BeltShearMode::None) {
-                    double factor = compute_shear_factor(axes[row].mode, axes[row].angle);
-                    if (std::abs(factor) > EPSILON)
-                        belt_shear.matrix()(row, axes[row].from) += factor;
-                }
+                forward.linear() = Eigen::AngleAxisd(Geometry::deg2rad(rot_angle), unit_axis).toRotationMatrix();
             }
-
-            double sx = compute_scale_factor(get_scale_mode("belt_scale_x"), config->opt_float("belt_scale_x_angle"));
-            double sy = compute_scale_factor(get_scale_mode("belt_scale_y"), config->opt_float("belt_scale_y_angle"));
-            double sz = compute_scale_factor(get_scale_mode("belt_scale_z"), config->opt_float("belt_scale_z_angle"));
-            Transform3d belt_scale = Transform3d::Identity();
-            belt_scale.matrix()(0, 0) = sx;
-            belt_scale.matrix()(1, 1) = sy;
-            belt_scale.matrix()(2, 2) = sz;
-
-            // Forward transform: scale * shear. Inverse for the viewer.
-            Transform3d forward = belt_scale * belt_shear;
             Transform3d inverse = forward.inverse();
             if (preview)
                 preview->get_canvas3d()->get_gcode_viewer().set_belt_inverse_transform(inverse);
@@ -14851,10 +14804,10 @@ void Plater::load_gcode(const wxString& filename)
 
     current_print.set_gcode_file_ready();
 
-    // Belt printer: detect belt_printer_angle from loaded G-code header and enable
+    // Belt printer: detect the belt tilt from the loaded G-code header and enable
     // belt view mode on the GCodeViewer so the "Show designed view" toggle appears.
-    if (current_result->belt_printer_angle > 0.f) {
-        float angle = current_result->belt_printer_angle;
+    if (current_result->belt_tilt_angle > 0.f) {
+        float angle = current_result->belt_tilt_angle;
         p->preview->get_canvas3d()->get_gcode_viewer().set_belt_printer(true, angle);
     } else {
         p->preview->get_canvas3d()->get_gcode_viewer().set_belt_printer(false, 0.f);

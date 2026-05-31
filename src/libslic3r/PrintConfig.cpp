@@ -1,5 +1,6 @@
 #include "PrintConfig.hpp"
 #include "PrintConfigConstants.hpp"
+#include "BeltTransform.hpp"
 #include "ClipperUtils.hpp"
 #include "Config.hpp"
 #include "Geometry.hpp"
@@ -7116,18 +7117,6 @@ void PrintConfigDef::init_fff_params()
     def->mode = comAdvanced;
     def->set_default_value(new ConfigOptionBool(false));
 
-    def = this->add("belt_printer_angle", coFloat);
-    def->label = L("Belt angle");
-    def->category = L("Printable space");
-    def->tooltip = L("The tilt angle of the belt surface in degrees. "
-                     "Most belt printers use a 45-degree angle. "
-                     "This controls the rotation applied to the slicing plane and G-code coordinates.");
-    def->sidetext = u8"\u00B0";
-    def->min = 0;
-    def->max = 90;
-    def->mode = comAdvanced;
-    def->set_default_value(new ConfigOptionFloat(45.));
-
     def = this->add("belt_printer_infinite_y", coBool);
     def->label = L("Infinite Y axis");
     def->category = L("Printable space");
@@ -7137,134 +7126,42 @@ void PrintConfigDef::init_fff_params()
     def->mode = comAdvanced;
     def->set_default_value(new ConfigOptionBool(true));
 
-    // Per-axis shear controls for belt printer
-    auto add_belt_shear_mode = [this](const char *key, const char *label, BeltShearMode default_mode,
-                                       ConfigOptionMode mode = comAdvanced) {
-        auto def = this->add(key, coEnum);
-        def->label = L(label);
-        def->category = L("Printable space");
-        def->tooltip = L("Shear function applied to this axis in belt printer mode.");
-        def->enum_keys_map = &ConfigOptionEnum<BeltShearMode>::get_enum_values();
-        def->enum_values  = {"none", "pos_cot", "neg_cot", "pos_tan", "neg_tan"};
-        def->enum_labels  = {L("None"), L("+cot(α)"), L("-cot(α)"), L("+tan(α)"), L("-tan(α)")};
-        def->mode = mode;
-        def->set_default_value(new ConfigOptionEnum<BeltShearMode>(default_mode));
-    };
-    auto add_belt_shear_angle = [this](const char *key, const char *label,
-                                        ConfigOptionMode mode = comAdvanced) {
-        auto def = this->add(key, coFloat);
-        def->label = L(label);
-        def->category = L("Printable space");
-        def->tooltip = L("Angle (degrees) for the shear function on this axis.");
-        def->sidetext = L("°");
-        def->min = 0.1;
-        def->max = 89.9;
-        def->mode = mode;
-        def->set_default_value(new ConfigOptionFloat(45));
-    };
-    auto add_belt_axis_enum = [this](const char *key, const char *label, const char *tooltip,
-                                      BeltAxis default_axis, ConfigOptionMode mode = comAdvanced) {
-        auto def = this->add(key, coEnum);
-        def->label = L(label);
-        def->category = L("Printable space");
-        def->tooltip = L(tooltip);
-        def->enum_keys_map = &ConfigOptionEnum<BeltAxis>::get_enum_values();
-        def->enum_values  = {"x", "y", "z"};
-        def->enum_labels  = {L("X"), L("Y"), L("Z")};
-        def->mode = mode;
-        def->set_default_value(new ConfigOptionEnum<BeltAxis>(default_axis));
-    };
-
-    auto add_belt_shear_global = [this](const char *key, const char *label, bool default_val = false) {
-        auto def = this->add(key, coBool);
-        def->label = L(label);
-        def->category = L("Printable space");
-        def->tooltip = L("Apply shear in global coordinates (position-aware) rather than object-local coordinates.");
-        def->mode = comExpert;
-        def->set_default_value(new ConfigOptionBool(default_val));
-    };
-
-    add_belt_shear_mode ("belt_shear_x", "Function", BeltShearMode::None, comExpert);
-    add_belt_shear_angle("belt_shear_x_angle", "Angle", comExpert);
-    add_belt_axis_enum  ("belt_shear_x_from", "From", "Source axis for X shear.", BeltAxis::Z, comExpert);
-    add_belt_shear_global("belt_shear_x_global", "Global");
-
-    add_belt_shear_mode ("belt_shear_y", "Function", BeltShearMode::None, comExpert);
-    add_belt_shear_angle("belt_shear_y_angle", "Angle", comExpert);
-    add_belt_axis_enum  ("belt_shear_y_from", "From", "Source axis for Y shear.", BeltAxis::Z, comExpert);
-    add_belt_shear_global("belt_shear_y_global", "Global");
-
-    add_belt_shear_mode ("belt_shear_z", "Function", BeltShearMode::None, comExpert);
-    add_belt_shear_angle("belt_shear_z_angle", "Angle", comExpert);
-    add_belt_axis_enum  ("belt_shear_z_from", "From", "Source axis for Z shear.", BeltAxis::Y, comExpert);
-    add_belt_shear_global("belt_shear_z_global", "Global", true);
-
-    // Per-axis scale controls for belt printer
-    auto add_belt_scale_mode = [this](const char *key, const char *label, BeltScaleMode default_mode,
-                                       ConfigOptionMode mode = comAdvanced) {
-        auto def = this->add(key, coEnum);
-        def->label = L(label);
-        def->category = L("Printable space");
-        def->tooltip = L("Scale factor applied to this axis in belt printer mode.");
-        def->enum_keys_map = &ConfigOptionEnum<BeltScaleMode>::get_enum_values();
-        def->enum_values  = {"none", "inv_sin", "inv_cos", "sin", "cos"};
-        def->enum_labels  = {L("None"), L("1/sin(α)"), L("1/cos(α)"), L("sin(α)"), L("cos(α)")};
-        def->mode = mode;
-        def->set_default_value(new ConfigOptionEnum<BeltScaleMode>(default_mode));
-    };
-    auto add_belt_scale_angle = [this](const char *key, const char *label,
-                                        ConfigOptionMode mode = comAdvanced) {
-        auto def = this->add(key, coFloat);
-        def->label = L(label);
-        def->category = L("Printable space");
-        def->tooltip = L("Angle (degrees) for the scale function on this axis.");
-        def->sidetext = L("°");
-        def->min = 0.1;
-        def->max = 89.9;
-        def->mode = mode;
-        def->set_default_value(new ConfigOptionFloat(45));
-    };
-
-    add_belt_scale_mode ("belt_scale_x", "Function", BeltScaleMode::None, comExpert);
-    add_belt_scale_angle("belt_scale_x_angle", "Angle", comExpert);
-
-    add_belt_scale_mode ("belt_scale_y", "Function", BeltScaleMode::None, comExpert);
-    add_belt_scale_angle("belt_scale_y_angle", "Angle", comExpert);
-
-    add_belt_scale_mode ("belt_scale_z", "Function", BeltScaleMode::None, comExpert);
-    add_belt_scale_angle("belt_scale_z_angle", "Angle", comExpert);
-
-    // Global slicing rotation (alternative to per-axis shear+scale).
+    // Mesh rotation applied before slicing — the sole mesh-side belt transform AND
+    // the single source of truth for the physical belt tilt (bed rendering, support
+    // gravity tilt and bed-exclusion projection all derive their angle from this).
     def = this->add("belt_slice_rotation", coEnum);
-    def->label = L("Slicing rotation axis");
+    def->label = L("Belt tilt axis");
     def->category = L("Printable space");
-    def->tooltip = L("Rotate the mesh by this axis before slicing. Use this for an "
-                     "isometric (no shear distortion) belt slicing transform. "
-                     "Mutually exclusive with the per-axis shear/scale controls "
-                     "in the UI; the pipeline composes them if both are set in JSON.");
+    def->tooltip = L("Axis the mesh is rotated about before slicing. This is the belt "
+                     "printer's tilt: an isometric (no distortion) rotation that also "
+                     "drives bed rendering and support gravity tilt, and that the g-code "
+                     "back-transform inverts before the machine-frame shear/scale and remap. "
+                     "X is the typical gantry tilt (belt travels along Y).");
     def->enum_keys_map = &ConfigOptionEnum<BeltRotationAxis>::get_enum_values();
     def->enum_values  = {"none", "x", "y", "z"};
     def->enum_labels  = {L("None"), L("X"), L("Y"), L("Z")};
     def->mode = comAdvanced;
-    def->set_default_value(new ConfigOptionEnum<BeltRotationAxis>(BeltRotationAxis::None));
+    def->set_default_value(new ConfigOptionEnum<BeltRotationAxis>(BeltRotationAxis::X));
 
     def = this->add("belt_slice_rotation_angle", coFloat);
-    def->label = L("Slicing rotation angle");
+    def->label = L("Belt tilt angle");
     def->category = L("Printable space");
-    def->tooltip = L("Magnitude of the slicing rotation, in degrees. Positive values "
-                     "rotate counter-clockwise looking down the positive axis.");
+    def->tooltip = L("Tilt angle of the belt surface, in degrees. Most belt printers use "
+                     "45°. Positive values rotate counter-clockwise looking down the "
+                     "positive tilt axis; the magnitude is also the physical belt tilt "
+                     "used for bed rendering and support gravity.");
     def->sidetext = L("°");
     def->min = -180.;
     def->max = 180.;
     def->mode = comAdvanced;
-    def->set_default_value(new ConfigOptionFloat(0.));
+    def->set_default_value(new ConfigOptionFloat(45.));
 
     def = this->add("belt_slice_rotation_global", coBool);
     def->label = L("Global");
     def->category = L("Printable space");
     def->tooltip = L("Treat the slicing rotation as part of the global forward transform "
                      "that BeltBackTransform inverts before the machine-frame remap. "
-                     "Required for rotation-mode belt printers; mirrors belt_shear_z_global. "
+                     "Required for rotation-mode belt printers. "
                      "Defaults to on because virtually all rotation-mode printers need it.");
     def->mode = comAdvanced;
     def->set_default_value(new ConfigOptionBool(true));
@@ -7280,12 +7177,6 @@ void PrintConfigDef::init_fff_params()
         def->mode = comExpert;
         def->set_default_value(new ConfigOptionEnum<BeltTransformOrder>(BeltTransformOrder::ShearThenScale));
     };
-
-    add_belt_transform_order("belt_mesh_transform_order", "Mesh transform order",
-        "Order in which the mesh shear and scale matrices are composed before slicing. "
-        "'Scale, then shear' applies scale first and then shear (current default). "
-        "'Shear, then scale' applies shear first and then scale. The g-code back-transform "
-        "follows the same order so that it correctly inverts the mesh transform.");
 
     // G-code axis remap with sign
     auto add_belt_remap = [this](const char *key, const char *label, const char *tooltip,
@@ -7327,7 +7218,7 @@ void PrintConfigDef::init_fff_params()
     def->tooltip = L("When enabled, the pre-slice axis remap accounts for each object's bed position. "
                       "Without this, the remap is applied locally around each object's center, so "
                       "objects at different positions don't get a position-dependent contribution. "
-                      "Mirrors the per-axis 'Global' option on belt mesh shears, but for the remap.");
+                      "Mirrors the 'Global' option on the belt slicing rotation, but for the remap.");
     def->mode = comExpert;
     def->set_default_value(new ConfigOptionBool(false));
 
@@ -7337,6 +7228,69 @@ void PrintConfigDef::init_fff_params()
 
     // Machine-frame G-code transforms: applied AFTER back-transform and gcode_remap,
     // before per-axis origin snap.  Maps Cartesian G-code to the printer's physical machine frame.
+    // These shear/scale transforms act on the G-code coordinates (not the mesh) — they are
+    // the belt printer's only shear/scale stage.
+    auto add_belt_shear_mode = [this](const char *key, const char *label, BeltShearMode default_mode,
+                                       ConfigOptionMode mode = comAdvanced) {
+        auto def = this->add(key, coEnum);
+        def->label = L(label);
+        def->category = L("Printable space");
+        def->tooltip = L("Shear function applied to this axis in belt printer mode.");
+        def->enum_keys_map = &ConfigOptionEnum<BeltShearMode>::get_enum_values();
+        def->enum_values  = {"none", "pos_cot", "neg_cot", "pos_tan", "neg_tan"};
+        def->enum_labels  = {L("None"), L("+cot(α)"), L("-cot(α)"), L("+tan(α)"), L("-tan(α)")};
+        def->mode = mode;
+        def->set_default_value(new ConfigOptionEnum<BeltShearMode>(default_mode));
+    };
+    auto add_belt_shear_angle = [this](const char *key, const char *label,
+                                        ConfigOptionMode mode = comAdvanced) {
+        auto def = this->add(key, coFloat);
+        def->label = L(label);
+        def->category = L("Printable space");
+        def->tooltip = L("Angle (degrees) for the shear function on this axis.");
+        def->sidetext = L("°");
+        def->min = 0.1;
+        def->max = 89.9;
+        def->mode = mode;
+        def->set_default_value(new ConfigOptionFloat(45));
+    };
+    auto add_belt_axis_enum = [this](const char *key, const char *label, const char *tooltip,
+                                      BeltAxis default_axis, ConfigOptionMode mode = comAdvanced) {
+        auto def = this->add(key, coEnum);
+        def->label = L(label);
+        def->category = L("Printable space");
+        def->tooltip = L(tooltip);
+        def->enum_keys_map = &ConfigOptionEnum<BeltAxis>::get_enum_values();
+        def->enum_values  = {"x", "y", "z"};
+        def->enum_labels  = {L("X"), L("Y"), L("Z")};
+        def->mode = mode;
+        def->set_default_value(new ConfigOptionEnum<BeltAxis>(default_axis));
+    };
+    auto add_belt_scale_mode = [this](const char *key, const char *label, BeltScaleMode default_mode,
+                                       ConfigOptionMode mode = comAdvanced) {
+        auto def = this->add(key, coEnum);
+        def->label = L(label);
+        def->category = L("Printable space");
+        def->tooltip = L("Scale factor applied to this axis in belt printer mode.");
+        def->enum_keys_map = &ConfigOptionEnum<BeltScaleMode>::get_enum_values();
+        def->enum_values  = {"none", "inv_sin", "inv_cos", "sin", "cos"};
+        def->enum_labels  = {L("None"), L("1/sin(α)"), L("1/cos(α)"), L("sin(α)"), L("cos(α)")};
+        def->mode = mode;
+        def->set_default_value(new ConfigOptionEnum<BeltScaleMode>(default_mode));
+    };
+    auto add_belt_scale_angle = [this](const char *key, const char *label,
+                                        ConfigOptionMode mode = comAdvanced) {
+        auto def = this->add(key, coFloat);
+        def->label = L(label);
+        def->category = L("Printable space");
+        def->tooltip = L("Angle (degrees) for the scale function on this axis.");
+        def->sidetext = L("°");
+        def->min = 0.1;
+        def->max = 89.9;
+        def->mode = mode;
+        def->set_default_value(new ConfigOptionFloat(45));
+    };
+
     add_belt_shear_mode ("gcode_shear_x", "Function", BeltShearMode::None, comExpert);
     add_belt_shear_angle("gcode_shear_x_angle", "Angle", comExpert);
     add_belt_axis_enum  ("gcode_shear_x_from", "From", "Source axis for X shear in the machine-frame stage.", BeltAxis::Z, comExpert);
@@ -7362,19 +7316,6 @@ void PrintConfigDef::init_fff_params()
         "Order in which the machine-frame shear and scale matrices are composed when "
         "applied to G-code coordinates. 'Scale, then shear' applies scale first and then "
         "shear (current default). 'Shear, then scale' applies shear first and then scale.");
-
-    add_belt_remap("post_gcode_remap_x", "X",
-        "Axis remap in the machine-frame stage. Applied AFTER gcode_remap, "
-        "to put coordinates into the printer's physical axis labelling. Default +X: no change.",
-        RemapAxis::PosX);
-    add_belt_remap("post_gcode_remap_y", "Y",
-        "Axis remap in the machine-frame stage. Applied AFTER gcode_remap, "
-        "to put coordinates into the printer's physical axis labelling. Default +Y: no change.",
-        RemapAxis::PosY);
-    add_belt_remap("post_gcode_remap_z", "Z",
-        "Axis remap in the machine-frame stage. Applied AFTER gcode_remap, "
-        "to put coordinates into the printer's physical axis labelling. Default +Z: no change.",
-        RemapAxis::PosZ);
 
     def = this->add("gcode_back_transform", coBool);
     def->label = L("G-code back-transform");
@@ -13218,16 +13159,22 @@ Polygons get_bed_excluded_area(const PrintConfig& cfg)
 {
     const Pointfs exclude_area_points = cfg.bed_exclude_area.values;
 
-    // Belt printer: project exclusion zone points from belt surface to machine-frame XY.
-    // On the belt surface, Z=0, so machine_Y = belt_Y * cos(angle).
+    // Belt printer: project exclusion zone points from the belt surface to machine-frame XY.
+    // On the belt surface Z=0, so the in-plane axis foreshortens by cos(tilt).  The tilt
+    // axis decides which bed axis foreshortens: tilt about X (belt along Y) scales Y,
+    // tilt about Y (belt along X) scales X.  Derived from belt_slice_rotation.
     const bool is_belt = cfg.belt_printer.value;
-    const double belt_cos = is_belt ? std::cos(Geometry::deg2rad(cfg.belt_printer_angle.value)) : 1.0;
+    const auto tilt    = BeltTransformPipeline::physical_tilt(
+        cfg.belt_slice_rotation.value, cfg.belt_slice_rotation_angle.value);
+    const double cos_x = is_belt ? std::cos(Geometry::deg2rad(tilt.tilt_x_deg)) : 1.0; // foreshortens Y
+    const double cos_y = is_belt ? std::cos(Geometry::deg2rad(tilt.tilt_y_deg)) : 1.0; // foreshortens X
 
     Polygon exclude_poly;
     for (int i = 0; i < exclude_area_points.size(); i++) {
         auto pt = exclude_area_points[i];
-        double y = is_belt ? pt.y() * belt_cos : pt.y();
-        exclude_poly.points.emplace_back(scale_(pt.x()), scale_(y));
+        double x = is_belt ? pt.x() * cos_y : pt.x();
+        double y = is_belt ? pt.y() * cos_x : pt.y();
+        exclude_poly.points.emplace_back(scale_(x), scale_(y));
     }
 
     exclude_poly.make_counter_clockwise();

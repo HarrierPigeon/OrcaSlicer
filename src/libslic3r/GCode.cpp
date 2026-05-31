@@ -7683,14 +7683,14 @@ std::string GCode::_extrude(const ExtrusionPath &path, std::string description, 
     auto _mm3_per_mm = path.mm3_per_mm * this->config().print_flow_ratio;
     _mm3_per_mm *= filament_flow_ratio;
 
-    // Belt printer: compensate for the volume change introduced by the mesh
+    // Belt printer: compensate for any volume change introduced by the mesh
     // forward transform.  path.mm3_per_mm is derived from slicer-frame layer
     // height × line width, but a slicer-frame slab of volume V maps under the
-    // back-transform to a machine-frame region of volume V / |det(T)|.  When
-    // det(T) > 1 — e.g. belt_scale_y = 1/cos(α) ≈ 1.155 at α = 30° — the
-    // machine slab holds less plastic than the slicer thinks it is filling
-    // and we over-extrude by det(T).  Pure shear has det 1, so this is a
-    // no-op until scale factors deviate from 1.
+    // back-transform to a machine-frame region of volume V / |det(T)|.  The
+    // mesh transform is now rotation ∘ pre-remap, both orthogonal, so |det(T)|
+    // is always 1 and this is currently a no-op; it is retained as a guard in
+    // case a non-orthogonal mesh transform is ever reintroduced.  (Machine-frame
+    // shear/scale acts on the g-code in BeltGCodeWriter, not here.)
     if (m_config.belt_printer.value) {
         double det = std::abs(BeltTransformPipeline::build_forward_transform(m_config).linear().determinant());
         if (det > EPSILON)

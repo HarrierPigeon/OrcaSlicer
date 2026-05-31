@@ -14,7 +14,6 @@ void BeltGCode::init_belt_writer(Print &print, bool is_bbl_printers)
 
     auto belt_writer = std::make_unique<BeltGCodeWriter>();
     belt_writer->set_is_bbl_machine(is_bbl_printers);
-    belt_writer->set_belt_angle(print.config().belt_printer_angle.value);
     // Axis remap and build volume max are set by base GCode after init_belt_writer returns.
     belt_writer->set_belt_back_transform(print.config());
     belt_writer->set_machine_frame_transform(print.config());
@@ -34,30 +33,12 @@ void BeltGCode::write_belt_header(GCodeOutputStream &file, const Print &print)
     if (!print.config().belt_printer.value)
         return;
 
-    file.write_format("; belt_printer_angle = %.1f\n", print.config().belt_printer_angle.value);
-    // Shear configs
     const auto &full_cfg = print.full_print_config();
-    file.write_format("; belt_shear_x = %s\n",       full_cfg.opt_serialize("belt_shear_x").c_str());
-    file.write_format("; belt_shear_x_angle = %.1f\n", print.config().belt_shear_x_angle.value);
-    file.write_format("; belt_shear_x_from = %s\n",  full_cfg.opt_serialize("belt_shear_x_from").c_str());
-    file.write_format("; belt_shear_y = %s\n",       full_cfg.opt_serialize("belt_shear_y").c_str());
-    file.write_format("; belt_shear_y_angle = %.1f\n", print.config().belt_shear_y_angle.value);
-    file.write_format("; belt_shear_y_from = %s\n",  full_cfg.opt_serialize("belt_shear_y_from").c_str());
-    file.write_format("; belt_shear_z = %s\n",       full_cfg.opt_serialize("belt_shear_z").c_str());
-    file.write_format("; belt_shear_z_angle = %.1f\n", print.config().belt_shear_z_angle.value);
-    file.write_format("; belt_shear_z_from = %s\n",  full_cfg.opt_serialize("belt_shear_z_from").c_str());
-    // Scale configs
-    file.write_format("; belt_scale_x = %s\n",       full_cfg.opt_serialize("belt_scale_x").c_str());
-    file.write_format("; belt_scale_x_angle = %.1f\n", print.config().belt_scale_x_angle.value);
-    file.write_format("; belt_scale_y = %s\n",       full_cfg.opt_serialize("belt_scale_y").c_str());
-    file.write_format("; belt_scale_y_angle = %.1f\n", print.config().belt_scale_y_angle.value);
-    file.write_format("; belt_scale_z = %s\n",       full_cfg.opt_serialize("belt_scale_z").c_str());
-    file.write_format("; belt_scale_z_angle = %.1f\n", print.config().belt_scale_z_angle.value);
-    // Slicing rotation configs
+    // Slicing rotation: the belt tilt (axis + angle) and the single source of truth
+    // for the physical tilt the G-code viewer uses to enable belt view.
     file.write_format("; belt_slice_rotation = %s\n", full_cfg.opt_serialize("belt_slice_rotation").c_str());
     file.write_format("; belt_slice_rotation_angle = %.1f\n", print.config().belt_slice_rotation_angle.value);
     file.write_format("; belt_slice_rotation_global = %d\n", print.config().belt_slice_rotation_global.value ? 1 : 0);
-    file.write_format("; belt_mesh_transform_order = %s\n", full_cfg.opt_serialize("belt_mesh_transform_order").c_str());
     // Pre-slice remap configs
     file.write_format("; preslice_remap_x = %s\n", full_cfg.opt_serialize("preslice_remap_x").c_str());
     file.write_format("; preslice_remap_y = %s\n", full_cfg.opt_serialize("preslice_remap_y").c_str());
@@ -81,9 +62,6 @@ void BeltGCode::write_belt_header(GCodeOutputStream &file, const Print &print)
     file.write_format("; gcode_scale_z = %s\n",       full_cfg.opt_serialize("gcode_scale_z").c_str());
     file.write_format("; gcode_scale_z_angle = %.1f\n", print.config().gcode_scale_z_angle.value);
     file.write_format("; belt_gcode_transform_order = %s\n", full_cfg.opt_serialize("belt_gcode_transform_order").c_str());
-    file.write_format("; post_gcode_remap_x = %s\n",  full_cfg.opt_serialize("post_gcode_remap_x").c_str());
-    file.write_format("; post_gcode_remap_y = %s\n",  full_cfg.opt_serialize("post_gcode_remap_y").c_str());
-    file.write_format("; post_gcode_remap_z = %s\n",  full_cfg.opt_serialize("post_gcode_remap_z").c_str());
 }
 
 void BeltGCode::on_set_origin(const PrintObject *obj, const Point &inst_shift)
@@ -94,21 +72,16 @@ void BeltGCode::on_set_origin(const PrintObject *obj, const Point &inst_shift)
     // This replaces the bbox-based axis snap with an exact formula.
     //
     // Flags that trigger this path:
-    //   belt_preslice_global   — full pipeline (scale * shear * remap) is global
-    //   preslice_remap_global  — only the pre-slice remap is global
-    //   belt_shear_z_global    — Z-row shear treated as global (matches per-axis
-    //                            Z-offset added in PrintObjectSlice.cpp)
+    //   belt_preslice_global         — full pipeline (rotation * remap) is global
+    //   preslice_remap_global        — only the pre-slice remap is global
+    //   belt_slice_rotation_global   — slicing rotation treated as global (matches
+    //                                  the per-instance Z-offset added in PrintObjectSlice.cpp)
     // The XY origin adjustment uses the FULL forward transform either way,
     // because the back_transform applied during G-code emission is always the
-    // inverse of the full pipeline. Without pre-multiplication under
-    // ShearThenScale order with sy != 1, machine_y of bed position cy ends up
-    // at cy/sy instead of cy, which also leaves the object bottom off the belt
-    // plane.
+    // inverse of the full pipeline.
     bool use_global = m_config.belt_preslice_global.value
         || (m_config.preslice_remap_global.value
             && BeltTransformPipeline::has_preslice_remap(m_config))
-        || (m_config.belt_shear_z_global.value
-            && m_config.belt_shear_z.value != BeltShearMode::None)
         || (m_config.belt_slice_rotation_global.value
             && m_config.belt_slice_rotation.value != BeltRotationAxis::None
             && std::abs(m_config.belt_slice_rotation_angle.value) > EPSILON);
@@ -117,10 +90,10 @@ void BeltGCode::on_set_origin(const PrintObject *obj, const Point &inst_shift)
         if (belt_writer) {
             // The per-object lift (z_shift_val = max(0, -m_belt_min_z)) added by
             // BeltSliceStrategy::apply_to_trafo is already compensated inside
-            // global_z_offset (via the shear_min_z term in PrintObjectSlice.cpp's
-            // preslice_global branch).  Snap was previously used here for the same
-            // purpose, but with both active the lift gets subtracted twice.  Clear
-            // any leftover snap state from a prior instance.
+            // global_z_offset (via the belt_z_shift term in PrintObjectSlice.cpp).
+            // Snap was previously used here for the same purpose, but with both
+            // active the lift gets subtracted twice.  Clear any leftover snap
+            // state from a prior instance.
             for (int a = 0; a < 3; ++a)
                 belt_writer->set_origin_snap(a, false, 0., 0.);
         }

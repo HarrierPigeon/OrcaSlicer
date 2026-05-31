@@ -9,15 +9,14 @@ namespace Slic3r {
 
 // Post-stage machine-frame transform for belt printers.
 //
-// Applied in BeltGCodeWriter::to_machine_coords AFTER the back-transform
-// and the existing gcode_remap_* axis remap, and BEFORE per-axis origin snap.
-// Maps Cartesian (axis-permuted) G-code coordinates into the printer's
-// physical machine frame using a parallel set of options:
+// Applied in BeltGCodeWriter::to_machine_coords AFTER the back-transform,
+// the gcode_remap_* axis remap and per-axis origin snap.  Maps Cartesian
+// (axis-permuted) G-code coordinates into the printer's physical machine
+// frame using:
 //   gcode_shear_x/y/z + _angle + _from
 //   gcode_scale_x/y/z + _angle
-//   post_gcode_remap_x/y/z
 //
-// Composition matches the mesh-side pipeline: shear * scale * post_remap.
+// Composition follows belt_gcode_transform_order (shear * scale or scale * shear).
 class MachineFrameTransform
 {
 public:
@@ -25,7 +24,7 @@ public:
 
     // Initialize from belt printer config.  Returns true if a non-identity
     // transform was computed.  Inactive when belt_printer is disabled or
-    // all three sub-stages are identity.
+    // both shear and scale are identity.
     bool init_from_config(const PrintConfig &config);
 
     // Apply the transform to a point.  Returns pos unchanged if not active.

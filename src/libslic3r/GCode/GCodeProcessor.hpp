@@ -276,25 +276,9 @@ class Print;
         bool support_traditional_timelapse{true};
         float printable_height;
         float z_offset;
-        // Belt printer: angle for coordinate transformation in preview.
-        float belt_printer_angle{ 0.f };
-        // Belt printer: per-axis shear config.
-        BeltShearMode belt_shear_x{ BeltShearMode::None };
-        float         belt_shear_x_angle{ 45.f };
-        BeltAxis      belt_shear_x_from{ BeltAxis::Y };
-        BeltShearMode belt_shear_y{ BeltShearMode::None };
-        float         belt_shear_y_angle{ 45.f };
-        BeltAxis      belt_shear_y_from{ BeltAxis::Y };
-        BeltShearMode belt_shear_z{ BeltShearMode::None };
-        float         belt_shear_z_angle{ 45.f };
-        BeltAxis      belt_shear_z_from{ BeltAxis::Y };
-        // Belt printer: per-axis scale config.
-        BeltScaleMode belt_scale_x{ BeltScaleMode::None };
-        float         belt_scale_x_angle{ 45.f };
-        BeltScaleMode belt_scale_y{ BeltScaleMode::None };
-        float         belt_scale_y_angle{ 45.f };
-        BeltScaleMode belt_scale_z{ BeltScaleMode::None };
-        float         belt_scale_z_angle{ 45.f };
+        // Belt printer: physical tilt magnitude (deg) parsed from the slicing-rotation
+        // header comment; used to enable the preview's belt view.
+        float belt_tilt_angle{ 0.f };
         RemapAxis preslice_remap_x{ RemapAxis::PosX };
         RemapAxis preslice_remap_y{ RemapAxis::PosY };
         RemapAxis preslice_remap_z{ RemapAxis::PosZ };
@@ -385,22 +369,7 @@ class Print;
             // Keep the SKIPPABLE per-type time on a copied result.
             skippable_part_time = other.skippable_part_time;
             initial_layer_time = other.initial_layer_time;
-            belt_printer_angle = other.belt_printer_angle;
-            belt_shear_x = other.belt_shear_x;
-            belt_shear_x_angle = other.belt_shear_x_angle;
-            belt_shear_x_from = other.belt_shear_x_from;
-            belt_shear_y = other.belt_shear_y;
-            belt_shear_y_angle = other.belt_shear_y_angle;
-            belt_shear_y_from = other.belt_shear_y_from;
-            belt_shear_z = other.belt_shear_z;
-            belt_shear_z_angle = other.belt_shear_z_angle;
-            belt_shear_z_from = other.belt_shear_z_from;
-            belt_scale_x = other.belt_scale_x;
-            belt_scale_x_angle = other.belt_scale_x_angle;
-            belt_scale_y = other.belt_scale_y;
-            belt_scale_y_angle = other.belt_scale_y_angle;
-            belt_scale_z = other.belt_scale_z;
-            belt_scale_z_angle = other.belt_scale_z_angle;
+            belt_tilt_angle = other.belt_tilt_angle;
             preslice_remap_x = other.preslice_remap_x;
             preslice_remap_y = other.preslice_remap_y;
             preslice_remap_z = other.preslice_remap_z;

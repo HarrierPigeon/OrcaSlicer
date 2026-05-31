@@ -17,10 +17,7 @@ std::unique_ptr<BeltSliceStrategy> BeltSliceStrategy::create(const PrintConfig &
 
 BeltSliceStrategy::BeltSliceStrategy(const PrintConfig &config)
 {
-    m_shear    = BeltTransformPipeline::build_shear_matrix(config, &m_has_shear);
-    m_scale    = BeltTransformPipeline::build_scale_matrix(config, &m_has_scale);
     m_rotation = BeltTransformPipeline::build_rotation_matrix(config, &m_has_rotation);
-    m_order    = config.belt_mesh_transform_order.value;
 }
 
 void BeltSliceStrategy::apply_to_trafo(Transform3d &trafo,
@@ -28,15 +25,10 @@ void BeltSliceStrategy::apply_to_trafo(Transform3d &trafo,
                                         bool has_remap,
                                         double *out_belt_min_z) const
 {
-    // ScaleThenShear: applied to a point, scale runs first then shear (m_shear * m_scale).
-    // ShearThenScale: applied to a point, shear runs first then scale (m_scale * m_shear).
-    // Rotation (if active) is applied AFTER shear/scale, matching build_forward_transform.
-    if (m_has_shear || m_has_scale || m_has_rotation) {
-        Matrix3d shear_scale = (m_order == BeltTransformOrder::ScaleThenShear)
-            ? Matrix3d(m_shear * m_scale)
-            : Matrix3d(m_scale * m_shear);
+    // Rotation is the only mesh-side belt transform (matching build_forward_transform).
+    if (m_has_rotation) {
         Transform3d belt_xform = Transform3d::Identity();
-        belt_xform.linear() = Matrix3d(m_rotation * shear_scale);
+        belt_xform.linear() = m_rotation;
         trafo = belt_xform * trafo;
     }
 
@@ -47,7 +39,7 @@ void BeltSliceStrategy::apply_to_trafo(Transform3d &trafo,
     // within the object) causes min_z to be computed against mesh-local vertex
     // coordinates rather than object-space coordinates, so volumes translated
     // along the slicer's Z axis are silently excluded from the bound check.
-    if (has_remap || m_has_shear || m_has_scale || m_has_rotation) {
+    if (has_remap || m_has_rotation) {
         // [BELT-DEBUG] Capture the incoming trafo for diagnostic logging.
         // This is the slicer-frame transform AFTER belt_xform but BEFORE z_shift.
         const Transform3d trafo_pre_shift = trafo;
@@ -65,9 +57,7 @@ void BeltSliceStrategy::apply_to_trafo(Transform3d &trafo,
             ss << "(" << v.x() << "," << v.y() << "," << v.z() << ")";
             return ss.str();
         };
-        BOOST_LOG_TRIVIAL(warning) << "[BELT-DEBUG] apply_to_trafo enter"
-            << " has_shear=" << m_has_shear
-            << " has_scale=" << m_has_scale
+        BOOST_LOG_TRIVIAL(trace) << "[BELT-DEBUG] apply_to_trafo enter"
             << " has_rotation=" << m_has_rotation
             << " has_remap=" << has_remap
             << " trafo.linear=" << log_mat(trafo_pre_shift.linear())
@@ -96,7 +86,7 @@ void BeltSliceStrategy::apply_to_trafo(Transform3d &trafo,
                 vol_min_z = std::min(vol_min_z, pt.z());
                 min_z = std::min(min_z, pt.z());
             }
-            BOOST_LOG_TRIVIAL(warning) << "[BELT-DEBUG]   vol[" << vol_idx
+            BOOST_LOG_TRIVIAL(trace) << "[BELT-DEBUG]   vol[" << vol_idx
                 << "] id=" << mv->id().id << " name='" << mv->name << "'"
                 << " mesh_bbox_min=" << log_vec3(mesh_min) << " mesh_bbox_max=" << log_vec3(mesh_max)
                 << " get_matrix.translation=" << log_vec3(mv->get_matrix().translation())
@@ -105,7 +95,7 @@ void BeltSliceStrategy::apply_to_trafo(Transform3d &trafo,
             ++vol_idx;
         }
         double belt_z_shift_val = (min_z < 0. && min_z != std::numeric_limits<double>::max()) ? -min_z : 0.;
-        BOOST_LOG_TRIVIAL(warning) << "[BELT-DEBUG] combined min_z=" << min_z
+        BOOST_LOG_TRIVIAL(trace) << "[BELT-DEBUG] combined min_z=" << min_z
             << " z_shift_val=" << belt_z_shift_val;
         if (belt_z_shift_val > 0.) {
             Transform3d z_shift = Transform3d::Identity();
@@ -114,11 +104,11 @@ void BeltSliceStrategy::apply_to_trafo(Transform3d &trafo,
         }
         if (out_belt_min_z) {
             double new_val = (min_z != std::numeric_limits<double>::max()) ? min_z : 0.;
-            BOOST_LOG_TRIVIAL(warning) << "[BELT-DEBUG] write m_belt_min_z tid=" << std::this_thread::get_id()
+            BOOST_LOG_TRIVIAL(trace) << "[BELT-DEBUG] write m_belt_min_z tid=" << std::this_thread::get_id()
                 << " target=" << out_belt_min_z << " old=" << *out_belt_min_z << " new=" << new_val;
             *out_belt_min_z = new_val;
         }
-        BOOST_LOG_TRIVIAL(warning) << "[BELT-DEBUG] apply_to_trafo exit"
+        BOOST_LOG_TRIVIAL(trace) << "[BELT-DEBUG] apply_to_trafo exit"
             << " final_trafo.linear=" << log_mat(trafo.linear())
             << " final_trafo.translation=" << log_vec3(trafo.translation());
     }

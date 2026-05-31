@@ -25,11 +25,6 @@ inline bool belt_point_on_first_layer(
 
 // ---- Belt configuration ---------------------------------------------------
 
-void BeltGCodeWriter::set_belt_angle(double angle_deg)
-{
-    m_belt_angle_rad = Geometry::deg2rad(angle_deg);
-}
-
 void BeltGCodeWriter::set_belt_back_transform(const PrintConfig &config)
 {
     m_belt_back_transform.init_from_config(config);
@@ -66,7 +61,7 @@ Vec3d BeltGCodeWriter::to_machine_coords(const Vec3d &pos) const
         if (m_origin_snap[i])
             result[i] -= (m_origin_bbox_min[i] - m_origin_offset[i]);
     Vec3d after_snap = result;
-    // Step 4: Machine-frame transform (gcode_shear / gcode_scale / post_gcode_remap)
+    // Step 4: Machine-frame transform (gcode_shear / gcode_scale)
     // applied LAST so it acts as a global linear transform on the placed coords.
     // Order matters: putting it before origin_snap would feed sheared bbox corners
     // into the snap's per-object min calculation, mis-normalizing non-cubic geometries

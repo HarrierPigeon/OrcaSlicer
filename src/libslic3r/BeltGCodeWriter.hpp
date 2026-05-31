@@ -19,8 +19,6 @@ public:
     BeltGCodeWriter() : GCodeWriter() {}
 
     // Belt configuration (axis remap is inherited from GCodeWriter)
-    void set_belt_angle(double angle_deg);
-    bool is_belt_printer() const { return m_belt_angle_rad != 0.; }
     void set_belt_back_transform(const PrintConfig &config);
     void set_machine_frame_transform(const PrintConfig &config);
     void set_origin_snap(int axis, bool enable, double offset, double bbox_min);
@@ -52,7 +50,6 @@ protected:
     std::string _travel_to_z(double z, const std::string &comment) override;
 
 private:
-    double          m_belt_angle_rad = 0.;
     BeltBackTransform     m_belt_back_transform;
     MachineFrameTransform m_machine_frame_transform;
     bool            m_origin_snap[3]     = {false, false, false};

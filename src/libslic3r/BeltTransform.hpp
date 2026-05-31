@@ -15,11 +15,16 @@ class ModelObject;
 // Shared belt-printer transform math.
 //
 // The pre-slice pipeline applied in PrintObjectSlice.cpp is:
-//     trafo_out = z_shift * scale * shear * pre_remap * trafo_in
+//     trafo_out = z_shift * rotation * pre_remap * trafo_in
 //
-// This class provides the building blocks so every call site uses the
-// same implementation.  z_shift is object-dependent (computed from mesh
-// vertex bounds) and is NOT included in build_forward_transform().
+// Rotation is the sole mesh-side belt transform; shear & scale are applied
+// to the g-code instead (see MachineFrameTransform).  This class provides the
+// building blocks so every call site uses the same implementation.  z_shift is
+// object-dependent (computed from mesh vertex bounds) and is NOT included in
+// build_forward_transform().
+//
+// The compute_shear_factor / compute_scale_factor math helpers below are still
+// used by the g-code-side machine-frame shear/scale.
 class BeltTransformPipeline
 {
 public:
@@ -75,27 +80,39 @@ public:
                get_int("preslice_remap_z") != int(RemapAxis::PosZ);
     }
 
-    static bool has_shear(const PrintConfig &config)
-    {
-        return config.belt_shear_x.value != BeltShearMode::None ||
-               config.belt_shear_y.value != BeltShearMode::None ||
-               config.belt_shear_z.value != BeltShearMode::None;
-    }
-
-    static bool has_scale(const PrintConfig &config)
-    {
-        double sx = compute_scale_factor(config.belt_scale_x.value, config.belt_scale_x_angle.value);
-        double sy = compute_scale_factor(config.belt_scale_y.value, config.belt_scale_y_angle.value);
-        double sz = compute_scale_factor(config.belt_scale_z.value, config.belt_scale_z_angle.value);
-        return std::abs(sx - 1.) > EPSILON ||
-               std::abs(sy - 1.) > EPSILON ||
-               std::abs(sz - 1.) > EPSILON;
-    }
-
     static bool has_rotation(const PrintConfig &config)
     {
         return config.belt_slice_rotation.value != BeltRotationAxis::None &&
                std::abs(config.belt_slice_rotation_angle.value) > EPSILON;
+    }
+
+    // Physical belt tilt derived from the slicing rotation — the single source of
+    // truth for bed rendering, support gravity tilt and the bed-exclusion
+    // projection.  Returns the tilt magnitude in degrees split onto the X and Y
+    // build-plate tilt axes according to the rotation axis:
+    //   rotation about X  → tilt_x = angle   (gantry tilts in the YZ plane)
+    //   rotation about Y  → tilt_y = angle   (gantry tilts in the XZ plane)
+    //   rotation about Z / None → no tilt    (in-plane spin doesn't tilt the belt)
+    // The magnitude uses abs(angle) so a negative rotation still reports a positive
+    // physical tilt.
+    struct PhysicalTilt { double tilt_x_deg = 0.; double tilt_y_deg = 0.; };
+
+    static PhysicalTilt physical_tilt(BeltRotationAxis axis, double angle_deg)
+    {
+        PhysicalTilt t;
+        double mag = std::abs(angle_deg);
+        switch (axis) {
+        case BeltRotationAxis::X: t.tilt_x_deg = mag; break;
+        case BeltRotationAxis::Y: t.tilt_y_deg = mag; break;
+        default: break; // Z / None: no physical tilt
+        }
+        return t;
+    }
+
+    static PhysicalTilt physical_tilt(const PrintConfig &config)
+    {
+        return physical_tilt(config.belt_slice_rotation.value,
+                             config.belt_slice_rotation_angle.value);
     }
 
     // ---- Matrix builders --------------------------------------------------
@@ -103,22 +120,13 @@ public:
     // Build the pre-slice axis remap transform (includes Rev-mode translation).
     static Transform3d build_preslice_remap(const PrintConfig &config);
 
-    // Build the 3x3 shear matrix.  Returns Identity if no shear is active.
-    // Also sets has_shear_out if non-null.
-    static Matrix3d build_shear_matrix(const PrintConfig &config, bool *has_shear_out = nullptr);
-
-    // Build the 3x3 diagonal scale matrix.  Returns Identity if no scale.
-    // Also sets has_scale_out if non-null.
-    static Matrix3d build_scale_matrix(const PrintConfig &config, bool *has_scale_out = nullptr);
-
     // Build the 3x3 rotation matrix from belt_slice_rotation* config.
     // Returns Identity if rotation axis is None or angle is ~0.
     // Also sets has_rot_out if non-null.
     static Matrix3d build_rotation_matrix(const PrintConfig &config, bool *has_rot_out = nullptr);
 
-    // Combined forward transform.  Shear/scale order is selected by
-    // belt_mesh_transform_order so the result matches what BeltSliceStrategy
-    // applied to the mesh (BeltBackTransform inverts this).
+    // Combined forward transform (rotation * pre_remap) — the mesh-side belt
+    // transform that BeltSliceStrategy applies and BeltBackTransform inverts.
     // Does NOT include the per-object Z-shift.
     static Transform3d build_forward_transform(const PrintConfig &config);
 

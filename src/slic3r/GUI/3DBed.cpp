@@ -700,11 +700,11 @@ void Bed3D::render_model(const Transform3d& view_matrix, const Transform3d& proj
             shader->start_using();
             shader->set_uniform("emission_factor", 0.0f);
             Transform3d model_matrix = Geometry::assemble_transform(m_model_offset);
-            // Belt printer: rotate the bed model about X so the belt tilt is visible.
-            // Negative angle: belt surface tilts downward away from the nozzle.
+            // Belt printer: rotate the bed model about the tilt axis so the belt tilt
+            // is visible.  Negative angle: belt surface tilts downward away from the nozzle.
             if (m_is_belt_printer && m_belt_angle > 0.f) {
                 double angle_rad = Geometry::deg2rad(static_cast<double>(m_belt_angle));
-                model_matrix = Eigen::AngleAxisd(-angle_rad, Vec3d::UnitX()) * model_matrix;
+                model_matrix = Eigen::AngleAxisd(-angle_rad, belt_tilt_unit_axis()) * model_matrix;
             }
             shader->set_uniform("volume_world_matrix",  model_matrix);
             shader->set_uniform("view_model_matrix", view_matrix * model_matrix);
@@ -747,12 +747,10 @@ void Bed3D::render_custom(GLCanvas3D& canvas, const Transform3d& view_matrix, co
 void Bed3D::render_gravity_arrow(const Transform3d& view_matrix, const Transform3d& projection_matrix)
 {
     const DynamicPrintConfig& cfg = wxGetApp().preset_bundle->printers.get_edited_preset().config;
+    // build_plate_tilt_{x,y} are kept in sync with the belt tilt (see TabPrinter), so
+    // reading them here covers both belt and non-belt tilted printers.
     double tilt_x_deg = cfg.opt_float("build_plate_tilt_x");
     double tilt_y_deg = cfg.opt_float("build_plate_tilt_y");
-    // Belt printer: auto-derive gravity direction from belt angle if belt mode is active.
-    if (m_is_belt_printer && m_belt_angle > 0.f) {
-        tilt_x_deg = m_belt_angle;
-    }
     if (tilt_x_deg == 0. && tilt_y_deg == 0.) {
         m_gravity_arrow.reset();
         return;
@@ -819,11 +817,12 @@ void Bed3D::render_slicing_arrow(const Transform3d& view_matrix, const Transform
         m_slicing_arrow.init_from(stilized_arrow(16, tip_radius, tip_length, stem_radius, stem_length));
     }
 
-    // The slicing direction: layers stack along the gantry normal.
-    // With mesh rotation R(-alpha, X), the slicing Z-axis in the original frame
-    // points in direction R(+alpha, X) * (0, 0, 1) = (0, -sin(alpha), cos(alpha)).
+    // The slicing direction: layers stack along the gantry normal, i.e. the image of
+    // +Z under the mesh rotation about the tilt axis.  Use the same AngleAxis as the
+    // slicing pipeline so the arrow matches whichever tilt axis is configured.
     double angle_rad = Geometry::deg2rad(static_cast<double>(m_belt_angle));
-    Vec3d slice_dir = Vec3d(0., -std::sin(angle_rad), std::cos(angle_rad)).normalized();
+    Vec3d slice_dir = (Eigen::AngleAxisd(angle_rad, belt_tilt_unit_axis()).toRotationMatrix()
+                       * Vec3d::UnitZ()).normalized();
 
     // Compute rotation to align +Z (arrow default) with slice_dir.
     Vec3d from = Vec3d::UnitZ();
@@ -895,12 +894,12 @@ void Bed3D::render_slicing_plane(const Transform3d& view_matrix, const Transform
     shader->start_using();
 
     // Show a tilted plane representing the slicing direction.
-    // The slicing plane is rotated by belt_angle about X from horizontal.
+    // The slicing plane is rotated by belt_angle about the tilt axis from horizontal.
     // Raise it slightly so it's visible above the bed surface.
     double angle_rad = Geometry::deg2rad(static_cast<double>(m_belt_angle));
     Transform3d model_matrix = Transform3d::Identity();
     model_matrix.translate(Vec3d(0., 0., 30.));
-    model_matrix.rotate(Eigen::AngleAxisd(angle_rad, Vec3d::UnitX()));
+    model_matrix.rotate(Eigen::AngleAxisd(angle_rad, belt_tilt_unit_axis()));
 
     shader->set_uniform("view_model_matrix", view_matrix * model_matrix);
     shader->set_uniform("projection_matrix", projection_matrix);

@@ -1682,8 +1682,7 @@ Print::ApplyStatus Print::apply(const Model &model, DynamicPrintConfig new_full_
             // Belt global mode: force each instance into its own PrintObject
             // so each gets independent layer Z values.
             bool belt_force_separate = m_config.belt_printer.value && (
-                (m_config.belt_shear_z_global.value && m_config.belt_shear_z.value != BeltShearMode::None)
-                || (m_config.belt_slice_rotation_global.value
+                (m_config.belt_slice_rotation_global.value
                     && m_config.belt_slice_rotation.value != BeltRotationAxis::None
                     && std::abs(m_config.belt_slice_rotation_angle.value) > EPSILON)
                 || m_config.belt_preslice_global.value
@@ -1778,8 +1777,7 @@ Print::ApplyStatus Print::apply(const Model &model, DynamicPrintConfig new_full_
         // min_shift across all objects, so one move affects everyone).
         if (belt_instances_shifted
             && m_config.belt_printer.value
-            && ((m_config.belt_shear_z_global.value && m_config.belt_shear_z.value != BeltShearMode::None)
-                || (m_config.belt_slice_rotation_global.value
+            && ((m_config.belt_slice_rotation_global.value
                     && m_config.belt_slice_rotation.value != BeltRotationAxis::None
                     && std::abs(m_config.belt_slice_rotation_angle.value) > EPSILON)
                 || m_config.belt_preslice_global.value

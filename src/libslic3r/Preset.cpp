@@ -1405,12 +1405,8 @@ static std::vector<std::string> s_Preset_machine_limits_options {
 
 static std::vector<std::string> s_Preset_printer_options {
     "printer_technology",
-    "printable_area", "extruder_printable_area", "support_parallel_printheads", "parallel_printheads_count", "parallel_printheads_bed_exclude_areas", "bed_exclude_area","bed_custom_texture", "bed_custom_model", "build_plate_tilt_x", "build_plate_tilt_y", "belt_printer", "belt_printer_angle", "belt_printer_infinite_y", "belt_shear_x", "belt_shear_x_angle", "belt_shear_x_from", "belt_shear_x_global",
-    "belt_shear_y", "belt_shear_y_angle", "belt_shear_y_from", "belt_shear_y_global",
-    "belt_shear_z", "belt_shear_z_angle", "belt_shear_z_from", "belt_shear_z_global",
-    "belt_scale_x", "belt_scale_x_angle", "belt_scale_y", "belt_scale_y_angle", "belt_scale_z", "belt_scale_z_angle",
+    "printable_area", "extruder_printable_area", "support_parallel_printheads", "parallel_printheads_count", "parallel_printheads_bed_exclude_areas", "bed_exclude_area","bed_custom_texture", "bed_custom_model", "build_plate_tilt_x", "build_plate_tilt_y", "belt_printer", "belt_printer_infinite_y",
     "belt_slice_rotation", "belt_slice_rotation_angle", "belt_slice_rotation_global",
-    "belt_mesh_transform_order",
     "preslice_remap_x", "preslice_remap_y", "preslice_remap_z", "preslice_remap_global",
     "gcode_remap_x", "gcode_remap_y", "gcode_remap_z", "gcode_back_transform",
     "gcode_shear_x", "gcode_shear_x_angle", "gcode_shear_x_from",
@@ -1420,7 +1416,6 @@ static std::vector<std::string> s_Preset_printer_options {
     "gcode_scale_y", "gcode_scale_y_angle",
     "gcode_scale_z", "gcode_scale_z_angle",
     "belt_gcode_transform_order",
-    "post_gcode_remap_x", "post_gcode_remap_y", "post_gcode_remap_z",
     "belt_preslice_global",
     "first_layer_plane", "first_layer_plane_offset", "first_layer_plane_thickness",
     "belt_origin_snap_x", "belt_origin_offset_x",

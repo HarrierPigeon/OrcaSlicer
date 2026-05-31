@@ -117,7 +117,6 @@ bool Print::invalidate_state_by_config_options(const ConfigOptionResolver & /* n
         "gcode_scale_y", "gcode_scale_y_angle",
         "gcode_scale_z", "gcode_scale_z_angle",
         "belt_gcode_transform_order",
-        "post_gcode_remap_x", "post_gcode_remap_y", "post_gcode_remap_z",
         "belt_origin_snap_x", "belt_origin_offset_x",
         "belt_origin_snap_y", "belt_origin_offset_y",
         "belt_origin_snap_z", "belt_origin_offset_z",
@@ -326,26 +325,9 @@ bool Print::invalidate_state_by_config_options(const ConfigOptionResolver & /* n
             || opt_key == "build_plate_tilt_y"
             // Belt printer transform options change the mesh geometry before slicing.
             || opt_key == "belt_printer"
-            || opt_key == "belt_printer_angle"
-            || opt_key == "belt_shear_x"
-            || opt_key == "belt_shear_x_angle"
-            || opt_key == "belt_shear_x_from"
-            || opt_key == "belt_shear_x_global"
-            || opt_key == "belt_shear_y"
-            || opt_key == "belt_shear_y_angle"
-            || opt_key == "belt_shear_y_from"
-            || opt_key == "belt_shear_y_global"
-            || opt_key == "belt_shear_z"
-            || opt_key == "belt_shear_z_angle"
-            || opt_key == "belt_shear_z_from"
-            || opt_key == "belt_shear_z_global"
-            || opt_key == "belt_scale_x"
-            || opt_key == "belt_scale_x_angle"
-            || opt_key == "belt_scale_y"
-            || opt_key == "belt_scale_y_angle"
-            || opt_key == "belt_scale_z"
-            || opt_key == "belt_scale_z_angle"
-            || opt_key == "belt_mesh_transform_order"
+            || opt_key == "belt_slice_rotation"
+            || opt_key == "belt_slice_rotation_angle"
+            || opt_key == "belt_slice_rotation_global"
             || opt_key == "belt_preslice_global"
             || opt_key == "preslice_remap_global"
             || opt_key == "preslice_remap_x"
@@ -2372,10 +2354,13 @@ void Print::process(long long *time_cost_with_cache, bool use_cache)
     int object_count = m_objects.size();
     std::set<PrintObject*> need_slicing_objects;
     std::set<PrintObject*> re_slicing_objects;
-    // Belt global Z shear: each object needs unique layer Z values based on
-    // its bed position, so sharing layers between "identical" objects is wrong.
-    bool belt_no_share = m_config.belt_printer.value && m_config.belt_shear_z_global.value
-        && m_config.belt_shear_z.value != BeltShearMode::None;
+    // Belt global modes couple each object's bed position into its layer Z values,
+    // so sharing layers between "identical" objects is wrong.
+    bool belt_no_share = m_config.belt_printer.value &&
+        ((m_config.belt_slice_rotation_global.value
+              && m_config.belt_slice_rotation.value != BeltRotationAxis::None)
+         || m_config.preslice_remap_global.value
+         || m_config.belt_preslice_global.value);
     if (!use_cache) {
         for (int index = 0; index < object_count; index++)
         {

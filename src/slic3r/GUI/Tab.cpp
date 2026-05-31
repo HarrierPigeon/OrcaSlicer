@@ -4,6 +4,7 @@
 #include "PresetHints.hpp"
 #include "libslic3r/PresetBundle.hpp"
 #include "libslic3r/PrintConfig.hpp"
+#include "libslic3r/BeltTransform.hpp"
 #include "libslic3r/Utils.hpp"
 #include "libslic3r/Model.hpp"
 #include "libslic3r/GCode/GCodeProcessor.hpp"
@@ -5048,68 +5049,22 @@ void TabPrinter::build_fff()
         // checkbox is hidden when belt_printer is off (see TabPrinter::toggle_options).
         auto belt_og = page->new_optgroup(L("Belt printer"), L"param_advanced");
         belt_og->append_single_option_line("belt_printer");
-        belt_og->append_single_option_line("belt_printer_angle");
         belt_og->append_single_option_line("belt_printer_infinite_y");
-        // Mesh rotate (default belt-side transform): isometric, no distortion.
-        // Shown above the per-axis shear/scale rows because most users should
-        // pick rotation; shear/scale is the expert escape hatch.
+        // Belt tilt: the sole mesh-side transform and the single source of truth for
+        // the physical tilt (drives bed rendering and support gravity tilt too).
+        // Isometric rotation, no distortion; the back-transform inverts it before the
+        // machine-frame remap.
         {
-            Line line = { L("Mesh rotate"),
-                          L("Global mesh rotation applied before slicing.  Isometric "
-                            "(no distortion); the back-transform inverts it before the "
-                            "machine-frame remap.  Default belt transform.  Mutually "
-                            "exclusive with per-axis shear/scale in the UI.") };
+            Line line = { L("Belt tilt"),
+                          L("Belt tilt axis and angle, applied as a mesh rotation before "
+                            "slicing.  Also drives bed rendering and support gravity tilt.  "
+                            "Isometric (no distortion); the back-transform inverts it before "
+                            "the machine-frame remap.") };
             line.append_option(belt_og->get_option("belt_slice_rotation"));
             line.append_option(belt_og->get_option("belt_slice_rotation_angle"));
             line.append_option(belt_og->get_option("belt_slice_rotation_global"));
             belt_og->append_line(line);
         }
-        // Per-axis shear/scale: expert escape hatch for non-rigid belt transforms
-        // (BlackBelt-style 1/sin scaling, asymmetric belt geometries, etc.).
-        // Group mode + angle + source on one row per axis.
-        {
-            Line line = { L("Mesh shear X"), L("Shear applied to the X axis before slicing") };
-            line.append_option(belt_og->get_option("belt_shear_x"));
-            line.append_option(belt_og->get_option("belt_shear_x_angle"));
-            line.append_option(belt_og->get_option("belt_shear_x_from"));
-            line.append_option(belt_og->get_option("belt_shear_x_global"));
-            belt_og->append_line(line);
-        }
-        {
-            Line line = { L("Mesh shear Y"), L("Shear applied to the Y axis before slicing") };
-            line.append_option(belt_og->get_option("belt_shear_y"));
-            line.append_option(belt_og->get_option("belt_shear_y_angle"));
-            line.append_option(belt_og->get_option("belt_shear_y_from"));
-            line.append_option(belt_og->get_option("belt_shear_y_global"));
-            belt_og->append_line(line);
-        }
-        {
-            Line line = { L("Mesh shear Z"), L("Shear applied to the Z axis before slicing") };
-            line.append_option(belt_og->get_option("belt_shear_z"));
-            line.append_option(belt_og->get_option("belt_shear_z_angle"));
-            line.append_option(belt_og->get_option("belt_shear_z_from"));
-            line.append_option(belt_og->get_option("belt_shear_z_global"));
-            belt_og->append_line(line);
-        }
-        {
-            Line line = { L("Mesh scale X"), L("Scale applied to the X axis before slicing") };
-            line.append_option(belt_og->get_option("belt_scale_x"));
-            line.append_option(belt_og->get_option("belt_scale_x_angle"));
-            belt_og->append_line(line);
-        }
-        {
-            Line line = { L("Mesh scale Y"), L("Scale applied to the Y axis before slicing") };
-            line.append_option(belt_og->get_option("belt_scale_y"));
-            line.append_option(belt_og->get_option("belt_scale_y_angle"));
-            belt_og->append_line(line);
-        }
-        {
-            Line line = { L("Mesh scale Z"), L("Scale applied to the Z axis before slicing") };
-            line.append_option(belt_og->get_option("belt_scale_z"));
-            line.append_option(belt_og->get_option("belt_scale_z_angle"));
-            belt_og->append_line(line);
-        }
-        belt_og->append_single_option_line("belt_mesh_transform_order");
         {
             Line line = { L("Pre-slice axis remap"),
                           L("Remap model axes before slicing so the slicer's coordinate system matches "
@@ -5119,13 +5074,6 @@ void TabPrinter::build_fff()
             line.append_option(belt_og->get_option("preslice_remap_y"));
             line.append_option(belt_og->get_option("preslice_remap_z"));
             line.append_option(belt_og->get_option("preslice_remap_global"));
-            belt_og->append_line(line);
-        }
-        {
-            Line line = { L("G-code axis remap (post-slice)"), L("Remap slicing-frame axes to machine axes in G-code output. Applied AFTER slicing, during G-code generation.") };
-            line.append_option(belt_og->get_option("gcode_remap_x"));
-            line.append_option(belt_og->get_option("gcode_remap_y"));
-            line.append_option(belt_og->get_option("gcode_remap_z"));
             belt_og->append_line(line);
         }
         belt_og->append_single_option_line("belt_preslice_global");
@@ -5172,12 +5120,10 @@ void TabPrinter::build_fff()
         {
             auto mf = page->new_optgroup(L("Machine frame transforms"), L"param_advanced");
             {
-                Line line = { L("Post-gcode axis remap"),
-                              L("Axis remap in the machine-frame stage. Applied AFTER gcode_remap, "
-                                "to put coordinates into the printer's physical axis labelling.") };
-                line.append_option(mf->get_option("post_gcode_remap_x"));
-                line.append_option(mf->get_option("post_gcode_remap_y"));
-                line.append_option(mf->get_option("post_gcode_remap_z"));
+                Line line = { L("G-code axis remap (post-slice)"), L("Remap slicing-frame axes to machine axes in G-code output. Applied AFTER slicing, during G-code generation.") };
+                line.append_option(mf->get_option("gcode_remap_x"));
+                line.append_option(mf->get_option("gcode_remap_y"));
+                line.append_option(mf->get_option("gcode_remap_z"));
                 mf->append_line(line);
             }
             {
@@ -6281,20 +6227,9 @@ void TabPrinter::toggle_options()
         // Belt printer: show belt-specific settings only when belt_printer is enabled.
         bool is_belt = m_config->opt_bool("belt_printer");
         bool expert_or_above = (m_mode >= comExpert);
-        toggle_line("belt_printer_angle", is_belt);
         toggle_line("belt_printer_infinite_y", is_belt);
-        // Mesh rotate: advanced (visible by default in belt mode).
+        // Belt tilt: the sole mesh-side belt transform (visible by default in belt mode).
         toggle_line("belt_slice_rotation", is_belt);
-        // Mesh shear/scale: expert-only (the rigid rotation above is the
-        // primary belt transform; shear/scale is reserved for power users
-        // matching BlackBelt-style 1/sin scale or asymmetric belt geometries).
-        toggle_line("belt_shear_x", is_belt && expert_or_above);
-        toggle_line("belt_shear_y", is_belt && expert_or_above);
-        toggle_line("belt_shear_z", is_belt && expert_or_above);
-        toggle_line("belt_scale_x", is_belt && expert_or_above);
-        toggle_line("belt_scale_y", is_belt && expert_or_above);
-        toggle_line("belt_scale_z", is_belt && expert_or_above);
-        toggle_line("belt_mesh_transform_order", is_belt && expert_or_above);
         for (auto el : {"belt_origin_snap_x", "belt_origin_snap_y", "belt_origin_snap_z"})
             toggle_line(el, is_belt);
 
@@ -6310,59 +6245,11 @@ void TabPrinter::toggle_options()
         // preslice_remap_global: superseded by belt_preslice_global
         toggle_option("preslice_remap_global", is_belt && !belt_global);
 
-        // Mutual exclusion (UI only): slicing rotation and per-axis shear/scale are
-        // alternatives in the printer panel. The pipeline math composes them; this
-        // just disables the inactive set so users pick one path or the other.
+        // Rotation is the only mesh-side belt transform.  Gray out its angle/global
+        // sub-options when no rotation axis is selected.
         auto rot_axis = m_config->option<ConfigOptionEnum<BeltRotationAxis>>("belt_slice_rotation")->value;
-        bool rotation_active = is_belt
-            && rot_axis != BeltRotationAxis::None
-            && std::abs(m_config->opt_float("belt_slice_rotation_angle")) > 1e-9;
-        bool shear_or_scale_active = is_belt && (
-            m_config->option<ConfigOptionEnum<BeltShearMode>>("belt_shear_x")->value != BeltShearMode::None ||
-            m_config->option<ConfigOptionEnum<BeltShearMode>>("belt_shear_y")->value != BeltShearMode::None ||
-            m_config->option<ConfigOptionEnum<BeltShearMode>>("belt_shear_z")->value != BeltShearMode::None ||
-            m_config->option<ConfigOptionEnum<BeltScaleMode>>("belt_scale_x")->value != BeltScaleMode::None ||
-            m_config->option<ConfigOptionEnum<BeltScaleMode>>("belt_scale_y")->value != BeltScaleMode::None ||
-            m_config->option<ConfigOptionEnum<BeltScaleMode>>("belt_scale_z")->value != BeltScaleMode::None);
-        bool allow_shear_scale = !rotation_active;
-        bool allow_rotation    = !shear_or_scale_active;
-
-        // Disable shear/scale mode dropdowns when rotation is active.
-        for (auto el : {"belt_shear_x", "belt_shear_y", "belt_shear_z",
-                        "belt_scale_x", "belt_scale_y", "belt_scale_z",
-                        "belt_mesh_transform_order"})
-            toggle_option(el, is_belt && allow_shear_scale);
-
-        // Disable rotation controls when any shear/scale is active.
-        toggle_option("belt_slice_rotation",        is_belt && allow_rotation);
-        toggle_option("belt_slice_rotation_angle",  is_belt && allow_rotation && rot_axis != BeltRotationAxis::None);
-        toggle_option("belt_slice_rotation_global", is_belt && allow_rotation && rot_axis != BeltRotationAxis::None);
-
-        // Gray out angle/from sub-options when their parent shear/scale mode is None.
-        // Per-axis globals are superseded when belt_preslice_global is on.
-        auto sx = m_config->option<ConfigOptionEnum<BeltShearMode>>("belt_shear_x")->value;
-        toggle_option("belt_shear_x_angle",  is_belt && sx != BeltShearMode::None && allow_shear_scale);
-        toggle_option("belt_shear_x_from",   is_belt && sx != BeltShearMode::None && allow_shear_scale);
-        toggle_option("belt_shear_x_global", is_belt && sx != BeltShearMode::None && !belt_global && allow_shear_scale);
-
-        auto sy = m_config->option<ConfigOptionEnum<BeltShearMode>>("belt_shear_y")->value;
-        toggle_option("belt_shear_y_angle",  is_belt && sy != BeltShearMode::None && allow_shear_scale);
-        toggle_option("belt_shear_y_from",   is_belt && sy != BeltShearMode::None && allow_shear_scale);
-        toggle_option("belt_shear_y_global", is_belt && sy != BeltShearMode::None && !belt_global && allow_shear_scale);
-
-        auto sz = m_config->option<ConfigOptionEnum<BeltShearMode>>("belt_shear_z")->value;
-        toggle_option("belt_shear_z_angle",  is_belt && sz != BeltShearMode::None && allow_shear_scale);
-        toggle_option("belt_shear_z_from",   is_belt && sz != BeltShearMode::None && allow_shear_scale);
-        toggle_option("belt_shear_z_global", is_belt && sz != BeltShearMode::None && !belt_global && allow_shear_scale);
-
-        auto scx = m_config->option<ConfigOptionEnum<BeltScaleMode>>("belt_scale_x")->value;
-        toggle_option("belt_scale_x_angle", is_belt && scx != BeltScaleMode::None && allow_shear_scale);
-
-        auto scy = m_config->option<ConfigOptionEnum<BeltScaleMode>>("belt_scale_y")->value;
-        toggle_option("belt_scale_y_angle", is_belt && scy != BeltScaleMode::None && allow_shear_scale);
-
-        auto scz = m_config->option<ConfigOptionEnum<BeltScaleMode>>("belt_scale_z")->value;
-        toggle_option("belt_scale_z_angle", is_belt && scz != BeltScaleMode::None && allow_shear_scale);
+        toggle_option("belt_slice_rotation_angle",  is_belt && rot_axis != BeltRotationAxis::None);
+        toggle_option("belt_slice_rotation_global", is_belt && rot_axis != BeltRotationAxis::None);
 
         // Machine-frame transforms: shown only in belt mode.
         // Mirror the Advanced/Expert split used for mesh shear/scale.
@@ -6372,8 +6259,7 @@ void TabPrinter::toggle_options()
         toggle_line("gcode_scale_x", is_belt && expert_or_above);
         toggle_line("gcode_scale_y", is_belt);
         toggle_line("gcode_scale_z", is_belt && expert_or_above);
-        for (auto el : {"belt_gcode_transform_order", "post_gcode_remap_x"})
-            toggle_line(el, is_belt);
+        toggle_line("belt_gcode_transform_order", is_belt);
 
         auto gsx = m_config->option<ConfigOptionEnum<BeltShearMode>>("gcode_shear_x")->value;
         toggle_option("gcode_shear_x_angle", is_belt && gsx != BeltShearMode::None);
@@ -6674,21 +6560,29 @@ void TabPrinter::update_fff()
         m_use_silent_mode = m_config->opt_bool("silent_mode");
     }
 
-    // Belt printer: auto-sync build_plate_tilt_x to belt_printer_angle when belt mode is active.
-    // When belt mode is off, reset build_plate_tilt_x to 0 if it was set by belt mode.
+    // Belt printer: auto-sync build_plate_tilt_{x,y} (which drives support gravity tilt)
+    // from the belt slicing rotation, the single source of truth for the physical tilt.
+    // Tilt about X drives tilt_x, tilt about Y drives tilt_y.  When belt mode is off,
+    // reset whichever tilt axis matches a leftover belt value so we don't clobber a
+    // manually-set tilt on a non-belt tilted printer.
     if (m_config->opt_bool("belt_printer")) {
-        double belt_angle = m_config->opt_float("belt_printer_angle");
-        if (m_config->opt_float("build_plate_tilt_x") != belt_angle) {
-            m_config->set_key_value("build_plate_tilt_x", new ConfigOptionFloat(belt_angle));
-        }
+        auto rot_axis = m_config->option<ConfigOptionEnum<BeltRotationAxis>>("belt_slice_rotation")->value;
+        const auto tilt = BeltTransformPipeline::physical_tilt(
+            rot_axis, m_config->opt_float("belt_slice_rotation_angle"));
+        if (m_config->opt_float("build_plate_tilt_x") != tilt.tilt_x_deg)
+            m_config->set_key_value("build_plate_tilt_x", new ConfigOptionFloat(tilt.tilt_x_deg));
+        if (m_config->opt_float("build_plate_tilt_y") != tilt.tilt_y_deg)
+            m_config->set_key_value("build_plate_tilt_y", new ConfigOptionFloat(tilt.tilt_y_deg));
     } else {
-        // Only reset if build_plate_tilt_x matches a typical belt angle (was set by auto-sync).
-        // Avoid clobbering a manually-set tilt value for non-belt tilted printers.
-        double current_tilt = m_config->opt_float("build_plate_tilt_x");
-        double belt_angle = m_config->opt_float("belt_printer_angle");
-        if (current_tilt != 0. && std::abs(current_tilt - belt_angle) < 0.01) {
+        const auto tilt = BeltTransformPipeline::physical_tilt(
+            m_config->option<ConfigOptionEnum<BeltRotationAxis>>("belt_slice_rotation")->value,
+            m_config->opt_float("belt_slice_rotation_angle"));
+        double tx = m_config->opt_float("build_plate_tilt_x");
+        double ty = m_config->opt_float("build_plate_tilt_y");
+        if (tx != 0. && std::abs(tx - tilt.tilt_x_deg) < 0.01)
             m_config->set_key_value("build_plate_tilt_x", new ConfigOptionFloat(0.));
-        }
+        if (ty != 0. && std::abs(ty - tilt.tilt_y_deg) < 0.01)
+            m_config->set_key_value("build_plate_tilt_y", new ConfigOptionFloat(0.));
     }
 
     toggle_options();
