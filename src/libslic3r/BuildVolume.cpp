@@ -182,6 +182,12 @@ void BuildVolume::set_belt_printer(bool enabled, double angle_deg, bool infinite
     m_belt_angle = angle_deg;
     m_belt_infinite_y = infinite_y;
 
+    // Restart from the unmodified bbox each call. Without this, toggling
+    // belt mode off (or switching infinite_y true→false) would leave the
+    // extents inflated and break collision / object_state checks.
+    BoundingBoxf bboxf = get_extents(m_bed_shape);
+    m_bboxf = BoundingBoxf3{ to_3d(bboxf.min, 0.), to_3d(bboxf.max, m_max_print_height) };
+
     if (enabled) {
         if (infinite_y) {
             // Extend the Y bound to a very large value for infinite belt.
