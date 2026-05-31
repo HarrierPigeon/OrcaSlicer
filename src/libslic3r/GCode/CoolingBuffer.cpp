@@ -1091,6 +1091,10 @@ std::string CoolingBuffer::apply_first_layer_plane_fan_eval(
     std::string out;
     out.reserve(gcode.size() + 256);
 
+    // Match the PWM floor applied at every other set_fan call in this file so
+    // band-crossing M106 emissions start the fan reliably at low speeds.
+    const unsigned int part_cooling_fan_min_pwm = static_cast<unsigned int>(std::max(0, m_config.part_cooling_fan_min_pwm.value));
+
     // Track position in slicing-frame mm.  Seed from m_current_pos which the
     // CoolingBuffer keeps up-to-date across layers.
     Vec3d cur_pos_mm(m_current_pos[0], m_current_pos[1], m_current_pos[2]);
@@ -1221,7 +1225,7 @@ std::string CoolingBuffer::apply_first_layer_plane_fan_eval(
                         target_fan = pre_band_main_fan;
                 }
                 if (target_fan != current_main_fan) {
-                    out += GCodeWriter::set_fan(m_config.gcode_flavor, target_fan);
+                    out += GCodeWriter::set_fan(m_config.gcode_flavor, target_fan, part_cooling_fan_min_pwm);
                     current_main_fan = target_fan;
                     m_fan_speed = target_fan;
                     m_current_fan_speed = target_fan;
