@@ -2,9 +2,11 @@
 #include "Model.hpp"
 
 #include <boost/log/trivial.hpp>
+#ifdef SLIC3R_BELT_DIAGNOSTIC_LOG
 #include <iomanip>
 #include <sstream>
 #include <thread>
+#endif
 
 namespace Slic3r {
 
@@ -40,7 +42,8 @@ void BeltSliceStrategy::apply_to_trafo(Transform3d &trafo,
     // coordinates rather than object-space coordinates, so volumes translated
     // along the slicer's Z axis are silently excluded from the bound check.
     if (has_remap || m_has_rotation) {
-        // [BELT-DEBUG] Capture the incoming trafo for diagnostic logging.
+#ifdef SLIC3R_BELT_DIAGNOSTIC_LOG
+        // Capture the incoming trafo for diagnostic logging.
         // This is the slicer-frame transform AFTER belt_xform but BEFORE z_shift.
         const Transform3d trafo_pre_shift = trafo;
         auto log_mat = [](const Matrix3d &m) {
@@ -63,29 +66,41 @@ void BeltSliceStrategy::apply_to_trafo(Transform3d &trafo,
             << " trafo.linear=" << log_mat(trafo_pre_shift.linear())
             << " trafo.translation=" << log_vec3(trafo_pre_shift.translation())
             << " volumes=" << model_volumes.size();
+#endif
 
         double min_z = std::numeric_limits<double>::max();
+#ifdef SLIC3R_BELT_DIAGNOSTIC_LOG
         int vol_idx = 0;
+#endif
         for (const ModelVolume *mv : model_volumes) {
+#ifdef SLIC3R_BELT_DIAGNOSTIC_LOG
             if (!mv->is_model_part()) { ++vol_idx; continue; }
+#else
+            if (!mv->is_model_part()) continue;
+#endif
             Transform3d vol_trafo = trafo * mv->get_matrix();
-            // [BELT-DEBUG] Per-volume bbox in mesh-frame and post-trafo slicer-frame.
             const auto &its = mv->mesh().its;
+#ifdef SLIC3R_BELT_DIAGNOSTIC_LOG
+            // Per-volume bbox in mesh-frame and post-trafo slicer-frame.
             Vec3d mesh_min(std::numeric_limits<double>::max(), std::numeric_limits<double>::max(), std::numeric_limits<double>::max());
             Vec3d mesh_max(std::numeric_limits<double>::lowest(), std::numeric_limits<double>::lowest(), std::numeric_limits<double>::lowest());
             Vec3d slicer_min(std::numeric_limits<double>::max(), std::numeric_limits<double>::max(), std::numeric_limits<double>::max());
             Vec3d slicer_max(std::numeric_limits<double>::lowest(), std::numeric_limits<double>::lowest(), std::numeric_limits<double>::lowest());
             double vol_min_z = std::numeric_limits<double>::max();
+#endif
             for (const stl_vertex &v : its.vertices) {
                 Vec3d vm = v.cast<double>();
+                Vec3d pt = vol_trafo * vm;
+                min_z = std::min(min_z, pt.z());
+#ifdef SLIC3R_BELT_DIAGNOSTIC_LOG
                 mesh_min = mesh_min.cwiseMin(vm);
                 mesh_max = mesh_max.cwiseMax(vm);
-                Vec3d pt = vol_trafo * vm;
                 slicer_min = slicer_min.cwiseMin(pt);
                 slicer_max = slicer_max.cwiseMax(pt);
                 vol_min_z = std::min(vol_min_z, pt.z());
-                min_z = std::min(min_z, pt.z());
+#endif
             }
+#ifdef SLIC3R_BELT_DIAGNOSTIC_LOG
             BOOST_LOG_TRIVIAL(trace) << "[BELT-DEBUG]   vol[" << vol_idx
                 << "] id=" << mv->id().id << " name='" << mv->name << "'"
                 << " mesh_bbox_min=" << log_vec3(mesh_min) << " mesh_bbox_max=" << log_vec3(mesh_max)
@@ -93,10 +108,13 @@ void BeltSliceStrategy::apply_to_trafo(Transform3d &trafo,
                 << " slicer_bbox_min=" << log_vec3(slicer_min) << " slicer_bbox_max=" << log_vec3(slicer_max)
                 << " vol_min_z=" << vol_min_z;
             ++vol_idx;
+#endif
         }
         double belt_z_shift_val = (min_z < 0. && min_z != std::numeric_limits<double>::max()) ? -min_z : 0.;
+#ifdef SLIC3R_BELT_DIAGNOSTIC_LOG
         BOOST_LOG_TRIVIAL(trace) << "[BELT-DEBUG] combined min_z=" << min_z
             << " z_shift_val=" << belt_z_shift_val;
+#endif
         if (belt_z_shift_val > 0.) {
             Transform3d z_shift = Transform3d::Identity();
             z_shift.matrix()(2, 3) = belt_z_shift_val;
@@ -104,13 +122,17 @@ void BeltSliceStrategy::apply_to_trafo(Transform3d &trafo,
         }
         if (out_belt_min_z) {
             double new_val = (min_z != std::numeric_limits<double>::max()) ? min_z : 0.;
+#ifdef SLIC3R_BELT_DIAGNOSTIC_LOG
             BOOST_LOG_TRIVIAL(trace) << "[BELT-DEBUG] write m_belt_min_z tid=" << std::this_thread::get_id()
                 << " target=" << out_belt_min_z << " old=" << *out_belt_min_z << " new=" << new_val;
+#endif
             *out_belt_min_z = new_val;
         }
+#ifdef SLIC3R_BELT_DIAGNOSTIC_LOG
         BOOST_LOG_TRIVIAL(trace) << "[BELT-DEBUG] apply_to_trafo exit"
             << " final_trafo.linear=" << log_mat(trafo.linear())
             << " final_trafo.translation=" << log_vec3(trafo.translation());
+#endif
     }
 }
 
