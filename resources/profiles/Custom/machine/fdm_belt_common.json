@@ -92,6 +92,7 @@
 	"belt_slice_rotation": "x",
 	"belt_slice_rotation_angle": "45",
 	"belt_slice_rotation_global": "1",
+	"build_plate_tilt_x": "45",
 	"gcode_shear_z": "pos_tan",
 	"gcode_scale_y": "inv_cos",
 	"purge_in_prime_tower": "0",
