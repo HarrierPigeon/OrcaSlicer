@@ -1,6 +1,6 @@
 {
 	"name": "Custom Printer",
-	"version": "02.04.00.00",
+	"version": "02.04.00.02",
 	"force_update": "0",
 	"description": "My configurations",
 	"machine_model_list": [
@@ -297,10 +297,6 @@
 		{
 			"name": "MyRepetier 0.4 nozzle",
 			"sub_path": "machine/MyRepetier 0.4 nozzle.json"
-		},
-		{
-			"name": "MyRRF 0.4 nozzle",
-			"sub_path": "machine/MyRRF 0.4 nozzle.json"
 		},
 		{
 			"name": "MyToolChanger 0.2 nozzle",
