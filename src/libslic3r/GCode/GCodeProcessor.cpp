@@ -4933,6 +4933,13 @@ void GCodeProcessor::process_G92(const GCodeReader::GCodeLine& line)
     if (line.has_z()) {
         m_origin[Z] = m_end_position[Z] - line.z() * lengths_scale_factor;
         any_found = true;
+        // Belt only: the start G-code's purge-blob advance + G92 Z0 resets leave a constant
+        // machine-Z origin offset here; the designed-view back-transform subtracts it so
+        // toolpaths map to the model's belt coordinate (gcode Z). Gated on belt_tilt_angle
+        // (set from the belt header, parsed before the body) so non-belt G-code processing
+        // is byte-identical — no unconditional work on the shared path.
+        if (m_result.belt_tilt_angle != 0.f)
+            m_result.belt_z_origin = m_origin[Z];
     }
 
     if (line.has_e()) {
