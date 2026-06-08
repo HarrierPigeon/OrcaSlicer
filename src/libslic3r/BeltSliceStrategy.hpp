@@ -6,36 +6,31 @@
 #include "PrintConfig.hpp"
 #include "Model.hpp"
 
-#include <limits>
-#include <memory>
-
 namespace Slic3r {
 
-// Belt printer pre-slice transform strategy.
+// Belt printer / pre-slice transform strategy.
 //
-// Encapsulates the pre-remap, rotation, and Z-shift transforms that are
-// applied to model geometry before slicing on belt printers.  (Shear & scale
-// are applied to the g-code, not the mesh.)  Used by PrintObjectSlice.cpp to
-// isolate belt-specific logic from the slicing pipeline.
+// Composes, in order, the pre-slice mesh transforms applied before slicing:
+//   1. Pre-slice axis remap (standalone — works without belt mode)
+//   2. Belt rotation (the sole mesh-side belt transform; shear & scale are a
+//      g-code-side stage, see MachineFrameTransform)
+//   3. Per-object Z-shift that lifts the mesh above the build plate
+//
+// Isolates this belt/remap-specific logic from the generic slicing pipeline in
+// PrintObjectSlice.cpp.
 class BeltSliceStrategy
 {
 public:
-    // Create a strategy if belt_printer is enabled; returns nullptr otherwise.
-    static std::unique_ptr<BeltSliceStrategy> create(const PrintConfig &config);
-
-    // Apply belt-specific transforms (rotation + z-shift) to the slicing trafo.
-    // Pre-slice remap is handled separately (standalone feature).
-    // has_remap: whether pre-slice remap was already applied (affects z-shift detection).
-    void apply_to_trafo(Transform3d &trafo,
-                        const ModelVolumePtrs &model_volumes,
-                        bool has_remap,
-                        double *out_belt_min_z) const;
-
-private:
-    explicit BeltSliceStrategy(const PrintConfig &config);
-
-    bool     m_has_rotation = false;
-    Matrix3d m_rotation     = Matrix3d::Identity();
+    // Apply the pre-slice remap + belt rotation + Z-shift to `trafo` in place.
+    // No-op when neither a remap nor a belt rotation is configured.
+    //
+    // out_belt_min_z (if non-null) receives the minimum mesh Z after the
+    // transforms, but only in belt-printer mode — the standalone-remap path
+    // never reported it.
+    static void apply_preslice_transforms(Transform3d           &trafo,
+                                          const PrintConfig     &config,
+                                          const ModelVolumePtrs &model_volumes,
+                                          double                *out_belt_min_z = nullptr);
 };
 
 } // namespace Slic3r
