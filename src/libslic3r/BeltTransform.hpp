@@ -23,6 +23,24 @@ class ModelObject;
 // object-dependent (computed from mesh vertex bounds) and is NOT included in
 // build_forward_transform().  The machine-frame shear/scale is derived directly
 // from the tilt angle in MachineFrameTransform and no longer lives here.
+//
+// Design note: this mesh-rotation approach replaced an earlier pre-shear
+// method (now removed).  While that initial pre-shear method was instrumental
+// in getting belt printer slicing off the ground in the first place, its place is
+// in the past.  A big thank you goes to the Unlayered3D team, who recommended 
+// switching to a pre-slice rotation stage instead.  Doing so keeps the slicing 
+// operation isometric — no distortion of the sliced geometry — while the 
+// non-orthogonal machine-axis compensation is confined to a g-code-side shear/scale
+// derived from the same tilt angle.
+// 
+// This fixed a number of issues, including several issues noticed by hotcubcar
+// regarding adaptive infills not working, gyroid becoming anisotropic, and more 
+// that were all mostly resolved as a result of the switch.
+// 
+// This also means that the pre-slice rotation transform methodology can be used 
+// more cleanly on non-belt printers.
+// - HarrierPigeon (Joseph Robertson)
+
 class BeltTransformPipeline
 {
 public:
