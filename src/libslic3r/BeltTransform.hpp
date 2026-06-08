@@ -21,44 +21,11 @@ class ModelObject;
 // to the g-code instead (see MachineFrameTransform).  This class provides the
 // building blocks so every call site uses the same implementation.  z_shift is
 // object-dependent (computed from mesh vertex bounds) and is NOT included in
-// build_forward_transform().
-//
-// The compute_shear_factor / compute_scale_factor math helpers below are still
-// used by the g-code-side machine-frame shear/scale.
+// build_forward_transform().  The machine-frame shear/scale is derived directly
+// from the tilt angle in MachineFrameTransform and no longer lives here.
 class BeltTransformPipeline
 {
 public:
-    // ---- Pure math helpers ------------------------------------------------
-
-    static double compute_shear_factor(BeltShearMode mode, double angle_deg)
-    {
-        double angle_rad = Geometry::deg2rad(angle_deg);
-        double sin_a     = std::sin(angle_rad);
-        double cos_a     = std::cos(angle_rad);
-        switch (mode) {
-        case BeltShearMode::PosCot: return (sin_a > EPSILON) ?  cos_a / sin_a : 0.;
-        case BeltShearMode::NegCot: return (sin_a > EPSILON) ? -cos_a / sin_a : 0.;
-        case BeltShearMode::PosTan: return (cos_a > EPSILON) ?  sin_a / cos_a : 0.;
-        case BeltShearMode::NegTan: return (cos_a > EPSILON) ? -sin_a / cos_a : 0.;
-        default: return 0.;
-        }
-    }
-
-    static double compute_scale_factor(BeltScaleMode mode, double angle_deg)
-    {
-        if (mode == BeltScaleMode::None) return 1.;
-        double angle_rad = Geometry::deg2rad(angle_deg);
-        double sin_a     = std::sin(angle_rad);
-        double cos_a     = std::cos(angle_rad);
-        switch (mode) {
-        case BeltScaleMode::InvSin: return (sin_a > EPSILON) ? 1. / sin_a : 1.;
-        case BeltScaleMode::InvCos: return (cos_a > EPSILON) ? 1. / cos_a : 1.;
-        case BeltScaleMode::Sin:    return sin_a;
-        case BeltScaleMode::Cos:    return cos_a;
-        default: return 1.;
-        }
-    }
-
     // ---- Identity checks --------------------------------------------------
 
     static bool has_preslice_remap(const PrintConfig &config)

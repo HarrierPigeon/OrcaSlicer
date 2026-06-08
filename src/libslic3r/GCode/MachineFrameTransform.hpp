@@ -9,14 +9,15 @@ namespace Slic3r {
 
 // Post-stage machine-frame transform for belt printers.
 //
-// Applied in BeltGCodeWriter::to_machine_coords AFTER the back-transform,
-// the gcode_remap_* axis remap and per-axis origin snap.  Maps Cartesian
-// (axis-permuted) G-code coordinates into the printer's physical machine
-// frame using:
-//   gcode_shear_x/y/z + _angle + _from
-//   gcode_scale_x/y/z + _angle
+// Applied in BeltGCodeWriter::to_machine_coords AFTER the back-transform and
+// the gcode_remap_* axis remap.  Maps Cartesian (axis-permuted) G-code
+// coordinates into the printer's physical machine frame.
 //
-// Composition follows belt_gcode_transform_order (shear * scale or scale * shear).
+// Derived entirely from the single belt tilt (belt_slice_rotation axis +
+// belt_slice_rotation_angle): a shear coupling the height axis to the belt-feed
+// axis (factor tan a) plus a 1/cos a scale on the belt-feed axis.  The expert
+// belt_frame_tilt_decouple flag lets the machine-frame angle differ from the
+// pre-slice rotation angle via belt_frame_tilt_angle.
 class MachineFrameTransform
 {
 public:
