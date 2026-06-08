@@ -25,6 +25,10 @@
             "sub_path": "filament/Generic PLA @IdeaFormer IR3 V2.json"
         },
         {
+            "name": "eSUN PLA @IdeaFormer IR3 V2",
+            "sub_path": "filament/eSUN PLA @IdeaFormer IR3 V2.json"
+        },
+        {
             "name": "Generic PETG @IdeaFormer IR3 V2",
             "sub_path": "filament/Generic PETG @IdeaFormer IR3 V2.json"
         }
