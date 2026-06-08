@@ -112,9 +112,6 @@ bool Print::invalidate_state_by_config_options(const ConfigOptionResolver & /* n
         "gcode_scale_y", "gcode_scale_y_angle",
         "gcode_scale_z", "gcode_scale_z_angle",
         "belt_gcode_transform_order",
-        "belt_origin_snap_x", "belt_origin_offset_x",
-        "belt_origin_snap_y", "belt_origin_offset_y",
-        "belt_origin_snap_z", "belt_origin_offset_z",
         //BBS
         "additional_cooling_fan_speed",
         "reduce_crossing_wall",

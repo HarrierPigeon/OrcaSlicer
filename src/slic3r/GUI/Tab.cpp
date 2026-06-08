@@ -4535,24 +4535,6 @@ void TabPrinter::build_fff()
             line.append_option(belt_og->get_option("first_layer_plane_thickness"));
             belt_og->append_line(line);
         }
-        {
-            Line line = { L("Origin snap X"), L("Snap object bbox min X to offset in G-code output") };
-            line.append_option(belt_og->get_option("belt_origin_snap_x"));
-            line.append_option(belt_og->get_option("belt_origin_offset_x"));
-            belt_og->append_line(line);
-        }
-        {
-            Line line = { L("Origin snap Y"), L("Snap object bbox min Y to offset in G-code output") };
-            line.append_option(belt_og->get_option("belt_origin_snap_y"));
-            line.append_option(belt_og->get_option("belt_origin_offset_y"));
-            belt_og->append_line(line);
-        }
-        {
-            Line line = { L("Origin snap Z"), L("Snap object bbox min Z to offset in G-code output") };
-            line.append_option(belt_og->get_option("belt_origin_snap_z"));
-            line.append_option(belt_og->get_option("belt_origin_offset_z"));
-            belt_og->append_line(line);
-        }
         // Support floor: split across lines so each setting's own mode controls
         // its visibility (floor_mode = Develop, floor_offset = Advanced, z_offset_mode = Expert).
         belt_og->append_single_option_line("belt_support_floor_offset");
@@ -5591,8 +5573,6 @@ void TabPrinter::toggle_options()
         toggle_line("belt_printer_infinite_y", is_belt);
         // Belt tilt: the sole mesh-side belt transform (visible by default in belt mode).
         toggle_line("belt_slice_rotation", is_belt);
-        for (auto el : {"belt_origin_snap_x", "belt_origin_snap_y", "belt_origin_snap_z"})
-            toggle_line(el, is_belt);
 
         // Remap, back-transform, and global mesh-transforms toggles are gated by belt
         // mode here; finer mode-based visibility (Advanced vs Expert) is handled by
@@ -5642,11 +5622,6 @@ void TabPrinter::toggle_options()
 
         auto gscz = m_config->option<ConfigOptionEnum<BeltScaleMode>>("gcode_scale_z")->value;
         toggle_option("gcode_scale_z_angle", is_belt && gscz != BeltScaleMode::None);
-
-        // Origin snap is superseded by belt_preslice_global
-        toggle_option("belt_origin_offset_x", is_belt && m_config->opt_bool("belt_origin_snap_x") && !belt_global);
-        toggle_option("belt_origin_offset_y", is_belt && m_config->opt_bool("belt_origin_snap_y") && !belt_global);
-        toggle_option("belt_origin_offset_z", is_belt && m_config->opt_bool("belt_origin_snap_z") && !belt_global);
 
         // First-layer plane: visible alongside the rest of belt-printer settings.
         toggle_line("first_layer_plane", is_belt);
