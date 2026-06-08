@@ -104,14 +104,8 @@ bool Print::invalidate_state_by_config_options(const ConfigOptionResolver & /* n
         "gcode_remap_x",
         "gcode_remap_y",
         "gcode_remap_z",
-        // Machine-frame transforms (only affect G-code output, not slicing).
-        "gcode_shear_x", "gcode_shear_x_angle", "gcode_shear_x_from",
-        "gcode_shear_y", "gcode_shear_y_angle", "gcode_shear_y_from",
-        "gcode_shear_z", "gcode_shear_z_angle", "gcode_shear_z_from",
-        "gcode_scale_x", "gcode_scale_x_angle",
-        "gcode_scale_y", "gcode_scale_y_angle",
-        "gcode_scale_z", "gcode_scale_z_angle",
-        "belt_gcode_transform_order",
+        // Machine-frame transform (derived from belt tilt; only affects G-code output).
+        "belt_frame_tilt_decouple", "belt_frame_tilt_angle",
         //BBS
         "additional_cooling_fan_speed",
         "reduce_crossing_wall",

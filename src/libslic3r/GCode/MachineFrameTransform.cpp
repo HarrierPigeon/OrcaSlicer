@@ -1,56 +1,9 @@
 #include "MachineFrameTransform.hpp"
-#include "../BeltTransform.hpp"
-#include "../BoundingBox.hpp"
+#include "../Geometry.hpp"
+
+#include <cmath>
 
 namespace Slic3r {
-
-namespace {
-
-// Build the 3x3 shear matrix from gcode_shear_* keys.
-Matrix3d build_gcode_shear_matrix(const PrintConfig &config, bool &active)
-{
-    struct AxisShear { BeltShearMode mode; double angle; int from; };
-    AxisShear axes[3] = {
-        { config.gcode_shear_x.value, config.gcode_shear_x_angle.value, int(config.gcode_shear_x_from.value) },
-        { config.gcode_shear_y.value, config.gcode_shear_y_angle.value, int(config.gcode_shear_y_from.value) },
-        { config.gcode_shear_z.value, config.gcode_shear_z_angle.value, int(config.gcode_shear_z_from.value) },
-    };
-
-    Matrix3d shear = Matrix3d::Identity();
-    active = false;
-    for (int row = 0; row < 3; ++row) {
-        if (axes[row].mode != BeltShearMode::None) {
-            double factor = BeltTransformPipeline::compute_shear_factor(axes[row].mode, axes[row].angle);
-            if (std::abs(factor) > EPSILON) {
-                shear(row, axes[row].from) += factor;
-                active = true;
-            }
-        }
-    }
-    return shear;
-}
-
-// Build the 3x3 diagonal scale matrix from gcode_scale_* keys.
-Matrix3d build_gcode_scale_matrix(const PrintConfig &config, bool &active)
-{
-    double sx = BeltTransformPipeline::compute_scale_factor(config.gcode_scale_x.value, config.gcode_scale_x_angle.value);
-    double sy = BeltTransformPipeline::compute_scale_factor(config.gcode_scale_y.value, config.gcode_scale_y_angle.value);
-    double sz = BeltTransformPipeline::compute_scale_factor(config.gcode_scale_z.value, config.gcode_scale_z_angle.value);
-
-    active = (std::abs(sx - 1.) > EPSILON ||
-              std::abs(sy - 1.) > EPSILON ||
-              std::abs(sz - 1.) > EPSILON);
-
-    Matrix3d scale = Matrix3d::Identity();
-    if (active) {
-        scale(0, 0) = sx;
-        scale(1, 1) = sy;
-        scale(2, 2) = sz;
-    }
-    return scale;
-}
-
-} // namespace
 
 bool MachineFrameTransform::init_from_config(const PrintConfig &config)
 {
@@ -60,21 +13,48 @@ bool MachineFrameTransform::init_from_config(const PrintConfig &config)
     if (!config.belt_printer.value)
         return false;
 
-    bool        shear_active = false;
-    Matrix3d    shear        = build_gcode_shear_matrix(config, shear_active);
-    bool        scale_active = false;
-    Matrix3d    scale        = build_gcode_scale_matrix(config, scale_active);
+    // The machine-frame transform is derived from the single belt tilt (axis +
+    // angle) that also drives the pre-slice mesh rotation.  Expert decouple lets
+    // the machine-frame angle differ from the slicing rotation; otherwise both
+    // use belt_slice_rotation_angle.
+    const BeltRotationAxis axis = config.belt_slice_rotation.value;
+    if (axis == BeltRotationAxis::None || axis == BeltRotationAxis::Z)
+        return false; // Z is an in-plane spin: no machine-frame tilt.
 
-    if (!shear_active && !scale_active)
+    const double angle_deg = config.belt_frame_tilt_decouple.value
+        ? config.belt_frame_tilt_angle.value
+        : config.belt_slice_rotation_angle.value;
+    if (std::abs(angle_deg) <= EPSILON)
         return false;
 
-    // Compose per belt_gcode_transform_order:
-    //   ScaleThenShear: applied to p, scale runs first then shear (shear * scale).
-    //   ShearThenScale: applied to p, shear runs first then scale (scale * shear).
+    const double angle_rad = Geometry::deg2rad(angle_deg);
+    const double cos_a      = std::cos(angle_rad);
+    if (std::abs(cos_a) <= EPSILON)
+        return false;
+    const double tan_a   = std::sin(angle_rad) / cos_a;
+    const double inv_cos = 1.0 / cos_a;
+
+    // Couple the height axis (Z) to the belt-feed axis and stretch the belt-feed
+    // axis by 1/cos so a unit slicing move maps to the correct belt travel.  The
+    // shear sign matches the belt-floor slope derived from the same rotation in
+    // BeltTransformPipeline::compute_belt_height_and_floor:
+    //   tilt about X: feed axis Y, Z += +tan·Y, scale Y *= 1/cos
+    //   tilt about Y: feed axis X, Z += -tan·X, scale X *= 1/cos
+    Matrix3d shear = Matrix3d::Identity();
+    Matrix3d scale = Matrix3d::Identity();
+    if (axis == BeltRotationAxis::X) {
+        shear(2, 1) =  tan_a;   // Z from Y
+        scale(1, 1) =  inv_cos; // Y
+    } else { // BeltRotationAxis::Y
+        shear(2, 0) = -tan_a;   // Z from X
+        scale(0, 0) =  inv_cos; // X
+    }
+
+    // Apply shear first, then scale (the historical default ShearThenScale order:
+    // result = scale * shear * p).  For the canonical 45°/X belt this maps
+    // (x,y,z) -> (x, y/cos, y + z), matching the previous per-axis config.
     Transform3d combined = Transform3d::Identity();
-    combined.linear() = (config.belt_gcode_transform_order.value == BeltTransformOrder::ScaleThenShear)
-        ? Matrix3d(shear * scale)
-        : Matrix3d(scale * shear);
+    combined.linear() = scale * shear;
 
     if (combined.isApprox(Transform3d::Identity()))
         return false;

@@ -4541,9 +4541,10 @@ void TabPrinter::build_fff()
         belt_og->append_single_option_line("belt_support_z_offset_mode");
         belt_og->append_single_option_line("belt_support_floor_mode");
 
-        // Machine-frame transforms: applied to G-code after back-transform and
-        // gcode_remap, before per-axis origin snap.  Maps Cartesian G-code into
-        // the printer's physical machine frame.
+        // Machine-frame transform: the shear (tan) + scale (1/cos) that map
+        // Cartesian G-code into the printer's physical machine frame are derived
+        // from the belt tilt angle.  Only the post-slice axis remap and the expert
+        // decouple override are exposed here.
         {
             auto mf = page->new_optgroup(L("Machine frame transforms"), L"param_advanced");
             {
@@ -4554,45 +4555,15 @@ void TabPrinter::build_fff()
                 mf->append_line(line);
             }
             {
-                Line line = { L("G-code shear X"), L("Shear applied to the X axis in the machine-frame stage (after back-transform and gcode_remap).") };
-                line.append_option(mf->get_option("gcode_shear_x"));
-                line.append_option(mf->get_option("gcode_shear_x_angle"));
-                line.append_option(mf->get_option("gcode_shear_x_from"));
+                Line line = { L("Machine-frame tilt"),
+                              L("The machine-frame shear (tan) and scale (1/cos) are derived from "
+                                "the belt tilt angle.  Enable 'Decouple' to set an independent "
+                                "machine-frame angle when the physical gantry tilt differs from "
+                                "the slicing rotation.") };
+                line.append_option(mf->get_option("belt_frame_tilt_decouple"));
+                line.append_option(mf->get_option("belt_frame_tilt_angle"));
                 mf->append_line(line);
             }
-            {
-                Line line = { L("G-code shear Y"), L("Shear applied to the Y axis in the machine-frame stage (after back-transform and gcode_remap).") };
-                line.append_option(mf->get_option("gcode_shear_y"));
-                line.append_option(mf->get_option("gcode_shear_y_angle"));
-                line.append_option(mf->get_option("gcode_shear_y_from"));
-                mf->append_line(line);
-            }
-            {
-                Line line = { L("G-code shear Z"), L("Shear applied to the Z axis in the machine-frame stage (after back-transform and gcode_remap).") };
-                line.append_option(mf->get_option("gcode_shear_z"));
-                line.append_option(mf->get_option("gcode_shear_z_angle"));
-                line.append_option(mf->get_option("gcode_shear_z_from"));
-                mf->append_line(line);
-            }
-            {
-                Line line = { L("G-code scale X"), L("Scale applied to the X axis in the machine-frame stage.") };
-                line.append_option(mf->get_option("gcode_scale_x"));
-                line.append_option(mf->get_option("gcode_scale_x_angle"));
-                mf->append_line(line);
-            }
-            {
-                Line line = { L("G-code scale Y"), L("Scale applied to the Y axis in the machine-frame stage.") };
-                line.append_option(mf->get_option("gcode_scale_y"));
-                line.append_option(mf->get_option("gcode_scale_y_angle"));
-                mf->append_line(line);
-            }
-            {
-                Line line = { L("G-code scale Z"), L("Scale applied to the Z axis in the machine-frame stage.") };
-                line.append_option(mf->get_option("gcode_scale_z"));
-                line.append_option(mf->get_option("gcode_scale_z_angle"));
-                mf->append_line(line);
-            }
-            mf->append_single_option_line("belt_gcode_transform_order");
         }
 
         option = optgroup->get_option("thumbnails");
@@ -5592,36 +5563,11 @@ void TabPrinter::toggle_options()
         toggle_option("belt_slice_rotation_angle",  is_belt && rot_axis != BeltRotationAxis::None);
         toggle_option("belt_slice_rotation_global", is_belt && rot_axis != BeltRotationAxis::None);
 
-        // Machine-frame transforms: shown only in belt mode.
-        // Mirror the Advanced/Expert split used for mesh shear/scale.
-        toggle_line("gcode_shear_x", is_belt && expert_or_above);
-        toggle_line("gcode_shear_y", is_belt && expert_or_above);
-        toggle_line("gcode_shear_z", is_belt);
-        toggle_line("gcode_scale_x", is_belt && expert_or_above);
-        toggle_line("gcode_scale_y", is_belt);
-        toggle_line("gcode_scale_z", is_belt && expert_or_above);
-        toggle_line("belt_gcode_transform_order", is_belt);
-
-        auto gsx = m_config->option<ConfigOptionEnum<BeltShearMode>>("gcode_shear_x")->value;
-        toggle_option("gcode_shear_x_angle", is_belt && gsx != BeltShearMode::None);
-        toggle_option("gcode_shear_x_from",  is_belt && gsx != BeltShearMode::None);
-
-        auto gsy = m_config->option<ConfigOptionEnum<BeltShearMode>>("gcode_shear_y")->value;
-        toggle_option("gcode_shear_y_angle", is_belt && gsy != BeltShearMode::None);
-        toggle_option("gcode_shear_y_from",  is_belt && gsy != BeltShearMode::None);
-
-        auto gsz = m_config->option<ConfigOptionEnum<BeltShearMode>>("gcode_shear_z")->value;
-        toggle_option("gcode_shear_z_angle", is_belt && gsz != BeltShearMode::None);
-        toggle_option("gcode_shear_z_from",  is_belt && gsz != BeltShearMode::None);
-
-        auto gscx = m_config->option<ConfigOptionEnum<BeltScaleMode>>("gcode_scale_x")->value;
-        toggle_option("gcode_scale_x_angle", is_belt && gscx != BeltScaleMode::None);
-
-        auto gscy = m_config->option<ConfigOptionEnum<BeltScaleMode>>("gcode_scale_y")->value;
-        toggle_option("gcode_scale_y_angle", is_belt && gscy != BeltScaleMode::None);
-
-        auto gscz = m_config->option<ConfigOptionEnum<BeltScaleMode>>("gcode_scale_z")->value;
-        toggle_option("gcode_scale_z_angle", is_belt && gscz != BeltScaleMode::None);
+        // Machine-frame transform: derived from the belt tilt.  Only the expert
+        // decouple override is exposed; its angle is enabled only when decoupled.
+        toggle_line("belt_frame_tilt_decouple", is_belt && expert_or_above);
+        toggle_option("belt_frame_tilt_angle",
+                      is_belt && expert_or_above && m_config->opt_bool("belt_frame_tilt_decouple"));
 
         // First-layer plane: visible alongside the rest of belt-printer settings.
         toggle_line("first_layer_plane", is_belt);

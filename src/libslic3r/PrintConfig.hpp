@@ -169,49 +169,16 @@ enum class SlicingMode
     CloseHoles,
 };
 
-enum class BeltShearMode
-{
-    None,       // No shear on this axis
-    PosCot,     // += cot(α)
-    NegCot,     // -= cot(α)
-    PosTan,     // += tan(α)
-    NegTan,     // -= tan(α)
-};
-
-enum class BeltScaleMode
-{
-    None,       // No scaling (factor = 1)
-    InvSin,     // 1/sin(α)
-    InvCos,     // 1/cos(α)
-    Sin,        // sin(α)
-    Cos,        // cos(α)
-};
-
-enum class BeltAxis
-{
-    X = 0,
-    Y = 1,
-    Z = 2,
-};
-
 // Axis around which the mesh is rotated before slicing, when
-// `belt_slice_rotation` is set.  None disables the rotation stage.
-// Distinct from BeltAxis because BeltAxis carries no "None" semantics.
+// `belt_slice_rotation` is set.  None disables the rotation stage.  This is the
+// single "belt tilt" axis: it drives both the pre-slice mesh rotation and the
+// post-slice machine-frame transform (shear + scale derived from the tilt angle).
 enum class BeltRotationAxis
 {
     None = 0,
     X    = 1,
     Y    = 2,
     Z    = 3,
-};
-
-// Order in which the belt shear and scale matrices are composed.
-// ScaleThenShear: applied to a point p, the result is shear(scale(p)).
-// ShearThenScale: applied to a point p, the result is scale(shear(p)).
-enum class BeltTransformOrder
-{
-    ScaleThenShear = 0,
-    ShearThenScale = 1,
 };
 
 enum class RemapAxis
@@ -616,11 +583,7 @@ CONFIG_OPTION_ENUM_DECLARE_STATIC_MAPS(NoiseType)
 CONFIG_OPTION_ENUM_DECLARE_STATIC_MAPS(InfillPattern)
 CONFIG_OPTION_ENUM_DECLARE_STATIC_MAPS(IroningType)
 CONFIG_OPTION_ENUM_DECLARE_STATIC_MAPS(SlicingMode)
-CONFIG_OPTION_ENUM_DECLARE_STATIC_MAPS(BeltShearMode)
-CONFIG_OPTION_ENUM_DECLARE_STATIC_MAPS(BeltScaleMode)
-CONFIG_OPTION_ENUM_DECLARE_STATIC_MAPS(BeltAxis)
 CONFIG_OPTION_ENUM_DECLARE_STATIC_MAPS(BeltRotationAxis)
-CONFIG_OPTION_ENUM_DECLARE_STATIC_MAPS(BeltTransformOrder)
 CONFIG_OPTION_ENUM_DECLARE_STATIC_MAPS(RemapAxis)
 CONFIG_OPTION_ENUM_DECLARE_STATIC_MAPS(BeltSupportFloorMode)
 CONFIG_OPTION_ENUM_DECLARE_STATIC_MAPS(BeltSupportZOffsetMode)
@@ -1582,15 +1545,19 @@ PRINT_CONFIG_CLASS_DERIVED_DEFINE(
     // Belt printer settings (printer-level).
     ((ConfigOptionBool,                belt_printer))
     ((ConfigOptionBool,                belt_printer_infinite_y))
-    // Mesh rotation applied before slicing — the sole mesh-side belt transform and
-    // the single source of truth for the physical belt tilt (its angle + axis drive
-    // bed rendering, support gravity tilt, and the bed-exclusion projection).
-    // Isometric (no distortion); the g-code back-transform inverts it before the
-    // machine-frame remap.  (Shear & scale are applied to the g-code, not the
-    // mesh — see gcode_shear_* / gcode_scale_* below.)
+    // Mesh rotation applied before slicing — the single source of truth for the
+    // physical belt tilt.  Its angle + axis drive bed rendering, support gravity
+    // tilt, the bed-exclusion projection, AND the post-slice machine-frame
+    // transform (shear + scale, derived from the tilt angle; see
+    // MachineFrameTransform).  Isometric (no distortion) on the mesh side; the
+    // g-code back-transform inverts the rotation before the machine-frame stage.
     ((ConfigOptionEnum<BeltRotationAxis>, belt_slice_rotation))
     ((ConfigOptionFloat,                  belt_slice_rotation_angle))
     ((ConfigOptionBool,                   belt_slice_rotation_global))
+    // Expert override: decouple the machine-frame tilt angle from the pre-slice
+    // rotation angle.  When disabled, the machine frame uses belt_slice_rotation_angle.
+    ((ConfigOptionBool,                   belt_frame_tilt_decouple))
+    ((ConfigOptionFloat,                  belt_frame_tilt_angle))
     ((ConfigOptionEnum<RemapAxis>,  preslice_remap_x))
     ((ConfigOptionEnum<RemapAxis>,  preslice_remap_y))
     ((ConfigOptionEnum<RemapAxis>,  preslice_remap_z))
@@ -1598,22 +1565,6 @@ PRINT_CONFIG_CLASS_DERIVED_DEFINE(
     ((ConfigOptionEnum<RemapAxis>,  gcode_remap_x))
     ((ConfigOptionEnum<RemapAxis>,  gcode_remap_y))
     ((ConfigOptionEnum<RemapAxis>,  gcode_remap_z))
-    ((ConfigOptionEnum<BeltShearMode>,  gcode_shear_x))
-    ((ConfigOptionFloat,                gcode_shear_x_angle))
-    ((ConfigOptionEnum<BeltAxis>,       gcode_shear_x_from))
-    ((ConfigOptionEnum<BeltShearMode>,  gcode_shear_y))
-    ((ConfigOptionFloat,                gcode_shear_y_angle))
-    ((ConfigOptionEnum<BeltAxis>,       gcode_shear_y_from))
-    ((ConfigOptionEnum<BeltShearMode>,  gcode_shear_z))
-    ((ConfigOptionFloat,                gcode_shear_z_angle))
-    ((ConfigOptionEnum<BeltAxis>,       gcode_shear_z_from))
-    ((ConfigOptionEnum<BeltScaleMode>,  gcode_scale_x))
-    ((ConfigOptionFloat,                gcode_scale_x_angle))
-    ((ConfigOptionEnum<BeltScaleMode>,  gcode_scale_y))
-    ((ConfigOptionFloat,                gcode_scale_y_angle))
-    ((ConfigOptionEnum<BeltScaleMode>,  gcode_scale_z))
-    ((ConfigOptionFloat,                gcode_scale_z_angle))
-    ((ConfigOptionEnum<BeltTransformOrder>, belt_gcode_transform_order))
     ((ConfigOptionBool,                 gcode_back_transform))
     ((ConfigOptionBool,                 belt_preslice_global))
     ((ConfigOptionEnum<FirstLayerPlaneMode>, first_layer_plane))
