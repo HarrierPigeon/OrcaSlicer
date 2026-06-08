@@ -11,8 +11,8 @@ class FirstLayerPlane;
 // Belt-printer-specific GCode writer.
 //
 // Inherits from GCodeWriter and overrides movement methods to apply
-// coordinate transformation (back-transform, axis remap, origin snap)
-// and emit coupled XYZ moves (Y and Z are coupled due to belt tilt).
+// coordinate transformation (back-transform, axis remap, machine-frame
+// transform) and emit coupled XYZ moves (Y and Z are coupled due to belt tilt).
 class BeltGCodeWriter : public GCodeWriter
 {
 public:
@@ -21,12 +21,7 @@ public:
     // Belt configuration (axis remap is inherited from GCodeWriter)
     void set_belt_back_transform(const PrintConfig &config);
     void set_machine_frame_transform(const PrintConfig &config);
-    void set_origin_snap(int axis, bool enable, double offset, double bbox_min);
     Vec3d to_machine_coords(const Vec3d &pos) const;
-    // back_transform + axis_remap only (no origin_snap, no machine_frame_transform).
-    // Used by on_set_origin for bbox computation in the Cartesian frame, where
-    // axis-aligned bbox corners coincide with the geometry's extreme points.
-    Vec3d to_cartesian(const Vec3d &pos) const;
 
     // First-layer plane: when set to a non-null active evaluator, travel
     // speed selection consults the plane per-move and uses
@@ -52,9 +47,6 @@ protected:
 private:
     BeltBackTransform     m_belt_back_transform;
     MachineFrameTransform m_machine_frame_transform;
-    bool            m_origin_snap[3]     = {false, false, false};
-    double          m_origin_offset[3]   = {0., 0., 0.};
-    double          m_origin_bbox_min[3] = {0., 0., 0.};
     // Borrowed pointer; lifetime owned by GCode.  null = inactive.
     const FirstLayerPlane *m_first_layer_plane = nullptr;
     double          m_first_layer_thickness_mm = 0.;

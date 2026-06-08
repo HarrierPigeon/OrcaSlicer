@@ -35,37 +35,14 @@ void BeltGCodeWriter::set_machine_frame_transform(const PrintConfig &config)
     m_machine_frame_transform.init_from_config(config);
 }
 
-void BeltGCodeWriter::set_origin_snap(int axis, bool enable, double offset, double bbox_min)
-{
-    if (axis >= 0 && axis < 3) {
-        m_origin_snap[axis]     = enable;
-        m_origin_offset[axis]   = offset;
-        m_origin_bbox_min[axis] = bbox_min;
-    }
-}
-
-Vec3d BeltGCodeWriter::to_cartesian(const Vec3d &pos) const
-{
-    // back_transform → axis_remap, no origin_snap, no machine_frame_transform.
-    return apply_axis_remap(m_belt_back_transform.apply(pos));
-}
-
 Vec3d BeltGCodeWriter::to_machine_coords(const Vec3d &pos) const
 {
     // Step 1+2: To Cartesian (back_transform + axis_remap).
     Vec3d after_back = m_belt_back_transform.apply(pos);
     Vec3d result     = apply_axis_remap(after_back);
     Vec3d after_remap = result;
-    // Step 3: Per-axis origin snap (computed in the Cartesian frame).
-    for (int i = 0; i < 3; ++i)
-        if (m_origin_snap[i])
-            result[i] -= (m_origin_bbox_min[i] - m_origin_offset[i]);
-    Vec3d after_snap = result;
-    // Step 4: Machine-frame transform (gcode_shear / gcode_scale)
-    // applied LAST so it acts as a global linear transform on the placed coords.
-    // Order matters: putting it before origin_snap would feed sheared bbox corners
-    // into the snap's per-object min calculation, mis-normalizing non-cubic geometries
-    // (the corners of the original bbox aren't extreme points of the sheared shape).
+    // Step 3: Machine-frame transform (belt frame tilt) applied LAST so it acts
+    // as a global linear transform on the placed coords.
     Vec3d final = m_machine_frame_transform.apply(result);
 
     // [BELT-DEBUG] One-shot log per layer transition (i.e. when the input Z
@@ -80,7 +57,6 @@ Vec3d BeltGCodeWriter::to_machine_coords(const Vec3d &pos) const
             << " slicer_in=(" << pos.x() << "," << pos.y() << "," << pos.z() << ")"
             << " after_back=(" << after_back.x() << "," << after_back.y() << "," << after_back.z() << ")"
             << " after_remap=(" << after_remap.x() << "," << after_remap.y() << "," << after_remap.z() << ")"
-            << " after_snap=(" << after_snap.x() << "," << after_snap.y() << "," << after_snap.z() << ")"
             << " final=(" << final.x() << "," << final.y() << "," << final.z() << ")"
             << " mft_active=" << m_machine_frame_transform.is_active()
             << " back_active=" << m_belt_back_transform.is_active();

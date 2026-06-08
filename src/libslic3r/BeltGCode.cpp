@@ -3,8 +3,6 @@
 #include "BeltTransform.hpp"
 #include "Print.hpp"
 
-#include <limits>
-
 namespace Slic3r {
 
 void BeltGCode::init_belt_writer(Print &print, bool is_bbl_printers)
@@ -18,14 +16,6 @@ void BeltGCode::init_belt_writer(Print &print, bool is_bbl_printers)
     belt_writer->set_belt_back_transform(print.config());
     belt_writer->set_machine_frame_transform(print.config());
     m_writer = std::move(belt_writer);
-
-    // Per-axis origin snap config.
-    m_origin_snap[0] = print.config().belt_origin_snap_x.value;
-    m_origin_snap[1] = print.config().belt_origin_snap_y.value;
-    m_origin_snap[2] = print.config().belt_origin_snap_z.value;
-    m_origin_snap_offset[0] = print.config().belt_origin_offset_x.value;
-    m_origin_snap_offset[1] = print.config().belt_origin_offset_y.value;
-    m_origin_snap_offset[2] = print.config().belt_origin_offset_z.value;
 }
 
 void BeltGCode::write_belt_header(GCodeOutputStream &file, const Print &print)
@@ -64,103 +54,36 @@ void BeltGCode::write_belt_header(GCodeOutputStream &file, const Print &print)
     file.write_format("; belt_gcode_transform_order = %s\n", full_cfg.opt_serialize("belt_gcode_transform_order").c_str());
 }
 
-void BeltGCode::on_set_origin(const PrintObject *obj, const Point &inst_shift)
+void BeltGCode::on_set_origin(const PrintObject * /*obj*/, const Point & /*inst_shift*/)
 {
     // Global pre-slice mode: adjust origin using computed correction.
     // Transform the origin through the belt pipeline so that
     // back_transform(T * origin) = origin (correct machine position).
-    // This replaces the bbox-based axis snap with an exact formula.
     //
     // Flags that trigger this path:
     //   belt_preslice_global         — full pipeline (rotation * remap) is global
     //   preslice_remap_global        — only the pre-slice remap is global
     //   belt_slice_rotation_global   — slicing rotation treated as global (matches
     //                                  the per-instance Z-offset added in PrintObjectSlice.cpp)
-    // The XY origin adjustment uses the FULL forward transform either way,
-    // because the back_transform applied during G-code emission is always the
-    // inverse of the full pipeline.
+    // The XY origin adjustment uses the FULL forward transform, because the
+    // back_transform applied during G-code emission is always the inverse of
+    // the full pipeline.
     bool use_global = m_config.belt_preslice_global.value
         || (m_config.preslice_remap_global.value
             && BeltTransformPipeline::has_preslice_remap(m_config))
         || (m_config.belt_slice_rotation_global.value
             && m_config.belt_slice_rotation.value != BeltRotationAxis::None
             && std::abs(m_config.belt_slice_rotation_angle.value) > EPSILON);
-    if (use_global && m_config.belt_printer.value) {
-        auto *belt_writer = dynamic_cast<BeltGCodeWriter*>(m_writer.get());
-        if (belt_writer) {
-            // The per-object lift (z_shift_val = max(0, -m_belt_min_z)) added by
-            // BeltSliceStrategy::apply_to_trafo is already compensated inside
-            // global_z_offset (via the belt_z_shift term in PrintObjectSlice.cpp).
-            // Snap was previously used here for the same purpose, but with both
-            // active the lift gets subtracted twice.  Clear any leftover snap
-            // state from a prior instance.
-            for (int a = 0; a < 3; ++a)
-                belt_writer->set_origin_snap(a, false, 0., 0.);
-        }
-
-        // Adjust origin: transform through belt forward pipeline so that
-        // the back-transform correctly recovers model-space positions.
-        Transform3d T = BeltTransformPipeline::build_forward_transform(m_config);
-        Vec2d cur_origin = this->origin();
-        Vec3d origin3d(cur_origin.x(), cur_origin.y(), 0.);
-        Vec3d adjusted = T.linear() * origin3d;
-        this->set_origin(Vec2d(adjusted.x(), adjusted.y()));
-        return;
-    }
-
-    if (!m_origin_snap[0] && !m_origin_snap[1] && !m_origin_snap[2])
+    if (!use_global || !m_config.belt_printer.value)
         return;
 
-    auto *belt_writer = dynamic_cast<BeltGCodeWriter*>(m_writer.get());
-    if (!belt_writer)
-        return;
-
-    // Clear existing snap so to_machine_coords gives raw machine coords for bbox computation.
-    for (int a = 0; a < 3; ++a)
-        belt_writer->set_origin_snap(a, false, 0., 0.);
-
-    // Reconstruct the belt pipeline transform for this object.
-    Transform3d belt = BeltTransformPipeline::build_forward_transform(m_config);
-
-    // Z-shift
-    double zs = (obj->belt_min_z() < 0.) ? -obj->belt_min_z() : 0.;
-    if (zs > 0.) {
-        Transform3d zsh = Transform3d::Identity();
-        zsh.matrix()(2, 3) = zs;
-        belt = zsh * belt;
-    }
-
-    // Full transform: belt * trafo_centered
-    Transform3d full = belt * obj->trafo_centered();
-
-    // Instance shift in slicer space + global Z offset
-    Vec3d shift(unscale<double>(inst_shift.x()),
-                unscale<double>(inst_shift.y()),
-                obj->belt_global_z_offset());
-
-    // Compute this instance's bbox min in the Cartesian frame (post back_transform
-    // + axis_remap, before machine_frame_transform).  Using to_cartesian instead of
-    // to_machine_coords ensures the 8 axis-aligned bbox corners coincide with the
-    // geometry's extreme points — a property that breaks under shear, which would
-    // mis-normalize non-cubic shapes (inverted cone, benchy) by their bbox-volume
-    // corners rather than their actual lowest geometry point.
-    BoundingBoxf3 bb = obj->model_object()->raw_bounding_box();
-    Vec3d mn = bb.min.cast<double>(), mx = bb.max.cast<double>();
-    Vec3d inst_min(std::numeric_limits<double>::max(),
-                   std::numeric_limits<double>::max(),
-                   std::numeric_limits<double>::max());
-    for (int i = 0; i < 8; ++i) {
-        Vec3d c((i & 1) ? mx.x() : mn.x(),
-                (i & 2) ? mx.y() : mn.y(),
-                (i & 4) ? mx.z() : mn.z());
-        Vec3d mc = belt_writer->to_cartesian(full * c + shift);
-        for (int a = 0; a < 3; ++a)
-            inst_min[a] = std::min(inst_min[a], mc[a]);
-    }
-
-    // Update writer snap for each enabled axis
-    for (int a = 0; a < 3; ++a)
-        belt_writer->set_origin_snap(a, m_origin_snap[a], m_origin_snap_offset[a], inst_min[a]);
+    // Adjust origin: transform through belt forward pipeline so that
+    // the back-transform correctly recovers model-space positions.
+    Transform3d T = BeltTransformPipeline::build_forward_transform(m_config);
+    Vec2d cur_origin = this->origin();
+    Vec3d origin3d(cur_origin.x(), cur_origin.y(), 0.);
+    Vec3d adjusted = T.linear() * origin3d;
+    this->set_origin(Vec2d(adjusted.x(), adjusted.y()));
 }
 
 } // namespace Slic3r
