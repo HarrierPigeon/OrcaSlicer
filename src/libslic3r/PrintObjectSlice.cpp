@@ -173,35 +173,10 @@ static std::vector<VolumeSlices> slice_volumes_inner(
     params_base.closing_radius = print_object_config.slice_closing_radius.value;
     params_base.extra_offset   = 0;
     params_base.trafo          = object_trafo;
-    // Standalone pre-slice axis remap (works without belt mode).
-    bool has_remap = BeltTransformPipeline::has_preslice_remap(print_config);
-    if (has_remap)
-        params_base.trafo = BeltTransformPipeline::build_preslice_remap(print_config) * params_base.trafo;
-    {
-        // Belt-specific transforms (shear, scale, z-shift) via strategy.
-        auto belt_strategy = BeltSliceStrategy::create(print_config);
-        if (belt_strategy)
-            belt_strategy->apply_to_trafo(params_base.trafo, model_volumes, has_remap, out_belt_min_z);
-    }
-    // If only remap (no belt), still need z-shift detection.
-    // Compose per-volume mv->get_matrix() so assembly volumes contribute their
-    // actual object-space positions — see the matching note in BeltSliceStrategy.
-    if (has_remap && !print_config.belt_printer.value) {
-        double min_z = std::numeric_limits<double>::max();
-        for (const ModelVolume *mv : model_volumes) {
-            if (!mv->is_model_part()) continue;
-            Transform3d vol_trafo = params_base.trafo * mv->get_matrix();
-            for (const stl_vertex &v : mv->mesh().its.vertices) {
-                Vec3d pt = vol_trafo * v.cast<double>();
-                min_z = std::min(min_z, pt.z());
-            }
-        }
-        if (min_z < 0. && min_z != std::numeric_limits<double>::max()) {
-            Transform3d z_shift = Transform3d::Identity();
-            z_shift.matrix()(2, 3) = -min_z;
-            params_base.trafo = z_shift * params_base.trafo;
-        }
-    }
+    // Pre-slice mesh transforms: axis remap (standalone — works without belt
+    // mode), belt rotation, and the per-object Z-shift.  Owned by BeltSliceStrategy
+    // so this belt/remap-specific logic stays out of the generic slicing pipeline.
+    BeltSliceStrategy::apply_preslice_transforms(params_base.trafo, print_config, model_volumes, out_belt_min_z);
     //BBS: 0.0025mm is safe enough to simplify the data to speed slicing up for high-resolution model.
     //Also has on influence on arc fitting which has default resolution 0.0125mm.
     params_base.resolution = print_config.resolution <= 0.001 ? 0.0f : 0.0025;
@@ -981,7 +956,7 @@ void PrintObject::slice()
 
             // Per-object Z-shift compensation, applied regardless of global mode.
             //
-            // BeltSliceStrategy::apply_to_trafo lifts the mesh by max(0, -m_belt_min_z)
+            // BeltSliceStrategy::apply_preslice_transforms lifts the mesh by max(0, -m_belt_min_z)
             // so the slicer can slice with slicer_z >= 0.  BeltBackTransform inverts
             // build_forward_transform() which DOES NOT include this per-object
             // Z-shift (it's not known until vertex scan time).  Result: G-code
