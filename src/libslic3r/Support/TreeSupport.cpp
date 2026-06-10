@@ -1796,8 +1796,7 @@ void TreeSupport::generate()
     {
         BeltFloorContext ctx;
         if (ctx.init(m_slicing_params, *m_print_config)
-            && m_print_config->belt_support_floor_mode.value == BeltSupportFloorMode::GeneratorOnly
-            && m_object->support_layer_count() > 0) {
+            && m_print_config->belt_support_floor_mode.value == BeltSupportFloorMode::GeneratorOnly) {
             const auto &sp = m_slicing_params;
             // Find the lowest non-empty, non-brim support layer.
             ExPolygons source_areas;
@@ -1825,11 +1824,28 @@ void TreeSupport::generate()
                     }
                 }
             }
+            // ORCA-Belt calibration: a counter-rotated calibration object
+            // stands on a support wedge that lies entirely below the object's
+            // first layer, where the tree pipeline has no layers at all — so
+            // no support content can exist yet. Seed the extension directly
+            // from the floating portion of the first layer (anything more
+            // than one layer height above the belt floor). For objects whose
+            // first layer rests on the belt the floating region is empty and
+            // behavior is unchanged.
+            double first_z = m_object->support_layer_count() > 0 ? m_object->get_support_layer(0)->print_z : 0.;
+            if (source_areas.empty() && m_object_config->enable_support.value && !m_object->layers().empty()) {
+                const Layer *first_layer = m_object->layers().front();
+                ExPolygons   floating    = diff_ex(first_layer->lslices_extrudable,
+                                                   ctx.surface_polygon(first_layer->bottom_z() - first_layer->height));
+                if (!floating.empty()) {
+                    source_areas = std::move(floating);
+                    first_z      = first_layer->bottom_z();
+                }
+            }
             if (!source_areas.empty()) {
                 BoundingBoxf3 bb = belt_remapped_bbox(*m_object->model_object(), m_object->print()->config());
                 double from_extent = std::abs(bb.min(ctx.from_axis()));
                 double bb_min_z    = std::abs(bb.min.z());
-                double first_z = m_object->get_support_layer(0)->print_z;
                 // Depth = from-axis extent + pre-shear bbox Z offset (ensure_on_bed
                 // distance) + 10mm safety margin.  The 10mm is a bodge to avoid
                 // small cutoff artifacts — ideally computed exactly from belt geometry.

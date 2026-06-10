@@ -12591,8 +12591,101 @@ void Plater::add_model(bool imperial_units, std::string fname)
     }
 }
 
+// ORCA-Belt: belt-printer handling for the desktop calibration tests.
+//
+// Belt slicing applies a global pre-slice rotation R(angle, axis) to every
+// mesh (see BeltTransform.hpp) so the slicing planes match the tilted gantry.
+// Calibration models are designed for upright slicing: their per-height test
+// bands and XY-plane quality features assume slicer Z is the model's own Z
+// axis. Counter-rotating each calibration object by the inverse rotation in
+// world space cancels the global rotation, so in slicing space the object
+// stands upright exactly as on a flat-bed printer and every test keeps its
+// designed meaning. Physically the object then leans over the belt with its
+// bottom face overhanging, so per-object supports fill the wedge between the
+// bottom face and the belt. The wedge prints entirely below the object's base
+// plane and leaves the test geometry untouched. Manual tree support is used
+// so the deliberate bridge/overhang features of the test models stay
+// unsupported; the wedge under the floating bottom face is built by the
+// belt-floor extension in TreeSupport::generate(), which stacks the floating
+// first-layer footprint down to the belt surface.
+static bool belt_calib_rotation_params(double& angle_rad, Vec3d& axis)
+{
+    const auto& printer_config = wxGetApp().preset_bundle->printers.get_edited_preset().config;
+    const auto* belt_opt = printer_config.option<ConfigOptionBool>("belt_printer");
+    if (belt_opt == nullptr || !belt_opt->value)
+        return false;
+    const auto* axis_opt  = printer_config.option<ConfigOptionEnum<BeltRotationAxis>>("belt_slice_rotation");
+    const auto* angle_opt = printer_config.option<ConfigOptionFloat>("belt_slice_rotation_angle");
+    if (axis_opt == nullptr || angle_opt == nullptr)
+        return false;
+    switch (axis_opt->value) {
+    case BeltRotationAxis::X: axis = Vec3d::UnitX(); break;
+    case BeltRotationAxis::Y: axis = Vec3d::UnitY(); break;
+    // Z rotation is an in-plane spin and None means no tilt; objects already
+    // slice upright in those cases and need no special handling.
+    default: return false;
+    }
+    angle_rad = -Geometry::deg2rad(angle_opt->value);
+    return std::abs(angle_rad) > EPSILON;
+}
+
+void Plater::_calib_apply_belt_mode()
+{
+    double angle_rad = 0.;
+    Vec3d  axis      = Vec3d::UnitX();
+    if (!belt_calib_rotation_params(angle_rad, axis))
+        return;
+
+    auto print_config = &wxGetApp().preset_bundle->prints.get_edited_preset().config;
+    // The support wedge is incompatible with spiral vase; the tests that
+    // request it already force single-wall, no-infill settings and stay
+    // readable without it.
+    print_config->set_key_value("spiral_mode", new ConfigOptionBool(false));
+    // A skirt would be drawn in the first slicing plane, which lies mostly
+    // above the belt surface.
+    print_config->set_key_value("skirt_loops", new ConfigOptionInt(0));
+
+    const Matrix3d cancel_rotation = Eigen::AngleAxisd(angle_rad, axis).toRotationMatrix();
+    std::vector<size_t> obj_idxs;
+    for (size_t i = 0; i < model().objects.size(); ++i) {
+        ModelObject* obj = model().objects[i];
+        obj_idxs.emplace_back(i);
+
+        // Manual tree support: only the floating bottom face gets a support
+        // wedge (via the belt-floor extension in TreeSupport::generate()),
+        // leaving the test features untouched. The style is pinned to hybrid
+        // because the default style resolves to organic, which bypasses the
+        // non-organic generator that hosts the belt-floor extension.
+        obj->config.set_key_value("enable_support", new ConfigOptionBool(true));
+        obj->config.set_key_value("support_type", new ConfigOptionEnum<SupportType>(stTree));
+        obj->config.set_key_value("support_style", new ConfigOptionEnum<SupportMaterialStyle>(smsTreeHybrid));
+        obj->config.set_key_value("support_on_build_plate_only", new ConfigOptionBool(false));
+
+        for (ModelInstance* inst : obj->instances)
+            inst->rotate(cancel_rotation);
+        obj->invalidate_bounding_box();
+        obj->ensure_on_bed();
+    }
+
+    wxGetApp().get_tab(Preset::TYPE_PRINT)->update_dirty();
+    wxGetApp().get_tab(Preset::TYPE_PRINT)->reload_config();
+    changed_objects(obj_idxs);
+}
+
 void Plater::calib_pa(const Calib_Params& params)
 {
+    // ORCA-Belt: PA Line / PA Pattern emit raw bed-plane G-code that bypasses
+    // the belt coordinate pipeline; only the sliced PA Tower is meaningful.
+    {
+        double angle_rad = 0.;
+        Vec3d  axis      = Vec3d::UnitX();
+        if (belt_calib_rotation_params(angle_rad, axis) && params.mode != CalibMode::Calib_PA_Tower) {
+            MessageDialog msg_dlg(nullptr, _L("PA Line and PA Pattern tests are not supported on belt printers.\nPlease use the PA Tower method instead."),
+                                  wxEmptyString, wxICON_WARNING | wxOK);
+            msg_dlg.ShowModal();
+            return;
+        }
+    }
     const auto calib_pa_name = wxString::Format(L"Pressure Advance Test");
     new_project(false, false, calib_pa_name);
     wxGetApp().mainframe->select_tab(size_t(MainFrame::tp3DEditor));
@@ -12924,6 +13017,7 @@ void Plater::_calib_pa_tower(const Calib_Params& params) {
         cut_horizontal(0, 0, new_height, ModelObjectCutAttribute::KeepLower);
     }
 
+    _calib_apply_belt_mode();
     _calib_pa_select_added_objects();
 }
 
@@ -13101,6 +13195,8 @@ void Plater::calib_flowrate(bool is_linear, int pass, InfillPattern pattern) {
     auto printer_config = &wxGetApp().preset_bundle->printers.get_edited_preset().config;
     printer_config->set_key_value("resonance_avoidance", new ConfigOptionBool{false});
 
+    _calib_apply_belt_mode();
+
     // Refresh object after scaling
     const std::vector<size_t> object_idx(boost::counting_iterator<size_t>(0), boost::counting_iterator<size_t>(model().objects.size()));
     changed_objects(object_idx);
@@ -13184,6 +13280,7 @@ void Plater::calib_temp(const Calib_Params& params) {
     wxGetApp().get_tab(Preset::TYPE_PRINT)->reload_config();
     wxGetApp().get_tab(Preset::TYPE_FILAMENT)->reload_config();
 
+    _calib_apply_belt_mode();
     p->background_process.fff_print()->set_calib_params(params);
 }
 
@@ -13253,6 +13350,8 @@ void Plater::calib_max_vol_speed(const Calib_Params& params)
         cut_horizontal(0, 0, height, ModelObjectCutAttribute::KeepLower);
     }
 
+    _calib_apply_belt_mode();
+
     auto new_params  = params;
     auto mm3_per_mm  = Flow(line_width, layer_height, nozzle_diameter).mm3_per_mm() * filament_config->option<ConfigOptionFloatsNullable>("filament_flow_ratio")->get_at(0);
     new_params.end   = params.end / mm3_per_mm;
@@ -13317,6 +13416,7 @@ void Plater::calib_retraction(const Calib_Params& params)
         cut_horizontal(0, 0, height, ModelObjectCutAttribute::KeepLower);
     }
 
+    _calib_apply_belt_mode();
     p->background_process.fff_print()->set_calib_params(params);
 }
 
@@ -13364,6 +13464,7 @@ void Plater::calib_VFA(const Calib_Params& params)
         cut_horizontal(0, 0, height, ModelObjectCutAttribute::KeepLower);
     }
 
+    _calib_apply_belt_mode();
     p->background_process.fff_print()->set_calib_params(params);
 }
 
@@ -13427,6 +13528,7 @@ void Plater::calib_input_shaping_freq(const Calib_Params& params)
     wxGetApp().get_tab(Preset::TYPE_PRINT)->update_ui_from_settings();
     wxGetApp().get_tab(Preset::TYPE_FILAMENT)->update_ui_from_settings();
 
+    _calib_apply_belt_mode();
     p->background_process.fff_print()->set_calib_params(params);
 }
 
@@ -13489,6 +13591,7 @@ void Plater::calib_input_shaping_damp(const Calib_Params& params)
     wxGetApp().get_tab(Preset::TYPE_PRINT)->update_ui_from_settings();
     wxGetApp().get_tab(Preset::TYPE_FILAMENT)->update_ui_from_settings();
 
+    _calib_apply_belt_mode();
     p->background_process.fff_print()->set_calib_params(params);
 }
 
@@ -13554,6 +13657,7 @@ void Plater::Calib_Cornering(const Calib_Params& params)
     wxGetApp().get_tab(Preset::TYPE_PRINT)->update_ui_from_settings();
     wxGetApp().get_tab(Preset::TYPE_FILAMENT)->update_ui_from_settings();
 
+    _calib_apply_belt_mode();
     p->background_process.fff_print()->set_calib_params(params);
 }
 

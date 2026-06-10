@@ -951,6 +951,7 @@ private:
     void _calib_pa_pattern_gen_gcode();
     void _calib_pa_tower(const Calib_Params& params);
     void _calib_pa_select_added_objects();
+    void _calib_apply_belt_mode();
 
     void cut_horizontal(size_t obj_idx, size_t instance_idx, double z, ModelObjectCutAttributes attributes);
 
