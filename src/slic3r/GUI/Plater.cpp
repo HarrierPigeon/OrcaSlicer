@@ -12680,9 +12680,17 @@ void Plater::_calib_apply_belt_mode()
         for (ModelVolume* v : obj->volumes) {
             TriangleMesh mesh = v->mesh();
             mesh.transform(bake * v->get_matrix(), true);
+            // Keep the mesh internally centered with the compensation in the
+            // volume offset. An uncentered mesh gets re-centered on load (and
+            // by GUI normalization) with the compensation pushed onto the
+            // INSTANCE — including Z — which the belt global transform
+            // mishandles (the object floats off the belt by sin(angle) times
+            // the residual).
+            const Vec3d center = mesh.bounding_box().center();
+            mesh.translate(-center.cast<float>());
             v->set_mesh(std::move(mesh));
             v->set_new_unique_id();
-            v->set_transformation(Geometry::Transformation());
+            v->set_transformation(Geometry::Transformation(Geometry::translation_transform(center)));
             v->calculate_convex_hull();
         }
         inst->set_transformation(Geometry::Transformation(Geometry::translation_transform(inst_xy)));
