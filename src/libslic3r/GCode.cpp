@@ -1822,6 +1822,12 @@ std::vector<GCode::LayerToPrint> GCode::collect_layers_to_print(const PrintObjec
             last_extrusion_layer = &layers_to_print.back();
     }
 
+    // ORCA-Belt: objects print at their position along the belt, so the first
+    // extrusions legitimately start far above Z=0. Drop the spurious
+    // "empty layers from the bed" range while keeping genuine mid-print gaps.
+    if (skip_empty_first_layer && !warning_ranges.empty() && warning_ranges.front().first == 0.)
+        warning_ranges.erase(warning_ranges.begin());
+
     if (! warning_ranges.empty()) {
         std::string warning;
         size_t i = 0;
@@ -4648,9 +4654,13 @@ LayerResult GCode::process_layer(
     // of the object so they keep their designed meaning; on regular printers
     // the object base is at Z=0 and calib_z == print_z.
     double calib_z = print_z;
-    if (m_config.belt_printer.value && !layer.object()->layers().empty()) {
-        const Layer* first_object_layer = layer.object()->layers().front();
-        calib_z = print_z - (first_object_layer->print_z - first_object_layer->height);
+    if (m_config.belt_printer.value) {
+        // Skip empty ghost layers the grid may produce below the object.
+        for (const Layer* l : layer.object()->layers())
+            if (!l->lslices.empty()) {
+                calib_z = print_z - (l->print_z - l->height);
+                break;
+            }
     }
     switch (print.calib_mode()) {
         case CalibMode::Calib_PA_Tower: {
@@ -7420,9 +7430,12 @@ float GCode::interpolate_value_across_layers(float start_value, float end_value,
     // interpolation. Use the object's own Z span instead, so the value ramps
     // across the test geometry only.
     if (m_config.belt_printer.value && m_layer != nullptr && !m_layer->object()->layers().empty()) {
-        const auto&  layers = m_layer->object()->layers();
-        const double z_min  = layers.front()->print_z;
-        const double z_max  = layers.back()->print_z;
+        const auto& layers = m_layer->object()->layers();
+        // Skip empty ghost layers the grid may produce below the object.
+        double z_min = layers.front()->print_z;
+        for (const Layer* l : layers)
+            if (!l->lslices.empty()) { z_min = l->print_z; break; }
+        const double z_max = layers.back()->print_z;
         if (m_layer->print_z <= z_min + EPSILON || z_max - z_min <= EPSILON)
             return start_value;
         ratio = float(std::min(1.0, (m_layer->print_z - z_min) / (z_max - z_min)));

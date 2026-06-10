@@ -12660,11 +12660,32 @@ void Plater::_calib_apply_belt_mode()
         obj->config.set_key_value("support_type", new ConfigOptionEnum<SupportType>(stTree));
         obj->config.set_key_value("support_style", new ConfigOptionEnum<SupportMaterialStyle>(smsTreeHybrid));
         obj->config.set_key_value("support_on_build_plate_only", new ConfigOptionBool(false));
+        // With the default base pattern, tree support base areas print as
+        // hollow outlines (no infill) — the wedge needs a real pattern.
+        obj->config.set_key_value("support_base_pattern", new ConfigOptionEnum<SupportMaterialPattern>(smpRectilinear));
 
         for (ModelInstance* inst : obj->instances)
             inst->rotate(cancel_rotation);
         obj->invalidate_bounding_box();
         obj->ensure_on_bed();
+
+        // ensure_on_bed() drops the object via the instance Z offset, but the
+        // belt global transform mishandles non-zero instance Z (it couples
+        // into the belt-feed axis through the global rotation and the object
+        // ends up floating above the belt). Fold the drop into the volume
+        // offsets instead and keep the instance Z at zero.
+        if (obj->instances.size() == 1) {
+            ModelInstance* inst   = obj->instances.front();
+            const double   inst_z = inst->get_offset(Z);
+            if (std::abs(inst_z) > EPSILON) {
+                const Matrix3d lin       = inst->get_transformation().get_matrix().linear();
+                const Vec3d    delta_vol = lin.inverse() * Vec3d(0., 0., inst_z);
+                for (ModelVolume* v : obj->volumes)
+                    v->set_offset(v->get_offset() + delta_vol);
+                inst->set_offset(Z, 0.);
+                obj->invalidate_bounding_box();
+            }
+        }
     }
 
     wxGetApp().get_tab(Preset::TYPE_PRINT)->update_dirty();
