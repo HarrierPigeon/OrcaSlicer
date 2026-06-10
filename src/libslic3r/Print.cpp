@@ -1459,6 +1459,28 @@ StringObjectException Print::validate(std::vector<StringObjectException> *warnin
     // Checks that the print does not exceed the max print height
     for (size_t print_object_idx = 0; print_object_idx < m_objects.size(); ++ print_object_idx) {
         const PrintObject &print_object = *m_objects[print_object_idx];
+        // Belt printer: the sliced (virtual) Z is belt travel along the conveyor, not
+        // build height, so the loop below (which measures the sliced layer stack) is
+        // meaningless here. The real ceiling is the usable vertical clearance above the
+        // belt, which printable_height holds directly: the gantry travels up the tilted
+        // plane, so a part of height z needs gantry reach z / cos(tilt), and the machine's
+        // gantry-axis range is sized to accommodate that (e.g. IdeaFormer IR3 V2: ~354 mm
+        // of gantry travel = 250 mm vertical at 45°, and printable_height = 250). So compare
+        // the upright object height against printable_height directly.
+        if (m_config.belt_printer.value) {
+            const double max_h = m_config.printable_height.value;
+            double obj_top = 0.0;
+            const ModelObject *mo = print_object.model_object();
+            for (const ModelInstance *mi : mo->instances)
+                obj_top = std::max(obj_top, mo->instance_bounding_box(*mi).max.z());
+            if (obj_top > max_h + EPSILON)
+                return StringObjectException{
+                    Slic3r::format(_u8L("The object %1% exceeds the maximum printable height "
+                        "above the belt (%2% mm)."),
+                        print_object.model_object()->name, max_h),
+                    print_object.model_object(), "" };
+            continue;
+        }
         //FIXME It is quite expensive to generate object layers just to get the print height!
         if (auto layers = generate_object_layers(print_object.slicing_parameters(), layer_height_profile(print_object_idx), print_object.config().precise_z_height.value);
             !layers.empty()) {

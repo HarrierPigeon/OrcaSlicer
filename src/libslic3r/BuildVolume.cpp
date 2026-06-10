@@ -193,12 +193,11 @@ void BuildVolume::set_belt_printer(bool enabled, double angle_deg, bool infinite
             // Extend the Y bound to a very large value for infinite belt.
             m_bboxf.max.y() = 100000.;
         }
-        // Adjust max print height to diagonal reach: printable_height / sin(belt_angle).
-        if (angle_deg > 0. && angle_deg < 90.) {
-            double sin_a = std::sin(angle_deg * M_PI / 180.0);
-            if (sin_a > 0.)
-                m_bboxf.max.z() = m_max_print_height / sin_a;
-        }
+        // Belt printer: the Z extent already equals printable_height (set above), which
+        // is the usable vertical clearance above the belt. The gantry's axis range is
+        // sized to reach height/cos(tilt), so no diagonal scaling is applied here — this
+        // keeps the live "outside build volume" highlight in agreement with Print::validate().
+        (void) angle_deg;
     }
 }
 
