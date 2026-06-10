@@ -12666,42 +12666,27 @@ void Plater::_calib_apply_belt_mode()
         // hollow outlines (no infill) — the wedge needs a real pattern.
         obj->config.set_key_value("support_base_pattern", new ConfigOptionEnum<SupportMaterialPattern>(smpRectilinear));
 
-        // The belt global transform only handles plain XY-translated instances
-        // correctly: a rotation or Z offset on the instance makes the sliced
-        // object float off the belt by a geometry-dependent amount. Bake the
-        // counter-rotation and the whole instance transform (minus its XY
-        // position) into the volume meshes, leaving identity volumes and an
-        // XY-only instance — the same topology as any normally placed object.
-        ModelInstance* inst   = obj->instances.front();
-        Transform3d    inst_m = inst->get_transformation().get_matrix();
-        const Vec3d    inst_xy(inst_m.translation().x(), inst_m.translation().y(), 0.);
-        inst_m.translation() -= inst_xy;
-        const Transform3d bake = cancel_rotation * inst_m;
-        for (ModelVolume* v : obj->volumes) {
-            TriangleMesh mesh = v->mesh();
-            mesh.transform(bake * v->get_matrix(), true);
-            // Keep the mesh internally centered with the compensation in the
-            // volume offset. An uncentered mesh gets re-centered on load (and
-            // by GUI normalization) with the compensation pushed onto the
-            // INSTANCE — including Z — which the belt global transform
-            // mishandles (the object floats off the belt by sin(angle) times
-            // the residual).
-            const Vec3d center = mesh.bounding_box().center();
-            mesh.translate(-center.cast<float>());
-            v->set_mesh(std::move(mesh));
-            v->set_new_unique_id();
-            v->set_transformation(Geometry::Transformation(Geometry::translation_transform(center)));
-            v->calculate_convex_hull();
-        }
-        inst->set_transformation(Geometry::Transformation(Geometry::translation_transform(inst_xy)));
+        // Counter-rotate exactly the way the rotate gizmo would: rotation on
+        // the instance, then a plain drop to the bed. This leaves the object
+        // in the same state shape as any manually rotated object, which the
+        // belt pipeline is known to handle.
+        ModelInstance* inst = obj->instances.front();
+        inst->rotate(cancel_rotation.linear());
         obj->invalidate_bounding_box();
+        obj->ensure_on_bed();
 
-        // Sit on the belt. The drop must not go through the instance Z offset
-        // (see above) — translate the volumes instead.
-        const double min_z = obj->min_z();
-        if (std::abs(min_z) > EPSILON) {
-            obj->translate(0., 0., -min_z);
-            obj->invalidate_bounding_box();
+        {
+            const BoundingBoxf3 rb = obj->raw_bounding_box();
+            const Vec3d         io = inst->get_offset();
+            const Vec3d         ir = inst->get_rotation();
+            BOOST_LOG_TRIVIAL(warning) << "[BELT-CALIB] helper exit: obj=" << obj->name
+                << " inst_offset=(" << io.x() << "," << io.y() << "," << io.z() << ")"
+                << " inst_rot=(" << ir.x() << "," << ir.y() << "," << ir.z() << ")"
+                << " vol0_offset=(" << obj->volumes.front()->get_offset().x() << ","
+                << obj->volumes.front()->get_offset().y() << "," << obj->volumes.front()->get_offset().z() << ")"
+                << " raw_bbox=(" << rb.min.x() << "," << rb.min.y() << "," << rb.min.z()
+                << ")..(" << rb.max.x() << "," << rb.max.y() << "," << rb.max.z() << ")"
+                << " min_z=" << obj->min_z();
         }
     }
 
