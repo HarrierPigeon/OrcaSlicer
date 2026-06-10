@@ -12679,7 +12679,7 @@ void Plater::_calib_apply_belt_mode()
             const BoundingBoxf3 rb = obj->raw_bounding_box();
             const Vec3d         io = inst->get_offset();
             const Vec3d         ir = inst->get_rotation();
-            BOOST_LOG_TRIVIAL(warning) << "[BELT-CALIB] helper exit: obj=" << obj->name
+            BOOST_LOG_TRIVIAL(debug) << "[BELT-CALIB] helper exit: obj=" << obj->name
                 << " inst_offset=(" << io.x() << "," << io.y() << "," << io.z() << ")"
                 << " inst_rot=(" << ir.x() << "," << ir.y() << "," << ir.z() << ")"
                 << " vol0_offset=(" << obj->volumes.front()->get_offset().x() << ","
