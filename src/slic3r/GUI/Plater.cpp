@@ -12741,18 +12741,6 @@ void Plater::_calib_apply_belt_mode()
 
 void Plater::calib_pa(const Calib_Params& params)
 {
-    // ORCA-Belt: PA Line / PA Pattern emit raw bed-plane G-code that bypasses
-    // the belt coordinate pipeline; only the sliced PA Tower is meaningful.
-    {
-        double angle_rad = 0.;
-        Vec3d  axis      = Vec3d::UnitX();
-        if (belt_calib_rotation_params(angle_rad, axis) && params.mode != CalibMode::Calib_PA_Tower) {
-            MessageDialog msg_dlg(nullptr, _L("PA Line and PA Pattern tests are not supported on belt printers.\nPlease use the PA Tower method instead."),
-                                  wxEmptyString, wxICON_WARNING | wxOK);
-            msg_dlg.ShowModal();
-            return;
-        }
-    }
     const auto calib_pa_name = wxString::Format(L"Pressure Advance Test");
     new_project(false, false, calib_pa_name);
     wxGetApp().mainframe->select_tab(size_t(MainFrame::tp3DEditor));

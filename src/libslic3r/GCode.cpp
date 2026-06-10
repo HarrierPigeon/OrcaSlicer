@@ -3301,7 +3301,16 @@ void GCode::_do_export(Print& print, GCodeOutputStream &file, ThumbnailsGenerato
 
         pa_test.set_speed(fast_speed, slow_speed);
         pa_test.draw_numbers() = print.calib_params().print_numbers;
+
+        // ORCA-Belt: the PA line test draws directly on the build surface in
+        // logical bed coordinates — on a belt printer that surface is the
+        // belt plane, not the slicing plane.
+        BeltGCodeWriter* belt_writer = dynamic_cast<BeltGCodeWriter*>(m_writer.get());
+        if (belt_writer != nullptr)
+            belt_writer->set_world_coordinates(true);
         gcode += pa_test.generate_test(params.start, params.step, std::llround(std::ceil((params.end - params.start) / params.step)) + 1);
+        if (belt_writer != nullptr)
+            belt_writer->set_world_coordinates(false);
 
         file.write(gcode);
     } else {
