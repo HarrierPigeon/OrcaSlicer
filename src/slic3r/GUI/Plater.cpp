@@ -12699,8 +12699,9 @@ void Plater::_calib_apply_belt_mode()
 
     // Each object's support wedge extends upstream of it by roughly its own
     // depth (at 45°), so the tight flat-bed layouts of the multi-part tests
-    // leave wedges intersecting the neighbouring parts. Re-space the objects
-    // along the belt with room for the wedge shadow.
+    // leave wedges intersecting the neighbouring parts. Keep the grid rows of
+    // the test layouts together and open up the space between rows just
+    // enough for the wedge shadow.
     if (obj_idxs.size() > 1) {
         std::vector<ModelObject*> sorted_objs;
         sorted_objs.reserve(obj_idxs.size());
@@ -12709,14 +12710,34 @@ void Plater::_calib_apply_belt_mode()
         std::sort(sorted_objs.begin(), sorted_objs.end(), [](const ModelObject* a, const ModelObject* b) {
             return a->instances.front()->get_offset(Y) < b->instances.front()->get_offset(Y);
         });
-        const double wedge_factor = std::abs(std::tan(angle_rad));
-        double       cursor       = sorted_objs.front()->instance_bounding_box(0).min.y();
+        std::vector<std::vector<ModelObject*>> rows;
+        double row_y = std::numeric_limits<double>::quiet_NaN();
         for (ModelObject* o : sorted_objs) {
-            const BoundingBoxf3 bb   = o->instance_bounding_box(0);
-            ModelInstance*      inst = o->instances.front();
-            inst->set_offset(Y, inst->get_offset(Y) + (cursor - bb.min.y()));
-            o->invalidate_bounding_box();
-            cursor += bb.size().y() * (1. + wedge_factor) + 5.;
+            const double oy = o->instances.front()->get_offset(Y);
+            if (rows.empty() || oy - row_y > 1.)
+                rows.emplace_back();
+            rows.back().emplace_back(o);
+            row_y = oy;
+        }
+        const double wedge_factor = std::abs(std::tan(angle_rad));
+        double       cursor       = std::numeric_limits<double>::quiet_NaN();
+        for (std::vector<ModelObject*>& row : rows) {
+            double rmin = std::numeric_limits<double>::max();
+            double rmax = std::numeric_limits<double>::lowest();
+            for (ModelObject* o : row) {
+                const BoundingBoxf3 bb = o->instance_bounding_box(0);
+                rmin = std::min(rmin, bb.min.y());
+                rmax = std::max(rmax, bb.max.y());
+            }
+            if (std::isnan(cursor))
+                cursor = rmin; // the first row anchors the layout
+            const double shift = cursor - rmin;
+            for (ModelObject* o : row) {
+                ModelInstance* inst = o->instances.front();
+                inst->set_offset(Y, inst->get_offset(Y) + shift);
+                o->invalidate_bounding_box();
+            }
+            cursor += (rmax - rmin) * (1. + wedge_factor) + 5.;
         }
     }
 
