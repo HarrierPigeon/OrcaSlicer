@@ -12645,10 +12645,12 @@ void Plater::_calib_apply_belt_mode()
     // above the belt surface.
     print_config->set_key_value("skirt_loops", new ConfigOptionInt(0));
 
-    const Matrix3d cancel_rotation = Eigen::AngleAxisd(angle_rad, axis).toRotationMatrix();
+    const Transform3d cancel_rotation(Eigen::AngleAxisd(angle_rad, axis).toRotationMatrix());
     std::vector<size_t> obj_idxs;
     for (size_t i = 0; i < model().objects.size(); ++i) {
         ModelObject* obj = model().objects[i];
+        if (obj->instances.size() != 1)
+            continue;
         obj_idxs.emplace_back(i);
 
         // Manual tree support: only the floating bottom face gets a support
@@ -12664,27 +12666,57 @@ void Plater::_calib_apply_belt_mode()
         // hollow outlines (no infill) — the wedge needs a real pattern.
         obj->config.set_key_value("support_base_pattern", new ConfigOptionEnum<SupportMaterialPattern>(smpRectilinear));
 
-        for (ModelInstance* inst : obj->instances)
-            inst->rotate(cancel_rotation);
+        // The belt global transform only handles plain XY-translated instances
+        // correctly: a rotation or Z offset on the instance makes the sliced
+        // object float off the belt by a geometry-dependent amount. Bake the
+        // counter-rotation and the whole instance transform (minus its XY
+        // position) into the volume meshes, leaving identity volumes and an
+        // XY-only instance — the same topology as any normally placed object.
+        ModelInstance* inst   = obj->instances.front();
+        Transform3d    inst_m = inst->get_transformation().get_matrix();
+        const Vec3d    inst_xy(inst_m.translation().x(), inst_m.translation().y(), 0.);
+        inst_m.translation() -= inst_xy;
+        const Transform3d bake = cancel_rotation * inst_m;
+        for (ModelVolume* v : obj->volumes) {
+            TriangleMesh mesh = v->mesh();
+            mesh.transform(bake * v->get_matrix(), true);
+            v->set_mesh(std::move(mesh));
+            v->set_new_unique_id();
+            v->set_transformation(Geometry::Transformation());
+            v->calculate_convex_hull();
+        }
+        inst->set_transformation(Geometry::Transformation(Geometry::translation_transform(inst_xy)));
         obj->invalidate_bounding_box();
-        obj->ensure_on_bed();
 
-        // ensure_on_bed() drops the object via the instance Z offset, but the
-        // belt global transform mishandles non-zero instance Z (it couples
-        // into the belt-feed axis through the global rotation and the object
-        // ends up floating above the belt). Fold the drop into the volume
-        // offsets instead and keep the instance Z at zero.
-        if (obj->instances.size() == 1) {
-            ModelInstance* inst   = obj->instances.front();
-            const double   inst_z = inst->get_offset(Z);
-            if (std::abs(inst_z) > EPSILON) {
-                const Matrix3d lin       = inst->get_transformation().get_matrix().linear();
-                const Vec3d    delta_vol = lin.inverse() * Vec3d(0., 0., inst_z);
-                for (ModelVolume* v : obj->volumes)
-                    v->set_offset(v->get_offset() + delta_vol);
-                inst->set_offset(Z, 0.);
-                obj->invalidate_bounding_box();
-            }
+        // Sit on the belt. The drop must not go through the instance Z offset
+        // (see above) — translate the volumes instead.
+        const double min_z = obj->min_z();
+        if (std::abs(min_z) > EPSILON) {
+            obj->translate(0., 0., -min_z);
+            obj->invalidate_bounding_box();
+        }
+    }
+
+    // Each object's support wedge extends upstream of it by roughly its own
+    // depth (at 45°), so the tight flat-bed layouts of the multi-part tests
+    // leave wedges intersecting the neighbouring parts. Re-space the objects
+    // along the belt with room for the wedge shadow.
+    if (obj_idxs.size() > 1) {
+        std::vector<ModelObject*> sorted_objs;
+        sorted_objs.reserve(obj_idxs.size());
+        for (size_t i : obj_idxs)
+            sorted_objs.emplace_back(model().objects[i]);
+        std::sort(sorted_objs.begin(), sorted_objs.end(), [](const ModelObject* a, const ModelObject* b) {
+            return a->instances.front()->get_offset(Y) < b->instances.front()->get_offset(Y);
+        });
+        const double wedge_factor = std::abs(std::tan(angle_rad));
+        double       cursor       = sorted_objs.front()->instance_bounding_box(0).min.y();
+        for (ModelObject* o : sorted_objs) {
+            const BoundingBoxf3 bb   = o->instance_bounding_box(0);
+            ModelInstance*      inst = o->instances.front();
+            inst->set_offset(Y, inst->get_offset(Y) + (cursor - bb.min.y()));
+            o->invalidate_bounding_box();
+            cursor += bb.size().y() * (1. + wedge_factor) + 5.;
         }
     }
 
@@ -13498,6 +13530,15 @@ void Plater::calib_input_shaping_freq(const Calib_Params& params)
         return;
 
     add_model(false, Slic3r::resources_dir() + (params.test_model < 1 ? "/calib/input_shaping/ringing_tower.drc" : "/calib/input_shaping/fast_tower_test.drc"));
+    // ORCA-Belt: flip the ringing tower 180° about Z before the belt
+    // counter-rotation — its sloped face then leans over the belt and the
+    // support wedge gets much smaller.
+    {
+        double belt_angle_rad = 0.;
+        Vec3d  belt_axis      = Vec3d::UnitX();
+        if (params.test_model < 1 && belt_calib_rotation_params(belt_angle_rad, belt_axis))
+            model().objects[0]->rotate(M_PI, Vec3d::UnitZ());
+    }
     auto print_config = &wxGetApp().preset_bundle->prints.get_edited_preset().config;
     auto filament_config = &wxGetApp().preset_bundle->filaments.get_edited_preset().config;
     auto printer_config  = &wxGetApp().preset_bundle->printers.get_edited_preset().config;
@@ -13562,6 +13603,15 @@ void Plater::calib_input_shaping_damp(const Calib_Params& params)
         return;
 
     add_model(false, Slic3r::resources_dir() + (params.test_model < 1 ? "/calib/input_shaping/ringing_tower.drc" : "/calib/input_shaping/fast_tower_test.drc"));
+    // ORCA-Belt: flip the ringing tower 180° about Z before the belt
+    // counter-rotation — its sloped face then leans over the belt and the
+    // support wedge gets much smaller.
+    {
+        double belt_angle_rad = 0.;
+        Vec3d  belt_axis      = Vec3d::UnitX();
+        if (params.test_model < 1 && belt_calib_rotation_params(belt_angle_rad, belt_axis))
+            model().objects[0]->rotate(M_PI, Vec3d::UnitZ());
+    }
     auto print_config = &wxGetApp().preset_bundle->prints.get_edited_preset().config;
     auto filament_config = &wxGetApp().preset_bundle->filaments.get_edited_preset().config;
     auto printer_config  = &wxGetApp().preset_bundle->printers.get_edited_preset().config;
@@ -13628,6 +13678,15 @@ void Plater::Calib_Cornering(const Calib_Params& params)
         ? "/calib/input_shaping/ringing_tower.drc"
         : (params.test_model == 1 ? "/calib/input_shaping/fast_tower_test.drc" : "/calib/cornering/SCV-V2.drc");
     add_model(false, Slic3r::resources_dir() + cornering_model_path);
+    // ORCA-Belt: flip the ringing tower 180° about Z before the belt
+    // counter-rotation — its sloped face then leans over the belt and the
+    // support wedge gets much smaller.
+    {
+        double belt_angle_rad = 0.;
+        Vec3d  belt_axis      = Vec3d::UnitX();
+        if (params.test_model == 0 && belt_calib_rotation_params(belt_angle_rad, belt_axis))
+            model().objects[0]->rotate(M_PI, Vec3d::UnitZ());
+    }
     auto print_config = &wxGetApp().preset_bundle->prints.get_edited_preset().config;
     auto filament_config = &wxGetApp().preset_bundle->filaments.get_edited_preset().config;
     auto printer_config  = &wxGetApp().preset_bundle->printers.get_edited_preset().config;
