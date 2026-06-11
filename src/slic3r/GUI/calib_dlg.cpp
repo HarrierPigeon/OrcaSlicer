@@ -78,6 +78,19 @@ std::vector<wxString> make_shaper_type_labels()
     return labels;
 }
 
+// ORCA-Belt: PA Line / PA Pattern have belt plumbing in place (drawn on the
+// belt surface via BeltGCodeWriter world-coordinates mode) but are not
+// validated yet — belt printers are restricted to the PA Tower for now.
+bool is_belt_printer_selected()
+{
+    if (auto* preset_bundle = wxGetApp().preset_bundle) {
+        const auto& cfg = preset_bundle->printers.get_edited_preset().config;
+        const auto* opt = cfg.option<ConfigOptionBool>("belt_printer");
+        return opt != nullptr && opt->value;
+    }
+    return false;
+}
+
 }
 
 PA_Calibration_Dlg::PA_Calibration_Dlg(wxWindow* parent, wxWindowID id, Plater* plater)
@@ -288,6 +301,14 @@ void PA_Calibration_Dlg::on_start(wxCommandEvent& event) {
             m_params.mode = CalibMode::Calib_PA_Tower;
     }
 
+    // ORCA-Belt: backstop in case the selection slipped past the UI guards.
+    if (is_belt_printer_selected() && m_params.mode != CalibMode::Calib_PA_Tower) {
+        MessageDialog msg_dlg(nullptr, _L("PA Line and PA Pattern tests are not enabled yet on belt printers.\nPlease use the PA Tower method instead."),
+                              wxEmptyString, wxICON_WARNING | wxOK);
+        msg_dlg.ShowModal();
+        return;
+    }
+
     m_params.print_numbers = m_cbPrintNum->GetValue();
     ParseStringValues(m_tiBMAccels->GetTextCtrl()->GetValue().ToStdString(), m_params.accelerations);
     ParseStringValues(m_tiBMSpeeds->GetTextCtrl()->GetValue().ToStdString(), m_params.speeds);
@@ -314,6 +335,9 @@ void PA_Calibration_Dlg::on_extruder_type_changed(wxCommandEvent& event) {
     event.Skip();
 }
 void PA_Calibration_Dlg::on_method_changed(wxCommandEvent& event) {
+    // ORCA-Belt: only the PA Tower method is enabled on belt printers so far.
+    if (is_belt_printer_selected() && m_rbMethod->GetSelection() != 0)
+        m_rbMethod->SetSelection(0, true);
     PA_Calibration_Dlg::reset_params();
     event.Skip();
 }
@@ -324,6 +348,17 @@ void PA_Calibration_Dlg::on_dpi_changed(const wxRect& suggested_rect) {
 }
 
 void PA_Calibration_Dlg::on_show(wxShowEvent& event) {
+    // ORCA-Belt: the dialog is cached across printer switches, so refresh the
+    // belt restriction on every show.
+    if (is_belt_printer_selected()) {
+        m_rbMethod->SetSelection(0);
+        const wxString tip = _L("Not enabled yet on belt printers — use the PA Tower method instead.");
+        m_rbMethod->SetRadioTooltip(1, tip);
+        m_rbMethod->SetRadioTooltip(2, tip);
+    } else {
+        m_rbMethod->SetRadioTooltip(1, wxEmptyString);
+        m_rbMethod->SetRadioTooltip(2, wxEmptyString);
+    }
     PA_Calibration_Dlg::reset_params();
 }
 

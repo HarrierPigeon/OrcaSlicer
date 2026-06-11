@@ -12637,10 +12637,11 @@ void Plater::_calib_apply_belt_mode()
         return;
 
     auto print_config = &wxGetApp().preset_bundle->prints.get_edited_preset().config;
-    // The support wedge is incompatible with spiral vase; the tests that
-    // request it already force single-wall, no-infill settings and stay
-    // readable without it.
-    print_config->set_key_value("spiral_mode", new ConfigOptionBool(false));
+    // Spiral vase stays enabled where the tests request it: the support wedge
+    // lies strictly below the object, support layers never spiralize
+    // (spiral_vase_enable requires an object layer), and the spiral/support
+    // exclusivity check only applies to globally enabled supports — the wedge
+    // uses per-object supports.
     // A skirt would be drawn in the first slicing plane, which lies mostly
     // above the belt surface.
     print_config->set_key_value("skirt_loops", new ConfigOptionInt(0));
@@ -12741,6 +12742,19 @@ void Plater::_calib_apply_belt_mode()
 
 void Plater::calib_pa(const Calib_Params& params)
 {
+    // ORCA-Belt: PA Line / PA Pattern have the belt plumbing in place
+    // (BeltGCodeWriter::set_world_coordinates draws them on the belt surface)
+    // but are not validated yet — keep them gated to the PA Tower for now.
+    {
+        double angle_rad = 0.;
+        Vec3d  axis      = Vec3d::UnitX();
+        if (belt_calib_rotation_params(angle_rad, axis) && params.mode != CalibMode::Calib_PA_Tower) {
+            MessageDialog msg_dlg(nullptr, _L("PA Line and PA Pattern tests are not enabled yet on belt printers.\nPlease use the PA Tower method instead."),
+                                  wxEmptyString, wxICON_WARNING | wxOK);
+            msg_dlg.ShowModal();
+            return;
+        }
+    }
     const auto calib_pa_name = wxString::Format(L"Pressure Advance Test");
     new_project(false, false, calib_pa_name);
     wxGetApp().mainframe->select_tab(size_t(MainFrame::tp3DEditor));
