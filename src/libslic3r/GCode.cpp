@@ -4677,7 +4677,18 @@ LayerResult GCode::process_layer(
             break;
         }
         case CalibMode::Calib_Temp_Tower: {
-            gcode += writer().set_temperature(this->interpolate_value_across_layers(static_cast<float>(print.calib_params().start), static_cast<float>(print.calib_params().end), 5.0f));
+            // ORCA-Belt: the sectioned variant prints each temperature as its
+            // own object in native belt orientation, with the temperature
+            // encoded in the object name ("temp_230") — step per object
+            // instead of ramping per layer band.
+            int sectioned_temp = 0;
+            if (m_config.belt_printer.value &&
+                sscanf(layer.object()->model_object()->name.c_str(), "temp_%d", &sectioned_temp) == 1 &&
+                sectioned_temp > 0) {
+                gcode += writer().set_temperature(static_cast<unsigned int>(sectioned_temp));
+            } else {
+                gcode += writer().set_temperature(this->interpolate_value_across_layers(static_cast<float>(print.calib_params().start), static_cast<float>(print.calib_params().end), 5.0f));
+            }
             break;
         }
         case CalibMode::Calib_VFA_Tower: {

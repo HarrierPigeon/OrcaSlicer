@@ -13268,7 +13268,19 @@ void Plater::calib_temp(const Calib_Params& params) {
     wxGetApp().mainframe->select_tab(size_t(MainFrame::tp3DEditor));
     if (params.mode != CalibMode::Calib_Temp_Tower)
         return;
-    
+
+    // ORCA-Belt: a counter-rotated tower would cantilever every block off a
+    // support wedge — print the temperature blocks as separate objects in
+    // native belt orientation instead.
+    {
+        double belt_angle_rad = 0.;
+        Vec3d  belt_axis      = Vec3d::UnitX();
+        if (belt_calib_rotation_params(belt_angle_rad, belt_axis)) {
+            _calib_temp_belt_sectioned(params, std::abs(belt_angle_rad));
+            return;
+        }
+    }
+
     add_model(false, Slic3r::resources_dir() + "/calib/temperature_tower/temperature_tower.drc");
     auto printer_config = &wxGetApp().preset_bundle->printers.get_edited_preset().config;
     auto filament_config = &wxGetApp().preset_bundle->filaments.get_edited_preset().config;
@@ -13335,7 +13347,104 @@ void Plater::calib_temp(const Calib_Params& params) {
     wxGetApp().get_tab(Preset::TYPE_PRINT)->reload_config();
     wxGetApp().get_tab(Preset::TYPE_FILAMENT)->reload_config();
 
-    _calib_apply_belt_mode();
+    p->background_process.fff_print()->set_calib_params(params);
+}
+
+// ORCA-Belt: sectioned temperature test. Each temperature gets its own block
+// cut out of the temperature tower model, printed in native belt orientation
+// (no counter-rotation, no support wedge) and spaced along the belt so the
+// blocks' layer ranges are disjoint — they print strictly one after another,
+// starting with the start temperature closest to the gantry. The temperature
+// is encoded in the object name ("temp_230") and applied per object by the
+// Calib_Temp_Tower handler at G-code time, replacing the per-layer-band ramp
+// that only makes sense for a monolithic upright tower.
+void Plater::_calib_temp_belt_sectioned(const Calib_Params& params, double belt_angle_rad)
+{
+    constexpr double base_temp_tower_nozzle_diameter = 0.4;
+    constexpr double base_temp_tower_block_height = 10.0;
+    constexpr int base_temp_tower_temp_step = 5;
+
+    auto printer_config  = &wxGetApp().preset_bundle->printers.get_edited_preset().config;
+    auto filament_config = &wxGetApp().preset_bundle->filaments.get_edited_preset().config;
+    auto print_config    = &wxGetApp().preset_bundle->prints.get_edited_preset().config;
+
+    const long start_temp = lround(params.start);
+    const long end_temp   = lround(params.end);
+    const int  n_blocks   = std::max(1, int((start_temp - end_temp) / base_temp_tower_temp_step) + 1);
+
+    const ConfigOptionFloats* nozzle_diameter_config = printer_config->option<ConfigOptionFloats>("nozzle_diameter");
+    size_t nozzle_id = static_cast<size_t>(std::max(params.extruder_id, 0));
+    double nozzle_diameter = base_temp_tower_nozzle_diameter;
+    if (nozzle_diameter_config && !nozzle_diameter_config->values.empty()) {
+        nozzle_id = std::min(nozzle_id, nozzle_diameter_config->values.size() - 1);
+        nozzle_diameter = nozzle_diameter_config->values[nozzle_id];
+    }
+    if (nozzle_diameter <= 0.0)
+        nozzle_diameter = base_temp_tower_nozzle_diameter;
+    const double nozzle_scale = nozzle_diameter / base_temp_tower_nozzle_diameter;
+
+    std::vector<size_t> obj_idxs;
+    for (int i = 0; i < n_blocks; ++i) {
+        const long temp = start_temp - long(i) * base_temp_tower_temp_step;
+        add_model(false, Slic3r::resources_dir() + "/calib/temperature_tower/temperature_tower.drc");
+        // The cut replaces the object at the END of the list, so re-acquire
+        // the index after every operation.
+        size_t obj_idx = model().objects.size() - 1;
+
+        // Isolate this temperature's block (full-tower coordinates, the same
+        // 500-down-to-temp indexing the monolithic flow cuts with).
+        const double block_bottom = double(lround(double(500 - temp) / base_temp_tower_temp_step)) * base_temp_tower_block_height;
+        auto obj_bb = model().objects[obj_idx]->bounding_box_exact();
+        if (block_bottom + base_temp_tower_block_height < obj_bb.size().z()) {
+            cut_horizontal(obj_idx, 0, block_bottom + base_temp_tower_block_height - EPSILON, ModelObjectCutAttribute::KeepLower);
+            obj_idx = model().objects.size() - 1;
+        }
+        if (block_bottom > 0) {
+            cut_horizontal(obj_idx, 0, block_bottom + EPSILON, ModelObjectCutAttribute::KeepUpper);
+            obj_idx = model().objects.size() - 1;
+        }
+
+        ModelObject* obj = model().objects[obj_idx];
+        if (std::abs(nozzle_scale - 1.0) > EPSILON)
+            obj->scale(nozzle_scale, nozzle_scale, nozzle_scale);
+        obj->name = std::string("temp_") + std::to_string(temp);
+        obj->config.set_key_value("layer_height", new ConfigOptionFloat(nozzle_diameter / 2));
+        obj->config.set_key_value("alternate_extra_wall", new ConfigOptionBool(false));
+        obj->config.set_key_value("seam_slope_type", new ConfigOptionEnum<SeamScarfType>(SeamScarfType::None));
+        obj->config.set_key_value("overhang_reverse", new ConfigOptionBool(false));
+        obj->config.set_key_value("precise_z_height", new ConfigOptionBool(false));
+        obj->ensure_on_bed();
+        obj_idxs.emplace_back(obj_idx);
+    }
+
+    // Space the blocks along the belt with strictly increasing layer ranges:
+    // each block must start past the previous block's highest slicing plane,
+    // which trails its far edge by height / tan(angle). Anchor the row near
+    // the gantry so the whole test stays in the plate area.
+    const double cot_a  = 1. / std::max(0.1, std::tan(belt_angle_rad));
+    double       cursor = 20.;
+    for (size_t idx : obj_idxs) {
+        ModelObject*        obj  = model().objects[idx];
+        ModelInstance*      inst = obj->instances.front();
+        const BoundingBoxf3 bb   = obj->instance_bounding_box(0);
+        inst->set_offset(Y, inst->get_offset(Y) + (cursor - bb.min.y()));
+        obj->invalidate_bounding_box();
+        cursor += bb.size().y() + bb.size().z() * cot_a + 5.;
+    }
+
+    printer_config->set_key_value("resonance_avoidance", new ConfigOptionBool{false});
+    filament_config->set_key_value("nozzle_temperature_initial_layer", new ConfigOptionInts(1, (int)start_temp));
+    filament_config->set_key_value("nozzle_temperature", new ConfigOptionInts(1, (int)start_temp));
+    print_config->set_key_value("enable_wrapping_detection", new ConfigOptionBool(false));
+    print_config->set_key_value("initial_layer_print_height", new ConfigOptionFloat(nozzle_diameter / 2));
+    print_config->set_key_value("skirt_loops", new ConfigOptionInt(0));
+
+    changed_objects(obj_idxs);
+    wxGetApp().get_tab(Preset::TYPE_PRINT)->update_dirty();
+    wxGetApp().get_tab(Preset::TYPE_FILAMENT)->update_dirty();
+    wxGetApp().get_tab(Preset::TYPE_PRINT)->reload_config();
+    wxGetApp().get_tab(Preset::TYPE_FILAMENT)->reload_config();
+
     p->background_process.fff_print()->set_calib_params(params);
 }
 
