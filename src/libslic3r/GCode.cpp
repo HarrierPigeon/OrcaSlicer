@@ -4663,7 +4663,7 @@ LayerResult GCode::process_layer(
     // of the object so they keep their designed meaning; on regular printers
     // the object base is at Z=0 and calib_z == print_z.
     double calib_z = print_z;
-    if (m_config.belt_printer.value) {
+    if (m_config.belt_printer.value && print.calib_mode() != CalibMode::Calib_None) {
         // Skip empty ghost layers the grid may produce below the object.
         for (const Layer* l : layer.object()->layers())
             if (!l->lslices.empty()) {

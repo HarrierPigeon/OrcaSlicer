@@ -12629,6 +12629,17 @@ static bool belt_calib_rotation_params(double& angle_rad, Vec3d& axis)
     return std::abs(angle_rad) > EPSILON;
 }
 
+// ORCA-Belt: flip the ringing tower 180° about Z before the belt
+// counter-rotation — its sloped face then leans over the belt and the
+// support wedge gets much smaller.
+static void belt_calib_flip_ringing_tower(Model &model)
+{
+    double angle_rad = 0.;
+    Vec3d  axis      = Vec3d::UnitX();
+    if (belt_calib_rotation_params(angle_rad, axis) && !model.objects.empty())
+        model.objects.front()->rotate(M_PI, Vec3d::UnitZ());
+}
+
 void Plater::_calib_apply_belt_mode()
 {
     double angle_rad = 0.;
@@ -12646,7 +12657,7 @@ void Plater::_calib_apply_belt_mode()
     // above the belt surface.
     print_config->set_key_value("skirt_loops", new ConfigOptionInt(0));
 
-    const Transform3d cancel_rotation(Eigen::AngleAxisd(angle_rad, axis).toRotationMatrix());
+    const Matrix3d cancel_rotation = Eigen::AngleAxisd(angle_rad, axis).toRotationMatrix();
     std::vector<size_t> obj_idxs;
     for (size_t i = 0; i < model().objects.size(); ++i) {
         ModelObject* obj = model().objects[i];
@@ -12672,7 +12683,7 @@ void Plater::_calib_apply_belt_mode()
         // in the same state shape as any manually rotated object, which the
         // belt pipeline is known to handle.
         ModelInstance* inst = obj->instances.front();
-        inst->rotate(cancel_rotation.linear());
+        inst->rotate(cancel_rotation);
         obj->invalidate_bounding_box();
         obj->ensure_on_bed();
 
@@ -13400,7 +13411,10 @@ void Plater::_calib_temp_belt_sectioned(const Calib_Params& params, double belt_
     std::vector<size_t> obj_idxs;
     for (int i = 0; i < n_blocks; ++i) {
         const long temp = start_temp - long(i) * base_temp_tower_temp_step;
+        const size_t count_before = model().objects.size();
         add_model(false, Slic3r::resources_dir() + "/calib/temperature_tower/temperature_tower.drc");
+        if (model().objects.size() <= count_before)
+            break; // model failed to load — don't index into an empty list
         // The cut replaces the object at the END of the list, so re-acquire
         // the index after every operation.
         size_t obj_idx = model().objects.size() - 1;
@@ -13655,15 +13669,8 @@ void Plater::calib_input_shaping_freq(const Calib_Params& params)
         return;
 
     add_model(false, Slic3r::resources_dir() + (params.test_model < 1 ? "/calib/input_shaping/ringing_tower.drc" : "/calib/input_shaping/fast_tower_test.drc"));
-    // ORCA-Belt: flip the ringing tower 180° about Z before the belt
-    // counter-rotation — its sloped face then leans over the belt and the
-    // support wedge gets much smaller.
-    {
-        double belt_angle_rad = 0.;
-        Vec3d  belt_axis      = Vec3d::UnitX();
-        if (params.test_model < 1 && belt_calib_rotation_params(belt_angle_rad, belt_axis))
-            model().objects[0]->rotate(M_PI, Vec3d::UnitZ());
-    }
+    if (params.test_model < 1)
+        belt_calib_flip_ringing_tower(model());
     auto print_config = &wxGetApp().preset_bundle->prints.get_edited_preset().config;
     auto filament_config = &wxGetApp().preset_bundle->filaments.get_edited_preset().config;
     auto printer_config  = &wxGetApp().preset_bundle->printers.get_edited_preset().config;
@@ -13728,15 +13735,8 @@ void Plater::calib_input_shaping_damp(const Calib_Params& params)
         return;
 
     add_model(false, Slic3r::resources_dir() + (params.test_model < 1 ? "/calib/input_shaping/ringing_tower.drc" : "/calib/input_shaping/fast_tower_test.drc"));
-    // ORCA-Belt: flip the ringing tower 180° about Z before the belt
-    // counter-rotation — its sloped face then leans over the belt and the
-    // support wedge gets much smaller.
-    {
-        double belt_angle_rad = 0.;
-        Vec3d  belt_axis      = Vec3d::UnitX();
-        if (params.test_model < 1 && belt_calib_rotation_params(belt_angle_rad, belt_axis))
-            model().objects[0]->rotate(M_PI, Vec3d::UnitZ());
-    }
+    if (params.test_model < 1)
+        belt_calib_flip_ringing_tower(model());
     auto print_config = &wxGetApp().preset_bundle->prints.get_edited_preset().config;
     auto filament_config = &wxGetApp().preset_bundle->filaments.get_edited_preset().config;
     auto printer_config  = &wxGetApp().preset_bundle->printers.get_edited_preset().config;
@@ -13803,15 +13803,8 @@ void Plater::Calib_Cornering(const Calib_Params& params)
         ? "/calib/input_shaping/ringing_tower.drc"
         : (params.test_model == 1 ? "/calib/input_shaping/fast_tower_test.drc" : "/calib/cornering/SCV-V2.drc");
     add_model(false, Slic3r::resources_dir() + cornering_model_path);
-    // ORCA-Belt: flip the ringing tower 180° about Z before the belt
-    // counter-rotation — its sloped face then leans over the belt and the
-    // support wedge gets much smaller.
-    {
-        double belt_angle_rad = 0.;
-        Vec3d  belt_axis      = Vec3d::UnitX();
-        if (params.test_model == 0 && belt_calib_rotation_params(belt_angle_rad, belt_axis))
-            model().objects[0]->rotate(M_PI, Vec3d::UnitZ());
-    }
+    if (params.test_model == 0)
+        belt_calib_flip_ringing_tower(model());
     auto print_config = &wxGetApp().preset_bundle->prints.get_edited_preset().config;
     auto filament_config = &wxGetApp().preset_bundle->filaments.get_edited_preset().config;
     auto printer_config  = &wxGetApp().preset_bundle->printers.get_edited_preset().config;

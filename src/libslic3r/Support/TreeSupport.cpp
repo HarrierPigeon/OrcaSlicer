@@ -1834,25 +1834,21 @@ void TreeSupport::generate()
             // behavior is unchanged.
             double first_z = m_object->support_layer_count() > 0 ? m_object->get_support_layer(0)->print_z : 0.;
             bool   seeded  = false;
-            // Object layers carry the belt global Z offset while the floor plane
-            // from SlicingParameters is in the local frame — query the floor the
-            // same way TreeSupportData does: init_local + (print_z - offset).
-            const double     belt_z_off = m_object->belt_global_z_offset();
-            BeltFloorContext lctx;
-            lctx.init_local(m_slicing_params, *m_print_config, belt_z_off);
             if (source_areas.empty() && m_object_config->enable_support.value && !m_object->layers().empty()) {
                 // The layer grid may start with an empty ghost layer just below
                 // the object (grid rounding against the belt global Z offset) —
-                // anchor the seed to the first layer that has geometry.
+                // anchor the seed to the first layer that has geometry. Object
+                // layer print_z and the floor plane are both in the globally
+                // offset frame here (belt_floor_z_shift was adjusted alongside
+                // the layer Z values in PrintObject::slice()).
                 const Layer *first_layer = nullptr;
                 for (const Layer *l : m_object->layers())
                     if (!l->lslices_extrudable.empty()) { first_layer = l; break; }
                 if (first_layer != nullptr) {
                     ExPolygons floating = diff_ex(first_layer->lslices_extrudable,
-                                                  lctx.surface_polygon(first_layer->bottom_z() - belt_z_off - first_layer->height));
+                                                  ctx.surface_polygon(first_layer->bottom_z() - first_layer->height));
                     BOOST_LOG_TRIVIAL(debug) << "[BELT-CALIB] wedge seed: obj=" << m_object->model_object()->name
-                        << " bottom_z=" << first_layer->bottom_z() << " belt_z_off=" << belt_z_off
-                        << " floating=" << floating.size();
+                        << " bottom_z=" << first_layer->bottom_z() << " floating=" << floating.size();
                     if (!floating.empty()) {
                         source_areas = std::move(floating);
                         first_z      = first_layer->bottom_z();
@@ -1873,12 +1869,11 @@ void TreeSupport::generate()
                     // belt-floor point under the floating footprint. The bbox
                     // heuristic above under-estimates it for meshes centered
                     // around their origin (every object loaded through the GUI).
-                    const double local_first_z = first_z - belt_z_off;
-                    double min_floor = local_first_z;
+                    double min_floor = first_z;
                     for (const ExPolygon &ep : source_areas)
                         for (const Point &pt : ep.contour.points)
-                            min_floor = std::min(min_floor, lctx.floor_print_z(pt));
-                    extra_depth = std::min(std::max(0., first_z), local_first_z - min_floor + 2.);
+                            min_floor = std::min(min_floor, ctx.floor_print_z(pt));
+                    extra_depth = std::min(std::max(0., first_z), first_z - min_floor + 2.);
                 }
                 int num_extra = std::max(0, (int)std::ceil(extra_depth / sp.layer_height));
                 // Seeded wedge: top layers become a dense support interface so the
@@ -1890,8 +1885,7 @@ void TreeSupport::generate()
                 for (int i = num_extra; i >= 1 && !prev_areas.empty(); --i) {
                     double print_z = first_z - i * sp.layer_height;
                     if (print_z < -sp.layer_height) continue;
-                    Polygons belt_surface = seeded ? lctx.surface_polygon(print_z - belt_z_off)
-                                                   : ctx.surface_polygon(print_z);
+                    Polygons belt_surface = ctx.surface_polygon(print_z);
                     ExPolygons clipped = diff_ex(source_areas, belt_surface);
                     if (clipped.empty()) continue;
                     SupportLayer *sl = new SupportLayer(0, 0, m_object, sp.layer_height, print_z, -1);
