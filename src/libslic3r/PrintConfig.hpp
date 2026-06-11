@@ -1554,6 +1554,7 @@ PRINT_CONFIG_CLASS_DERIVED_DEFINE(
     ((ConfigOptionEnum<BeltRotationAxis>, belt_slice_rotation))
     ((ConfigOptionFloat,                  belt_slice_rotation_angle))
     ((ConfigOptionBool,                   belt_slice_rotation_global))
+    ((ConfigOptionBool,                   belt_slice_upright))
     // Expert override: decouple the machine-frame tilt angle from the pre-slice
     // rotation angle.  When disabled, the machine frame uses belt_slice_rotation_angle.
     ((ConfigOptionBool,                   belt_frame_tilt_decouple))

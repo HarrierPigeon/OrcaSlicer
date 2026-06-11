@@ -6535,6 +6535,17 @@ void PrintConfigDef::init_fff_params()
     def->mode = comAdvanced;
     def->set_default_value(new ConfigOptionBool(true));
 
+    def = this->add("belt_slice_upright", coBool);
+    def->label = L("Slice upright (vertical supports)");
+    def->category = L("Printable space");
+    def->tooltip = L("Slice the mesh in the upright (gravity) frame instead of pre-rotating it to the "
+                     "belt angle, applying the belt geometry only at g-code output via the machine-frame "
+                     "shear. This makes auto-generated support grow vertically under overhangs (like a "
+                     "normal printer) instead of leaning along the belt normal. Leave off for the classic "
+                     "rotated-frame slicing.");
+    def->mode = comAdvanced;
+    def->set_default_value(new ConfigOptionBool(false));
+
     def = this->add("belt_frame_tilt_decouple", coBool);
     def->label = L("Decouple machine-frame tilt");
     def->category = L("Printable space");
