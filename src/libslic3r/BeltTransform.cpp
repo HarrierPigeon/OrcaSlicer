@@ -1,4 +1,5 @@
 #include "BeltTransform.hpp"
+#include <cstdlib>
 #include "Model.hpp"
 
 #include <limits>
@@ -53,6 +54,14 @@ Transform3d BeltTransformPipeline::build_preslice_remap(const PrintConfig &confi
 
 Matrix3d BeltTransformPipeline::build_rotation_matrix(const PrintConfig &config, bool *has_rot_out)
 {
+    // belt-gl3: slice-upright mode (ORCA_BELT architecture). Neutralize the pre-slice
+    // mesh rotation so the mesh is sliced in the gravity frame and the belt geometry is
+    // applied only at gcode-write via MachineFrameTransform's shear -> support comes out
+    // gravity-vertical. Env-gated for now; promote to a real config option once confirmed.
+    if (config.belt_slice_upright.value || std::getenv("BELT_NO_PREROT")) {
+        if (has_rot_out) *has_rot_out = false;
+        return Matrix3d::Identity();
+    }
     BeltRotationAxis axis = config.belt_slice_rotation.value;
     double angle_deg = config.belt_slice_rotation_angle.value;
     bool active = axis != BeltRotationAxis::None && std::abs(angle_deg) > EPSILON;
@@ -155,6 +164,17 @@ BeltTransformPipeline::BeltHeightResult compute_belt_height_and_floor_impl(
     }
 
     bool has_rotation = rot_axis != BeltRotationAxis::None && std::abs(rot_angle) > EPSILON;
+    // belt-gl3 slice-upright mode: the mesh is NOT pre-rotated, so its height is the
+    // original (upright) height and there is no rotated belt floor. Skip the rotation path.
+    bool slice_upright = false;
+    if constexpr (std::is_same_v<Config, PrintConfig>) {
+        slice_upright = config.belt_slice_upright.value;
+    } else {
+        auto *opt = config.template option<ConfigOptionBool>("belt_slice_upright");
+        slice_upright = opt ? opt->value : false;
+    }
+    if (slice_upright || std::getenv("BELT_NO_PREROT"))
+        has_rotation = false;
     if (!has_rotation)
         return result;
 

@@ -4519,6 +4519,16 @@ void TabPrinter::build_fff()
             belt_og->append_line(line);
         }
         {
+            Line line = { L("Slice upright"),
+                          L("Slice the mesh in the upright (gravity) frame instead of pre-rotating it to "
+                            "the belt angle. Support then grows vertically under overhangs (like a normal "
+                            "printer) rather than leaning along the belt normal; the belt geometry is "
+                            "applied only at g-code output via the machine-frame shear. Leave off for the "
+                            "classic rotated-frame slicing.") };
+            line.append_option(belt_og->get_option("belt_slice_upright"));
+            belt_og->append_line(line);
+        }
+        {
             Line line = { L("Pre-slice axis remap"),
                           L("Remap model axes before slicing so the slicer's coordinate system matches "
                             "the physical bed orientation. For belt printers whose bed is NOT in the XY plane, "
@@ -5552,6 +5562,8 @@ void TabPrinter::toggle_options()
         toggle_line("belt_printer_infinite_y", is_belt);
         // Belt tilt: the sole mesh-side belt transform (visible by default in belt mode).
         toggle_line("belt_slice_rotation", is_belt);
+        // Slice-upright (vertical supports): visible in belt mode.
+        toggle_line("belt_slice_upright", is_belt);
 
         // Remap, back-transform, and global mesh-transforms toggles are gated by belt
         // mode here; finer mode-based visibility (Advanced vs Expert) is handled by
