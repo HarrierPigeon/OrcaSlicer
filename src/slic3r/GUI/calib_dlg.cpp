@@ -397,12 +397,14 @@ Temp_Calibration_Dlg::Temp_Calibration_Dlg(wxWindow* parent, wxWindowID id, Plat
 
     // Belt temperature-tower model: Standard (sectioned tower) vs Overhang (engraved
     // inverted-L provini that stress overhang quality per temperature). Only affects
-    // belt printers; the upright tower ignores it.
+    // belt printers; the upright tower ignores it, so the picker is only shown on
+    // belts. The dialog is cached across printer switches, so visibility is toggled
+    // per-show in on_show() rather than gated here at construction time.
     auto labeled_box_model = new LabeledStaticBox(this, _L("Test model"));
-    auto model_box = new wxStaticBoxSizer(labeled_box_model, wxHORIZONTAL);
+    m_model_box = new wxStaticBoxSizer(labeled_box_model, wxHORIZONTAL);
     m_rbModel = new RadioGroup(this, { _L("Standard"), _L("Overhang") }, wxVERTICAL);
-    model_box->Add(m_rbModel, 0, wxALL | wxEXPAND, FromDIP(4));
-    v_sizer->Add(model_box, 0, wxTOP | wxRIGHT | wxLEFT | wxEXPAND, FromDIP(10));
+    m_model_box->Add(m_rbModel, 0, wxALL | wxEXPAND, FromDIP(4));
+    v_sizer->Add(m_model_box, 0, wxTOP | wxRIGHT | wxLEFT | wxEXPAND, FromDIP(10));
 
     // Settings
     wxString start_temp_str = _L("Start temp: ");
@@ -464,6 +466,11 @@ Temp_Calibration_Dlg::Temp_Calibration_Dlg(wxWindow* parent, wxWindowID id, Plat
 
     m_rbFilamentType->Connect(wxEVT_COMMAND_RADIOBOX_SELECTED, wxCommandEventHandler(Temp_Calibration_Dlg::on_filament_type_changed), NULL, this);
 
+    // Refresh the belt-only model picker on every show — the dialog is cached and
+    // reused across printer switches.
+    this->Connect(wxEVT_SHOW, wxShowEventHandler(Temp_Calibration_Dlg::on_show));
+    m_model_box->ShowItems(is_belt_printer_selected());
+
     wxGetApp().UpdateDlgDarkUI(this);
 
     Layout();
@@ -520,10 +527,25 @@ void Temp_Calibration_Dlg::on_start(wxCommandEvent& event) {
     m_params.start = start;
     m_params.end = end;
     m_params.mode = CalibMode::Calib_Temp_Tower;
-    m_params.test_model = m_rbModel->GetSelection();
+    // Picker only exists on belt printers; default non-belt to the Standard model.
+    m_params.test_model = m_rbModel ? m_rbModel->GetSelection() : 0;
     m_plater->calib_temp(m_params);
     EndModal(wxID_OK);
 
+}
+
+void Temp_Calibration_Dlg::on_show(wxShowEvent& event) {
+    // ORCA-Belt: the dialog is cached across printer switches, so refresh the
+    // belt-only "Test model" picker on every show. The Overhang model only
+    // applies to belt printers; hide it (and resize the dialog) otherwise.
+    const bool belt = is_belt_printer_selected();
+    if (m_model_box->AreAnyItemsShown() != belt) {
+        m_model_box->ShowItems(belt);
+        Layout();
+        Fit();
+        GetSizer()->SetSizeHints(this);
+    }
+    event.Skip();
 }
 
 void Temp_Calibration_Dlg::on_filament_type_changed(wxCommandEvent& event) {
