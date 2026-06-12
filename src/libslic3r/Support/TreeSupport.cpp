@@ -1792,8 +1792,7 @@ void TreeSupport::generate()
     {
         BeltFloorContext ctx;
         if (ctx.init(m_slicing_params, *m_print_config)
-            && m_print_config->belt_support_floor_mode.value == BeltSupportFloorMode::GeneratorOnly
-            && m_object->support_layer_count() > 0) {
+            && m_print_config->belt_support_floor_mode.value == BeltSupportFloorMode::GeneratorOnly) {
             const auto &sp = m_slicing_params;
             // Find the lowest non-empty, non-brim support layer.
             ExPolygons source_areas;
@@ -1821,16 +1820,61 @@ void TreeSupport::generate()
                     }
                 }
             }
+            // ORCA-Belt calibration: a counter-rotated calibration object
+            // stands on a support wedge that lies entirely below the object's
+            // first layer, where the tree pipeline has no layers at all — so
+            // no support content can exist yet. Seed the extension directly
+            // from the floating portion of the first layer (anything more
+            // than one layer height above the belt floor). For objects whose
+            // first layer rests on the belt the floating region is empty and
+            // behavior is unchanged.
+            double first_z = m_object->support_layer_count() > 0 ? m_object->get_support_layer(0)->print_z : 0.;
+            bool   seeded  = false;
+            if (source_areas.empty() && m_object_config->enable_support.value && !m_object->layers().empty()) {
+                // The layer grid may start with an empty ghost layer just below
+                // the object (grid rounding against the belt global Z offset) —
+                // anchor the seed to the first layer that has geometry. Object
+                // layer print_z and the floor plane are both in the globally
+                // offset frame here (belt_floor_z_shift was adjusted alongside
+                // the layer Z values in PrintObject::slice()).
+                const Layer *first_layer = nullptr;
+                for (const Layer *l : m_object->layers())
+                    if (!l->lslices_extrudable.empty()) { first_layer = l; break; }
+                if (first_layer != nullptr) {
+                    ExPolygons floating = diff_ex(first_layer->lslices_extrudable,
+                                                  ctx.surface_polygon(first_layer->bottom_z() - first_layer->height));
+                    BOOST_LOG_TRIVIAL(debug) << "[BELT-CALIB] wedge seed: obj=" << m_object->model_object()->name
+                        << " bottom_z=" << first_layer->bottom_z() << " floating=" << floating.size();
+                    if (!floating.empty()) {
+                        source_areas = std::move(floating);
+                        first_z      = first_layer->bottom_z();
+                        seeded       = true;
+                    }
+                }
+            }
             if (!source_areas.empty()) {
                 BoundingBoxf3 bb = belt_remapped_bbox(*m_object->model_object(), m_object->print()->config());
                 double from_extent = std::abs(bb.min(ctx.from_axis()));
                 double bb_min_z    = std::abs(bb.min.z());
-                double first_z = m_object->get_support_layer(0)->print_z;
                 // Depth = from-axis extent + pre-shear bbox Z offset (ensure_on_bed
                 // distance) + 10mm safety margin.  The 10mm is a bodge to avoid
                 // small cutoff artifacts — ideally computed exactly from belt geometry.
                 double extra_depth = std::min(from_extent + bb_min_z + 10., std::max(0., first_z));
+                if (seeded) {
+                    // Seeded wedge: the depth is known exactly — down to the lowest
+                    // belt-floor point under the floating footprint. The bbox
+                    // heuristic above under-estimates it for meshes centered
+                    // around their origin (every object loaded through the GUI).
+                    double min_floor = first_z;
+                    for (const ExPolygon &ep : source_areas)
+                        for (const Point &pt : ep.contour.points)
+                            min_floor = std::min(min_floor, ctx.floor_print_z(pt));
+                    extra_depth = std::min(std::max(0., first_z), first_z - min_floor + 2.);
+                }
                 int num_extra = std::max(0, (int)std::ceil(extra_depth / sp.layer_height));
+                // Seeded wedge: top layers become a dense support interface so the
+                // object's floating first layer bridges a roof, not sparse infill.
+                const int interface_layers = seeded ? std::max(0, m_object_config->support_interface_top_layers.value) : 0;
                 ExPolygons prev_areas = source_areas;
                 // Build belt extension layers (lowest Z first).
                 SupportLayerPtrs belt_ext_layers;
@@ -1844,8 +1888,15 @@ void TreeSupport::generate()
                     sl->base_areas = clipped;
                     // Populate area_groups — generate_toolpaths() iterates these,
                     // not base_areas directly.
-                    for (auto &expoly : sl->base_areas)
-                        sl->area_groups.emplace_back(&expoly, SupportLayer::BaseType, 0);
+                    // Note: base areas only get infill when support_base_pattern
+                    // is explicitly set (with the default pattern tree bases are
+                    // walls-only) — the calibration flow sets rectilinear.
+                    const bool roof = i <= interface_layers;
+                    for (auto &expoly : sl->base_areas) {
+                        sl->area_groups.emplace_back(&expoly, roof ? SupportLayer::RoofType : SupportLayer::BaseType, 0);
+                        if (roof)
+                            sl->area_groups.back().interface_id = i & 1;
+                    }
                     sl->lslices = clipped;
                     sl->lslices_bboxes.reserve(clipped.size());
                     for (const ExPolygon &ep : clipped)
@@ -1856,6 +1907,9 @@ void TreeSupport::generate()
                 if (!belt_ext_layers.empty()) {
                     auto &sl_vec = m_object->support_layers();
                     sl_vec.insert(sl_vec.begin(), belt_ext_layers.begin(), belt_ext_layers.end());
+                    BOOST_LOG_TRIVIAL(debug) << "[BELT-CALIB] wedge ext layers=" << belt_ext_layers.size()
+                        << " z=" << belt_ext_layers.front()->print_z << ".." << belt_ext_layers.back()->print_z
+                        << " seeded=" << seeded;
                 }
             }
         }

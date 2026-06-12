@@ -23,6 +23,14 @@ public:
     void set_machine_frame_transform(const PrintConfig &config);
     Vec3d to_machine_coords(const Vec3d &pos) const;
 
+    // World-coordinates mode: incoming coordinates are treated as points
+    // relative to the physical belt surface (X across, Y along the belt,
+    // Z height above it) instead of slicing-frame coordinates — the
+    // slicer->world back-transform is skipped. Used by the PA line / PA
+    // pattern calibration generators, whose logical bed coordinates describe
+    // first-layer drawings on the build surface.
+    void set_world_coordinates(bool enable) { m_world_coordinates = enable; }
+
     // First-layer plane: when set to a non-null active evaluator, travel
     // speed selection consults the plane per-move and uses
     // initial_layer_travel_speed for points within first_layer_height_mm
@@ -47,6 +55,7 @@ protected:
 private:
     BeltBackTransform     m_belt_back_transform;
     MachineFrameTransform m_machine_frame_transform;
+    bool                  m_world_coordinates = false;
     // Borrowed pointer; lifetime owned by GCode.  null = inactive.
     const FirstLayerPlane *m_first_layer_plane = nullptr;
     double          m_first_layer_thickness_mm = 0.;

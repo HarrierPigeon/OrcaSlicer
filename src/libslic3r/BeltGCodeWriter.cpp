@@ -38,7 +38,11 @@ void BeltGCodeWriter::set_machine_frame_transform(const PrintConfig &config)
 Vec3d BeltGCodeWriter::to_machine_coords(const Vec3d &pos) const
 {
     // Step 1+2: To Cartesian (back_transform + axis_remap).
-    Vec3d after_back = m_belt_back_transform.apply(pos);
+    // In world-coordinates mode (PA line / PA pattern calibration) the input
+    // already describes a point relative to the belt surface, so the
+    // slicer->world back-transform is skipped and only the machine kinematics
+    // (axis remap + frame shear/scale) are applied.
+    Vec3d after_back = m_world_coordinates ? pos : m_belt_back_transform.apply(pos);
     Vec3d result     = apply_axis_remap(after_back);
     Vec3d after_remap = result;
     // Step 3: Machine-frame transform (belt frame tilt) applied LAST so it acts

@@ -966,7 +966,14 @@ void PrintObject::slice()
             // correct machine-frame coordinates whether or not a global mode is active.
             double belt_surface_z = BeltTransformPipeline::has_preslice_remap(pcfg)
                 ? BeltTransformPipeline::remap_bbox(*this->model_object(), pcfg).min.z() : 0.;
-            double belt_z_shift = m_belt_min_z - belt_surface_z;
+            // The compensation must mirror the Z-shift actually applied, which
+            // is max(0, -m_belt_min_z): when the transformed mesh starts ABOVE
+            // slicer Z=0 (m_belt_min_z > 0 — possible for counter-rotated or
+            // asymmetric geometry whose centered-frame minimum lands positive)
+            // no lift was applied, and an unclamped m_belt_min_z here would
+            // leak straight into the layer Z values, floating the whole object
+            // off the belt by exactly that amount.
+            double belt_z_shift = std::min(m_belt_min_z, 0.) - belt_surface_z;
             double global_z_offset = belt_z_shift;
 
             // Centering correction: trafo_centered pretranslates by
