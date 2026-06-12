@@ -62,6 +62,7 @@ protected:
     Calib_Params m_params;
 
     RadioGroup* m_rbFilamentType;
+    RadioGroup* m_rbModel;
     TextInput* m_tiStart;
     TextInput* m_tiEnd;
     TextInput* m_tiStep;

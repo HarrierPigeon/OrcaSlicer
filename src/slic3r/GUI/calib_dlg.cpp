@@ -414,6 +414,15 @@ Temp_Calibration_Dlg::Temp_Calibration_Dlg(wxWindow* parent, wxWindowID id, Plat
     method_box->Add(m_rbFilamentType, 0, wxALL | wxEXPAND, FromDIP(4));
     v_sizer->Add(method_box, 0, wxTOP | wxRIGHT | wxLEFT | wxEXPAND, FromDIP(10));
 
+    // Belt temperature-tower model: Standard (sectioned tower) vs Overhang (engraved
+    // inverted-L provini that stress overhang quality per temperature). Only affects
+    // belt printers; the upright tower ignores it.
+    auto labeled_box_model = new LabeledStaticBox(this, _L("Test model"));
+    auto model_box = new wxStaticBoxSizer(labeled_box_model, wxHORIZONTAL);
+    m_rbModel = new RadioGroup(this, { _L("Standard"), _L("Overhang") }, wxVERTICAL);
+    model_box->Add(m_rbModel, 0, wxALL | wxEXPAND, FromDIP(4));
+    v_sizer->Add(model_box, 0, wxTOP | wxRIGHT | wxLEFT | wxEXPAND, FromDIP(10));
+
     // Settings
     wxString start_temp_str = _L("Start temp: ");
     wxString end_temp_str   = _L("End temp: ");
@@ -534,6 +543,7 @@ void Temp_Calibration_Dlg::on_start(wxCommandEvent& event) {
     m_params.end = end;
     m_params.nozzle_based_resize = m_cbResize->GetValue();
     m_params.mode = CalibMode::Calib_Temp_Tower;
+    m_params.test_model = m_rbModel->GetSelection();
     m_plater->calib_temp(m_params);
     EndModal(wxID_OK);
 
