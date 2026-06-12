@@ -1327,7 +1327,7 @@ static std::vector<std::string> s_Preset_machine_limits_options {
 static std::vector<std::string> s_Preset_printer_options {
     "printer_technology",
     "printable_area", "extruder_printable_area", "support_parallel_printheads", "parallel_printheads_count", "parallel_printheads_bed_exclude_areas", "bed_exclude_area","bed_custom_texture", "bed_custom_model", "build_plate_tilt_x", "build_plate_tilt_y", "belt_printer", "belt_printer_infinite_y",
-    "belt_slice_rotation", "belt_slice_rotation_angle", "belt_slice_rotation_global",
+    "belt_slice_rotation", "belt_slice_rotation_angle", "belt_slice_rotation_global", "belt_slice_upright",
     "preslice_remap_x", "preslice_remap_y", "preslice_remap_z", "preslice_remap_global",
     "gcode_remap_x", "gcode_remap_y", "gcode_remap_z", "gcode_back_transform",
     "belt_frame_tilt_decouple", "belt_frame_tilt_angle",
