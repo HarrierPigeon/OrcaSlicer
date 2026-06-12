@@ -4,6 +4,9 @@
 #include "libslic3r/BuildVolume.hpp"
 #include "libslic3r/ClipperUtils.hpp"
 #include "libslic3r/Print.hpp"
+#include "libslic3r/BeltTransform.hpp"
+#include "libslic3r/GCode/BeltBackTransform.hpp"
+#include "libslic3r/GCode/MachineFrameTransform.hpp"
 #include "libslic3r/Geometry.hpp"
 #include "libslic3r/Model.hpp"
 #include "libslic3r/Utils.hpp"
@@ -1303,6 +1306,34 @@ void GCodeViewer::load_as_gcode(const GCodeProcessorResult& gcode_result, const 
             });
     m_paths_bounding_box = BoundingBoxf3(libvgcode::convert(bbox[0]).cast<double>(), libvgcode::convert(bbox[1]).cast<double>());
 
+    // Belt printer: arm the designed (upright) view directly from the config
+    // that produced this G-code.  Do NOT rely on Plater::set_bed_shape to push
+    // the flags -- the preview pane may not exist when the bed is configured,
+    // in which case the viewer would silently stay in raw machine-frame view.
+    {
+        const PrintConfig &pcfg = print.config();
+        if (pcfg.belt_printer.value) {
+            const double belt_angle =
+                (pcfg.belt_slice_rotation.value != BeltRotationAxis::None)
+                    ? std::abs(pcfg.belt_slice_rotation_angle.value) : 0.;
+            if (!m_belt_view_enabled)
+                m_belt_show_designed = true;   // default ON when belt mode engages
+            m_belt_view_enabled = true;
+            m_belt_angle_deg = static_cast<float>(belt_angle);
+            m_belt_inverse_transform = compute_belt_designed_inverse(pcfg);
+            // Defer the per-vertex designed bbox to render time: libvgcode has
+            // not necessarily finalized its vertex coordinates at this point in
+            // load_as_gcode, so reading them here yields a stale frame.
+            m_belt_designed_bbox = BoundingBoxf3();
+            m_belt_designed_dirty = true;
+        } else {
+            m_belt_view_enabled = false;
+            m_belt_inverse_transform = Transform3d::Identity();
+            m_belt_designed_bbox = BoundingBoxf3();
+            m_belt_designed_dirty = false;
+        }
+    }
+
     if (wxGetApp().is_editor())
         m_contained_in_bed = wxGetApp().plater()->build_volume().all_paths_inside(gcode_result, m_paths_bounding_box);
 
@@ -1557,6 +1588,8 @@ void GCodeViewer::reset()
     m_viewer.reset();
 
     m_paths_bounding_box = BoundingBoxf3();
+    m_belt_designed_bbox = BoundingBoxf3();
+    m_belt_designed_dirty = false;
     m_max_bounding_box = BoundingBoxf3();
     m_max_print_height = 0.0f;
     m_z_offset = 0.0f;
@@ -2303,14 +2336,77 @@ void GCodeViewer::load_shells(const Print& print, bool initialized, bool force_p
         % m_shells.print_id % m_shells.print_modify_count % object_count %m_shells.volumes.volumes.size();
 }
 
+Transform3d GCodeViewer::compute_belt_designed_inverse(const PrintConfig& pcfg)
+{
+    // The emitted toolpath coordinates are produced by
+    // BeltGCodeWriter::to_machine_coords as
+    //   emitted = MFT( Remap( BackTransform( slicing_coords ) ) )
+    // where BackTransform cancels the pre-slice rotation/remap when
+    // gcode_back_transform is on.  Replicate that chain with the same pipeline
+    // classes so viewer and writer cannot drift apart, then invert it.
+    // Per-object translations (belt z-lift, instance centering) are absorbed
+    // at render time by bbox alignment.
+    Transform3d forward = Transform3d::Identity();
+
+    // Step 1: pre-slice rotation/remap survives into the emitted coordinates
+    // only when the writer's back-transform is inactive.
+    BeltBackTransform back_transform;
+    if (!back_transform.init_from_config(pcfg))
+        forward = BeltTransformPipeline::build_forward_transform(pcfg) * forward;
+
+    // Step 2: output axis remap (gcode_remap_*), same semantics as
+    // GCodeWriter::apply_axis_remap (Pos = copy, Neg = negate,
+    // Rev = build-volume max minus coordinate).
+    {
+        const int codes[3] = { int(pcfg.gcode_remap_x.value),
+                               int(pcfg.gcode_remap_y.value),
+                               int(pcfg.gcode_remap_z.value) };
+        if (codes[0] != 0 || codes[1] != 1 || codes[2] != 2) {
+            BoundingBoxf bbox_bed(pcfg.printable_area.values);
+            const Vec3d bvmax(bbox_bed.max.x(), bbox_bed.max.y(),
+                              pcfg.printable_height.value);
+            Transform3d remap;
+            remap.matrix().setZero();
+            remap.matrix()(3, 3) = 1.;
+            for (int i = 0; i < 3; ++i) {
+                const int axis = codes[i] % 3;
+                remap.matrix()(i, axis) = (codes[i] < 3) ? 1. : -1.;
+                if (codes[i] >= 6)
+                    remap.matrix()(i, 3) = bvmax[axis];
+            }
+            forward = remap * forward;
+        }
+    }
+
+    // Step 3: machine-frame shear/scale, applied last by the writer.
+    MachineFrameTransform mft;
+    if (mft.init_from_config(pcfg))
+        forward = mft.transform() * forward;
+
+    return forward.inverse();
+}
+
 void GCodeViewer::render_toolpaths()
 {
     const Camera& camera = wxGetApp().plater()->get_camera();
     Matrix4f view = camera.get_view_matrix().matrix().cast<float>();
-    // Belt "designed" view: apply the precomputed inverse of the full belt
-    // shear+scale transform so toolpaths appear upright (as originally designed)
-    // instead of transformed on the belt.
+    // Belt "designed" view: apply the precomputed inverse of the writer's full
+    // output mapping (machine shear/scale + axis remap + any surviving slicing
+    // rotation) so toolpaths appear upright (as originally designed) instead of
+    // transformed on the belt.
     if (m_belt_show_designed && m_belt_view_enabled) {
+        // Per-vertex inverse of the writer's output mapping puts every toolpath
+        // point back at its true world (designed) position.  The model shell is
+        // already in that same world frame, so the two coincide with NO extra
+        // alignment.  (Do NOT transform the toolpath's machine-space AABB and
+        // align to it: shearing an axis-aligned box across the Y<->Z belt
+        // coupling inflates it — machine Z~=object Y bleeds into world Y — so
+        // its min/max are meaningless and would offset the shell by ~the
+        // object's belt position.)
+        // Toolpath is rendered at its TRUE designed position (per-vertex inverse).
+        // It is correct as-is; the model shell is what carries the frame offset,
+        // so the shell is dragged onto the toolpath in render_shells() — NOT the
+        // other way around.
         view = (camera.get_view_matrix() * m_belt_inverse_transform).matrix().cast<float>();
     }
     const libvgcode::Mat4x4 converted_view_matrix = libvgcode::convert(view);
@@ -2485,6 +2581,63 @@ void GCodeViewer::render_toolpaths()
 #endif // ENABLE_NEW_GCODE_VIEWER_DEBUG
 }
 
+void GCodeViewer::ensure_belt_designed_bbox()
+{
+    if (!m_belt_designed_dirty)
+        return;
+    m_belt_designed_dirty = false;
+    m_belt_designed_bbox = BoundingBoxf3();
+    m_belt_designed_valid = false;
+
+    // Collect the object-body toolpath points in the designed (un-sheared) frame.
+    std::vector<Vec3d> pts;
+    pts.reserve(m_viewer.get_vertices_count());
+    Vec3d sum = Vec3d::Zero();
+    const size_t vcount = m_viewer.get_vertices_count();
+    for (size_t i = 0; i < vcount; ++i) {
+        const libvgcode::PathVertex &v = m_viewer.get_vertex_at(i);
+        if (v.type != libvgcode::EMoveType::Extrude)
+            continue;
+        switch (v.role) {
+        case libvgcode::EGCodeExtrusionRole::Perimeter:
+        case libvgcode::EGCodeExtrusionRole::ExternalPerimeter:
+        case libvgcode::EGCodeExtrusionRole::OverhangPerimeter:
+        case libvgcode::EGCodeExtrusionRole::InternalInfill:
+        case libvgcode::EGCodeExtrusionRole::SolidInfill:
+        case libvgcode::EGCodeExtrusionRole::TopSolidInfill:
+        case libvgcode::EGCodeExtrusionRole::Ironing:
+        case libvgcode::EGCodeExtrusionRole::BridgeInfill:
+        case libvgcode::EGCodeExtrusionRole::GapFill:
+        case libvgcode::EGCodeExtrusionRole::BottomSurface:
+        case libvgcode::EGCodeExtrusionRole::InternalBridgeInfill: {
+            const Vec3d wp = m_belt_inverse_transform * libvgcode::convert(v.position).cast<double>();
+            pts.push_back(wp);
+            sum += wp;
+            break;
+        }
+        default:
+            break;
+        }
+    }
+    if (pts.empty())
+        return;
+
+    // Robust bbox: a handful of stray body-role vertices land near the belt
+    // origin (machine Z~0 -> world Y~0) and would corrupt a raw bbox.  Trim
+    // points far from the centroid (the object itself is only tens of mm across,
+    // the strays are ~the object's belt position away), then take the clean
+    // bbox.  Its center matches the model shell's bbox center exactly.
+    const Vec3d centroid = sum / double(pts.size());
+    const double trim2 = 200.0 * 200.0;  // 200mm: >> object size, << stray distance
+    for (const Vec3d &p : pts)
+        if ((p - centroid).squaredNorm() < trim2)
+            m_belt_designed_bbox.merge(p);
+    if (!m_belt_designed_bbox.defined)
+        for (const Vec3d &p : pts) m_belt_designed_bbox.merge(p);  // fallback
+    m_belt_designed_centroid = m_belt_designed_bbox.center();
+    m_belt_designed_valid = true;
+}
+
 void GCodeViewer::render_shells(int canvas_width, int canvas_height)
 {
     //BBS: add shell previewing logic
@@ -2503,7 +2656,23 @@ void GCodeViewer::render_shells(int canvas_width, int canvas_height)
     const Camera& camera = wxGetApp().plater()->get_camera();
     shader->set_uniform("z_far", camera.get_far_z());
     shader->set_uniform("z_near", camera.get_near_z());
-    m_shells.volumes.render(GLVolumeCollection::ERenderType::Transparent, false, camera.get_view_matrix(), camera.get_projection_matrix(), {canvas_width, canvas_height});
+    // Belt designed view: the toolpath renders at its true designed position
+    // (correct), but the model shell carries a frame offset (observed ~500mm on
+    // the belt feed axis).  Drag the shell so its center coincides with the
+    // toolpath's true per-vertex designed bbox center.
+    Transform3d shells_view = camera.get_view_matrix();
+    if (m_belt_show_designed && m_belt_view_enabled) {
+        ensure_belt_designed_bbox();  // compute from FINAL libvgcode vertices
+        // Shell reference: live bbox of the actual rendered volumes.
+        BoundingBoxf3 live_shell;
+        for (const GLVolume *v : m_shells.volumes.volumes)
+            if (v) live_shell.merge(v->transformed_bounding_box());
+        if (m_belt_designed_valid && live_shell.defined) {
+            const Vec3d shift = m_belt_designed_centroid - live_shell.center();
+            shells_view = shells_view * Eigen::Translation3d(shift);
+        }
+    }
+    m_shells.volumes.render(GLVolumeCollection::ERenderType::Transparent, false, shells_view, camera.get_projection_matrix(), {canvas_width, canvas_height});
     shader->set_uniform("emission_factor", 0.0f);
     shader->stop_using();
 

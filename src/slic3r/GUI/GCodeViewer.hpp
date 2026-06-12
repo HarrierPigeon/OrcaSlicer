@@ -198,6 +198,17 @@ private:
 
     // bounding box of toolpaths
     BoundingBoxf3 m_paths_bounding_box;
+    // True designed-frame bbox of the model-body toolpath, computed per-vertex
+    // (NOT by transforming the machine-space AABB, which inflates under the belt
+    // Y<->Z shear).  Used to center the belt designed-view toolpath on the model
+    // shell, absorbing any frame offset between libvgcode vertices and the shell.
+    BoundingBoxf3 m_belt_designed_bbox;
+    Vec3d         m_belt_designed_centroid{ Vec3d::Zero() };
+    bool          m_belt_designed_valid = false;
+    bool          m_belt_designed_dirty = false;
+    // Lazily (re)compute m_belt_designed_bbox from the live, finalized libvgcode
+    // vertices.  Must run at render time, not during load_as_gcode.
+    void ensure_belt_designed_bbox();
     // bounding box of toolpaths + marker tools
     BoundingBoxf3 m_max_bounding_box;
     //BBS: add shell bounding box
@@ -346,8 +357,18 @@ public:
 
     void export_toolpaths_to_obj(const char* filename) const;
 
-    void set_belt_printer(bool enabled, float angle_deg) { m_belt_view_enabled = enabled; m_belt_angle_deg = angle_deg; }
+    void set_belt_printer(bool enabled, float angle_deg) {
+        // Default the designed (upright) view ON when belt mode engages; the
+        // [B] toggle still lets the user switch to raw machine coordinates.
+        if (enabled && !m_belt_view_enabled)
+            m_belt_show_designed = true;
+        m_belt_view_enabled = enabled; m_belt_angle_deg = angle_deg;
+    }
     void set_belt_inverse_transform(const Transform3d& t) { m_belt_inverse_transform = t; }
+    // Inverse of the belt writer's full output mapping (machine shear/scale +
+    // axis remap + any surviving slicing rotation): maps emitted toolpath
+    // coordinates back to the upright designed frame, up to translation.
+    static Transform3d compute_belt_designed_inverse(const PrintConfig& pcfg);
     bool is_belt_view() const { return m_belt_view_enabled && m_belt_angle_deg > 0.f; }
     void toggle_belt_show_designed() { if (m_belt_view_enabled) m_belt_show_designed = !m_belt_show_designed; }
     bool is_belt_show_designed() const { return m_belt_show_designed; }

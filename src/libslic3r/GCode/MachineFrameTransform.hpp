@@ -33,6 +33,10 @@ public:
 
     bool is_active() const { return m_active; }
 
+    // The raw transform (identity when inactive).  Exposed so the GUI can
+    // build the exact inverse of the writer's output mapping (designed view).
+    const Transform3d& transform() const { return m_transform; }
+
 private:
     bool        m_active    = false;
     Transform3d m_transform = Transform3d::Identity();

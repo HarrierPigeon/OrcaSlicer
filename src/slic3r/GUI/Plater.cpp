@@ -62,6 +62,9 @@
 #include "libslic3r/Polygon.hpp"
 #include "libslic3r/Print.hpp"
 #include "libslic3r/PrintConfig.hpp"
+#include "libslic3r/BeltTransform.hpp"
+#include "libslic3r/GCode/BeltBackTransform.hpp"
+#include "libslic3r/GCode/MachineFrameTransform.hpp"
 #include "libslic3r/SLAPrint.hpp"
 #include "libslic3r/Utils.hpp"
 #include "libslic3r/PresetBundle.hpp"
@@ -11314,24 +11317,16 @@ void Plater::priv::set_bed_shape(const Pointfs       &shape,
             if (preview)
                 preview->get_canvas3d()->get_gcode_viewer().set_belt_printer(true, static_cast<float>(belt_angle));
 
-            // Compute the inverse of the mesh-side belt transform for the G-code
-            // viewer.  The sole mesh transform is the slicing rotation; build its
-            // matrix from config and hand the viewer its inverse (rotation is
-            // orthogonal, so the inverse is the transpose).
-            Transform3d forward = Transform3d::Identity();
-            if (rot_axis != BeltRotationAxis::None && std::abs(rot_angle) > EPSILON) {
-                Vec3d unit_axis = Vec3d::UnitX();
-                switch (rot_axis) {
-                case BeltRotationAxis::X: unit_axis = Vec3d::UnitX(); break;
-                case BeltRotationAxis::Y: unit_axis = Vec3d::UnitY(); break;
-                case BeltRotationAxis::Z: unit_axis = Vec3d::UnitZ(); break;
-                default: break;
-                }
-                forward.linear() = Eigen::AngleAxisd(Geometry::deg2rad(rot_angle), unit_axis).toRotationMatrix();
+            // Push the designed-view inverse to the G-code viewer.  This is a
+            // best-effort early push for config changes between slices; the
+            // authoritative arming happens in GCodeViewer::load_as_gcode from
+            // the Print's own config (the preview pane may not exist yet here).
+            if (preview) {
+                PrintConfig pcfg;
+                pcfg.apply(*config, true);
+                preview->get_canvas3d()->get_gcode_viewer().set_belt_inverse_transform(
+                    GCodeViewer::compute_belt_designed_inverse(pcfg));
             }
-            Transform3d inverse = forward.inverse();
-            if (preview)
-                preview->get_canvas3d()->get_gcode_viewer().set_belt_inverse_transform(inverse);
         } else {
             bed.set_belt_printer(false, 0.f);
             if (preview) {
