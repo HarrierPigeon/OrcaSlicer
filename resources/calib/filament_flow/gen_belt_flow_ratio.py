@@ -52,10 +52,13 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 # Flow modifiers used by the cartesian passes (flowrate-test-pass1/2.3mf): one labeled
 # pad STL per value. C++ loads belt_flow_ratio_<suffix>.stl (suffix: m20..m1,0,5..20).
 MODS_ALL = [-20, -15, -10, -9, -8, -7, -6, -5, -4, -3, -2, -1, 0, 5, 10, 15, 20]
-TEXT_H        = 5.0    # engraved digit height (mm)
-TEXT_DEPTH    = 0.8    # cut INTO the lateral face (engraved, not embossed -> belt-safe)
+TEXT_H        = 12.0   # engraved digit height (mm) — LARGE so the recess is unmistakable
+TEXT_DEPTH    = 3.0    # HEAVY cut INTO the face: a deep cavity shows as distinct inner
+                       # perimeters across many layers in the toolpath preview (a shallow
+                       # deboss is just a perimeter notch and is invisible in the line view)
 TEXT_OVERSHOOT= 0.6    # poke out of the face for a clean boolean cut
-TEXT_CY, TEXT_CZ = 7.0, 6.0   # engraving centre on the wedge body (Y,Z), below the read slab
+TEXT_CY, TEXT_CZ = 7.0, 6.0   # (legacy) engraving centre on the +X lateral face (engrave())
+TEXT_CZ_WALL  = 12.0   # engraving centre height (Z) on the leading wall (engrave_leading())
 
 # --- parameters -------------------------------------------------------------
 PAD_X       = 30.0     # lateral (model-X) width of the reading area
@@ -130,6 +133,34 @@ def engrave(prism, label):
     return out
 
 
+def engrave_leading(prism, label):
+    """Cut a LARGE, DEEP `label` recess INTO the LEADING WALL (the Y=0 vertical face,
+    a flat 30x24mm wall facing the operator as the pad sits on the belt). Debossed,
+    and deliberately heavy (TEXT_DEPTH ~3mm): the cavity is then deep enough to show
+    as distinct inner perimeters across many layers in the toolpath preview (a
+    shallow recess is just a perimeter notch and is invisible in the line view).
+
+    On the printed part the operator reads this wall from the +Y side, so text must
+    map width -> model +X to appear upright (print-verified: the earlier -X mapping
+    came out mirrored across the vertical axis). Basis maps local text:
+      lx (text width)   -> model +X   (un-mirrored as printed)
+      ly (text height)  -> model +Z   (up)
+      lz (extrude/depth)-> model +Y   (cut into the wall)
+    This basis has det = -1 (a horizontal mirror, which is exactly the un-flip), so
+    fix_normals() restores outward winding before the boolean. Belt-safe: the recess
+    is an internal pocket the printer bridges over; no external overhang is added."""
+    y_face = prism.vertices[:, 1].min()            # leading wall at Y=0
+    t = text_mesh(label)                            # extrudes local +z by TEXT_DEPTH+TEXT_OVERSHOOT
+    R = np.array([[ 1.0, 0.0, 0.0],
+                  [ 0.0, 0.0, 1.0],
+                  [ 0.0, 1.0, 0.0]])
+    M = np.eye(4); M[:3, :3] = R; t.apply_transform(M)
+    t.fix_normals()                                # det(R)=-1 flipped winding; restore it
+    # straddle Y=0: cut from y_face-OVERSHOOT inward to +TEXT_DEPTH; centre at TEXT_CZ_WALL
+    t.apply_translation([0.0, y_face - TEXT_OVERSHOOT, TEXT_CZ_WALL])
+    return trimesh.boolean.difference([prism, t], engine='manifold')
+
+
 def label_for(mod):
     return "0" if mod == 0 else f"{mod:+d}"          # "-20", "0", "+20"
 
@@ -164,9 +195,9 @@ if __name__ == "__main__":
     base.export(OUT)                       # unlabeled fallback (belt_flow_ratio.stl)
     print(f"-> {os.path.basename(OUT)}")
 
-    # one labeled pad per flow modifier (flow % engraved on the +X lateral face)
+    # one labeled pad per flow modifier (flow % engraved on the leading wall, Y=0 face)
     for mod in MODS_ALL:
-        m = engrave(build(), label_for(mod))
+        m = engrave_leading(build(), label_for(mod))
         out = os.path.join(HERE, f"belt_flow_ratio_{suffix_for(mod)}.stl")
         m.export(out)
         s = m.vertices[:, 1] + m.vertices[:, 2]

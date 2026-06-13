@@ -13400,6 +13400,11 @@ void Plater::calib_flowrate(bool is_linear, int pass, InfillPattern pattern) {
                 oc.set_key_value("brim_type", new ConfigOptionEnum<BrimType>(btNoBrim));
                 oc.set_key_value("seam_slope_type", new ConfigOptionEnum<SeamScarfType>(SeamScarfType::None));
                 oc.set_key_value("overhang_reverse", new ConfigOptionBool(false));
+                // The keel-first pads are self-supporting by design; force support OFF so a
+                // support-enabled filament/process preset (e.g. the IR3 V2 PLA profile) does not
+                // generate native 45-degree auto-supports under them — those foul the top read
+                // surface and skew the measured flow ratio. (Found in physical PLA print testing.)
+                oc.set_key_value("enable_support", new ConfigOptionBool(false));
                 all_idx.push_back(i);
             }
             belt_printer_cfg->set_key_value("resonance_avoidance", new ConfigOptionBool{false});
