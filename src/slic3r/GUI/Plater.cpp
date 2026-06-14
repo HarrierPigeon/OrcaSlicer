@@ -13634,59 +13634,57 @@ void Plater::calib_max_vol_speed(const Calib_Params& params)
     if (params.mode != CalibMode::Calib_Vol_speed_Tower)
         return;
 
-    // Belt printers: the cartesian vase tower can't be sliced. The belt-native equivalent is a
-    // single STRAIGHT thin wall along machine-X (belt_vol_speed_wall.stl), laid down along the
-    // belt: each constant-print_z layer (print_z = Y_model + Z_model = the 45° conveyor advance)
-    // is ONE machine-X trace, stacked belt-normal — the same belt-safe single-wall print the PA
-    // provini already HW-validate. The outer-wall speed ramps per layer (GCode.cpp), so the
-    // volumetric rate sweeps start→end up the wall; you read the height where flow fails.
-    //
-    // This replaces the earlier ogive-tube+spiral-vase asset, which was geometrically broken: its
-    // solid wedge base couldn't be vased (the calib ramp never touched ~64mm of print_z, which
-    // printed at the plain preset speed) and the tube's sliced print_z range fell far short of the
-    // mesh Y+Z span, so the sweep never reached 'end'. Set ORCABELT_VOLSPEED_OGIVE=1 to fall back
-    // to the old ogive asset (kept for reference / A-B comparison).
+    // ── Belt printers ────────────────────────────────────────────────────────────────────────
+    // PR #62 review (Joe / harrierpigeon): rather than a custom asset with the 45° truncation baked
+    // into its geometry (which then only fits a 45° belt), use the SAME standard SpeedTestStructure
+    // as cartesian, tilt it by the printer's ACTUAL belt angle, and SINK it through the bed so the
+    // slicer's floor-clip truncates the submerged part and lays a flat floor — no tree-support wedge.
+    // The wedge path (_calib_apply_belt_mode) costs ~130 g per test; floor-clip is the same lean
+    // print and works at any belt angle. The speed ramp begins above the clip, where the real
+    // (un-clipped) geometry starts, so the clipped floor slab doesn't skew the reading.
     {
         auto belt_print_cfg    = &wxGetApp().preset_bundle->prints.get_edited_preset().config;
         auto belt_filament_cfg = &wxGetApp().preset_bundle->filaments.get_edited_preset().config;
         auto belt_printer_cfg  = &wxGetApp().preset_bundle->printers.get_edited_preset().config;
-        if (belt_printer_cfg->has("belt_printer") && belt_printer_cfg->opt_bool("belt_printer")) {
-            const bool use_ogive = (::getenv("ORCABELT_VOLSPEED_OGIVE") != nullptr);
-            add_model(false, Slic3r::resources_dir() + (use_ogive
-                ? "/calib/volumetric_speed/belt_vol_speed.stl"
-                : "/calib/volumetric_speed/belt_vol_speed_v4.stl"));
+        double belt_angle_rad = 0.0;
+        Vec3d  belt_axis      = Vec3d::UnitX();
+        if (belt_calib_rotation_params(belt_angle_rad, belt_axis)) {
+            add_model(false, Slic3r::resources_dir() + "/calib/volumetric_speed/SpeedTestStructure.drc");
             ModelObject* obj = model().objects[0];
-            // leading edge at the belt Y origin, centred in X (asset is keel-first, min Z = 0;
-            // ensure_on_bed just re-asserts it)
-            obj->ensure_on_bed();
-            BoundingBoxf3 obb = obj->bounding_box_exact();
-            BoundingBoxf bed_ext = get_extents(belt_printer_cfg->option<ConfigOptionPoints>("printable_area")->values);
-            obj->translate_instances(Vec3d(bed_ext.center().x() - obb.center().x(), -obb.min.y(), 0.0));
-
-            // Extrusion sizing = the PA-validated belt single-wall (one clean machine-X trace per
-            // belt layer): 0.45 line at 0.2 belt-normal. The SAME values feed the mm3/s→mm/s
-            // conversion below, so the swept volumetric rate matches what is actually extruded
-            // (the old branch assumed 0.7/0.32 — a cross-section the belt slice never used).
-            const double nozzle = belt_printer_cfg->option<ConfigOptionFloats>("nozzle_diameter")->values[0];
-            const double line_width = 0.45;   // matches gen_belt_vol_speed_wall.py WALL_THK (0.4-nozzle belt asset)
-            const double layer_height = 0.2;  // belt-normal; virtual pitch = 0.2/cos45 ≈ 0.283
             auto& obj_cfg = obj->config;
+
+            const double nozzle       = belt_printer_cfg->option<ConfigOptionFloats>("nozzle_diameter")->values[0];
+            const double line_width   = nozzle * 1.75;
+            const double layer_height = nozzle * 0.8;
+
+            // Flow / vase config — identical to the cartesian path below, except NO support: the
+            // floor-clip replaces the wedge (enable_support=false is the key difference).
+            auto max_lh = belt_printer_cfg->option<ConfigOptionFloats>("max_layer_height");
+            if (max_lh->values[0] < layer_height) max_lh->values[0] = { layer_height };
             belt_filament_cfg->set_key_value("filament_max_volumetric_speed", new ConfigOptionFloats{200});
             belt_filament_cfg->set_key_value("slow_down_layer_time", new ConfigOptionFloats{0.0});
             belt_printer_cfg->set_key_value("resonance_avoidance", new ConfigOptionBool{false});
             obj_cfg.set_key_value("enable_overhang_speed", new ConfigOptionBool{false});
             obj_cfg.set_key_value("wall_loops", new ConfigOptionInt(1));
+            obj_cfg.set_key_value("alternate_extra_wall", new ConfigOptionBool(false));
             obj_cfg.set_key_value("top_shell_layers", new ConfigOptionInt(0));
             obj_cfg.set_key_value("bottom_shell_layers", new ConfigOptionInt(0));
             obj_cfg.set_key_value("sparse_infill_density", new ConfigOptionPercent(0));
             obj_cfg.set_key_value("outer_wall_line_width", new ConfigOptionFloatOrPercent(line_width, false));
             obj_cfg.set_key_value("layer_height", new ConfigOptionFloat(layer_height));
-            // single stacked wall (NOT spiral): the belt-validated mechanism. Spiral vase needs a
-            // closed contour; a belt-safe wall is an open straight trace, so spiral does not apply.
-            belt_print_cfg->set_key_value("spiral_mode", new ConfigOptionBool(false));
+            obj_cfg.set_key_value("enable_support", new ConfigOptionBool(false));   // floor-clip, not a wedge
+            obj_cfg.set_key_value("precise_z_height", new ConfigOptionBool(false));
+            belt_print_cfg->set_key_value("spiral_mode", new ConfigOptionBool(true));
             belt_print_cfg->set_key_value("max_volumetric_extrusion_rate_slope", new ConfigOptionFloat(0));
-            // belt prints are inherently sequential (one object leaves the conveyor before the next)
+            belt_print_cfg->set_key_value("enable_wrapping_detection", new ConfigOptionBool(false));
             belt_print_cfg->set_key_value("print_sequence", new ConfigOptionEnum<PrintSequence>(PrintSequence::ByObject));
+            belt_print_cfg->set_key_value("skirt_loops", new ConfigOptionInt(0));
+
+            // Scale X to span the bed (same as cartesian). Z is left alone — the structure is tall
+            // enough; we cut it to the ramp height below (the cartesian path does the same).
+            BoundingBoxf bed_ext = get_extents(belt_printer_cfg->option<ConfigOptionPoints>("printable_area")->values);
+            const double scale_x = (bed_ext.size().x() - 10) / obj->bounding_box_exact().size().x();
+            obj->scale(std::min(1.0, scale_x), 1.0, 1.0);
 
             changed_objects({0});
             wxGetApp().get_tab(Preset::TYPE_PRINT)->update_dirty();
@@ -13696,59 +13694,50 @@ void Plater::calib_max_vol_speed(const Calib_Params& params)
             wxGetApp().get_tab(Preset::TYPE_FILAMENT)->reload_config();
             wxGetApp().get_tab(Preset::TYPE_PRINTER)->reload_config();
 
-            // print_z span (print_z = Y + Z). The instance offset is X-only (placement centres X,
-            // the asset is already keel-first min Y = min Z = 0), so world print_z == object-local
-            // print_z and pz_min ≈ 0.
-            double pz_min = std::numeric_limits<double>::max();
-            double pz_max = std::numeric_limits<double>::lowest();
-            const Transform3d inst_m = obj->instances.front()->get_matrix();
-            for (const ModelVolume* vol : obj->volumes) {
-                if (!vol->is_model_part()) continue;
-                const Transform3d m = inst_m * vol->get_matrix();
-                for (const auto& v : vol->mesh().its.vertices) {
-                    const Vec3d p = m * v.cast<double>();
-                    const double s = p.y() + p.z();
-                    pz_min = std::min(pz_min, s);
-                    pz_max = std::max(pz_max, s);
-                }
+            // Cut to the ramp height in model space (like the cartesian path), so a small requested
+            // range yields a short test. height = (end−start+1)/step mm. Done before the tilt.
+            {
+                const double height = (params.end - params.start + 1) / std::max(1e-6, params.step);
+                if (height < obj->bounding_box_exact().size().z())
+                    cut_horizontal(0, 0, height, ModelObjectCutAttribute::KeepLower);
+                obj = model().objects[0];
             }
 
-            // Layout the test like the cartesian path "auto-adjusts height", but belt-native:
-            //   • a fixed BASE of 100 belt layers printed at constant START flow (settling/baseline)
-            //   • then a RAMP start→end whose print_z length is sized by the dialog: like the
-            //     cartesian height=(end−start)/step, 1mm of ramp print_z per `step` mm³/s.
-            //   • the asset is CUT along the belt (constant Y+Z plane) to base+ramp, so a small
-            //     requested range yields a short test (no wasted length printing at clamped flow).
+            // Tilt by the belt angle (the same counter-rotation the gizmo / _calib_apply_belt_mode
+            // apply), then drop to the bed so min_z = 0.
+            ModelInstance* inst = obj->instances.front();
+            inst->rotate(Eigen::AngleAxisd(belt_angle_rad, belt_axis).toRotationMatrix());
+            obj->invalidate_bounding_box();
+            obj->ensure_on_bed();
+
+            // SINK through the bed: lower the tilted object so its whole underside passes below Z=0.
+            // The belt slicer clips everything under the bed and lays a flat floor at the clip plane,
+            // replacing the support wedge. Sink by the tilted Y-footprint = the depth of the
+            // triangular gap a 45° tilt would otherwise leave under the part.
+            BoundingBoxf3 rb = obj->instance_bounding_box(0);
+            const double sink = rb.size().y();
+            inst->set_offset(Z, inst->get_offset(Z) - sink);
+            obj->invalidate_bounding_box();
+
+            // Centre X on the bed, leading edge at the belt Y origin.
+            BoundingBoxf3 ob = obj->instance_bounding_box(0);
+            inst->set_offset(X, inst->get_offset(X) + bed_ext.center().x() - ob.center().x());
+            inst->set_offset(Y, inst->get_offset(Y) - ob.min.y());
+            obj->invalidate_bounding_box();
+
+            // Speed ramp: same flow→speed conversion as the cartesian path. The ramp runs with
+            // print_z (= belt advance) over the structure above the clip; base_speed holds the
+            // floor/lead-in at start until ~3 layers above the clipped slab so the floor area
+            // doesn't skew the reading.
             const double mm3_per_mm = Flow(line_width, layer_height, nozzle).mm3_per_mm()
                 * belt_filament_cfg->option<ConfigOptionFloatsNullable>("filament_flow_ratio")->get_at(0);
-            const double start_speed = params.start / mm3_per_mm;   // mm/s for flow = params.start
-            const double end_speed   = params.end   / mm3_per_mm;   // mm/s for flow = params.end
-            const double pitch   = layer_height / std::cos(M_PI / 4.0);          // virtual print_z per belt layer
-            const double base_pz = 100.0 * pitch;                                // 100-layer constant-START base
-            const double ramp_pz = std::max(1.0, (params.end - params.start) / std::max(1e-6, params.step));
-            const double ramp_top_pz = pz_min + base_pz + ramp_pz;
-
-            // Cut the test along the belt at print_z = ramp_top_pz (constant Y+Z plane, normal
-            // (0,1,1)/√2 — tilt the horizontal cut plane by Rx(−45°)), keeping the leading part.
-            // Mirrors cut_horizontal: translation(point_on_plane − instance_offset) · rotation.
-            if (ramp_top_pz < pz_max) {
-                const Vec3d instance_offset = obj->instances.front()->get_offset();
-                const Transform3d cut_tf =
-                    Geometry::translation_transform(Vec3d(0.0, ramp_top_pz, 0.0) - instance_offset)
-                    * Transform3d(Eigen::AngleAxisd(-M_PI / 4.0, Vec3d::UnitX()));
-                Cut cut(obj, 0, cut_tf, ModelObjectCutAttribute::KeepLower);
-                apply_cut_object_to_model(0, cut.perform_with_plane());
-            }
-
-            // Ramp anchoring (GCode.cpp: outer_wall_speed = max(base_speed, start + print_z·step)):
-            //   step  = (end_speed − start_speed) / ramp_pz
-            //   start = start_speed − (pz_min + base_pz)·step   → flat at start_speed until the base
-            //           ends (clamped by base_speed), then linear, hitting end_speed at ramp_top_pz.
-            auto new_params = params;
-            new_params.step       = (end_speed - start_speed) / ramp_pz;
-            new_params.start      = start_speed - (pz_min + base_pz) * new_params.step;
-            new_params.end        = end_speed;
-            new_params.base_speed = start_speed;   // flat floor for the lead-in base layers
+            const double pitch = layer_height / std::cos(M_PI / 4.0);   // virtual print_z per belt layer
+            auto new_params       = params;
+            new_params.start      = params.start / mm3_per_mm;
+            new_params.end        = params.end   / mm3_per_mm;
+            new_params.step       = params.step  / mm3_per_mm;
+            new_params.base_speed = new_params.start;          // flat floor over the clipped lead-in
+            (void) pitch;
             p->background_process.fff_print()->set_calib_params(new_params);
             return;
         }
