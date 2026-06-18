@@ -13,6 +13,7 @@
 	"skirt_loops": "0",
 	"skirt_distance": "0",
 	"sparse_infill_pattern": "grid",
+	"sparse_infill_speed": "200",
 	"support_base_pattern": "rectilinear",
 	"support_interface_pattern": "rectilinear",
 	"compatible_printers": [
