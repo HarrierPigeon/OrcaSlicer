@@ -7030,6 +7030,47 @@ std::vector<size_t> Plater::priv::load_files(const std::vector<fs::path>& input_
 
  #define AUTOPLACEMENT_ON_LOAD
 
+// ORCA-Belt: place a freshly-loaded object at the belt starting edge.
+// Belt printers print from the belt entry (designed Y = 0) outward, but the stock
+// loader drops objects at the bed centre, which on a belt maps far down the belt and
+// is frequently out of range. This positions the object's leading edge at the belt
+// entry, centred in X. Belt supports protrude toward the belt starting edge (-Y); if
+// supports are enabled, push the object forward (+Y) by the worst-case support shadow
+// at the gantry angle so the supports also land fully on the bed. No-op on non-belt
+// printers and on objects that arrived with their own instance placement (e.g. projects).
+static void belt_place_object_at_entry(ModelObject* object)
+{
+    if (object == nullptr || object->instances.empty())
+        return;
+    const DynamicPrintConfig& printer_cfg = wxGetApp().preset_bundle->printers.get_edited_preset().config;
+    if (!printer_cfg.has("belt_printer") || !printer_cfg.opt_bool("belt_printer"))
+        return;
+    const auto* area_opt = printer_cfg.option<ConfigOptionPoints>("printable_area");
+    if (area_opt == nullptr || area_opt->values.size() < 3)
+        return;
+
+    object->ensure_on_bed();
+    const BoundingBoxf3 obb     = object->bounding_box_exact();
+    const BoundingBoxf  bed_ext = get_extents(area_opt->values);
+
+    double dx = bed_ext.center().x() - obb.center().x(); // centre in X
+    double dy = -obb.min.y();                            // leading edge at the belt entry (Y = 0)
+
+    const DynamicPrintConfig& print_cfg = wxGetApp().preset_bundle->prints.get_edited_preset().config;
+    if (print_cfg.has("enable_support") && print_cfg.opt_bool("enable_support")) {
+        const double angle_deg = printer_cfg.has("belt_slice_rotation_angle")
+            ? printer_cfg.opt_float("belt_slice_rotation_angle") : 45.0;
+        const double tan_a  = std::tan(angle_deg * (3.14159265358979323846 / 180.0));
+        // Support shadow toward the belt start: an overhang at height h drops to the belt
+        // h / tan(angle) ahead of itself. Worst case is the full object height.
+        const double shadow = (tan_a > 1e-6) ? (obb.size().z() / tan_a) : obb.size().z();
+        dy += shadow; // move the object fully onto the bed so supports don't fall off the belt start
+    }
+
+    object->translate_instances(Vec3d(dx, dy, 0.0));
+    object->invalidate_bounding_box();
+}
+
 std::vector<size_t> Plater::priv::load_model_objects(const ModelObjectPtrs& model_objects, bool allow_negative_z, bool split_object, bool auto_drop)
 {
     const Vec3d bed_size = Slic3r::to_3d(this->bed.build_volume().bounding_volume2d().size(), 1.0) - 2.0 * Vec3d::Ones();
@@ -7049,6 +7090,9 @@ std::vector<size_t> Plater::priv::load_model_objects(const ModelObjectPtrs& mode
         object->sort_volumes(true);
         std::string object_name = object->name.empty() ? fs::path(object->input_file).filename().string() : object->name;
         obj_idxs.push_back(obj_count++);
+        // ORCA-Belt: objects that arrive without instances get the stock bed-centre
+        // placement below and are candidates for re-placement at the belt entry.
+        const bool belt_default_placed = model_object->instances.empty();
 
         if (model_object->instances.empty()) {
 #ifdef AUTOPLACEMENT_ON_LOAD
@@ -7109,6 +7153,10 @@ std::vector<size_t> Plater::priv::load_model_objects(const ModelObjectPtrs& mode
         else {
             object->ensure_on_bed(allow_negative_z);
         }
+
+        // ORCA-Belt: re-place stock bed-centre objects at the belt starting edge.
+        if (belt_default_placed)
+            belt_place_object_at_entry(object);
 
         if (!split_object) {
             //BBS initial assemble transformation
