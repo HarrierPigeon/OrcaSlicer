@@ -7038,10 +7038,15 @@ std::vector<size_t> Plater::priv::load_files(const std::vector<fs::path>& input_
 // supports are enabled, push the object forward (+Y) by the worst-case support shadow
 // at the gantry angle so the supports also land fully on the bed. No-op on non-belt
 // printers and on objects that arrived with their own instance placement (e.g. projects).
-static void belt_place_object_at_entry(ModelObject* object)
+// On a belt printer, place a freshly loaded GROUP of objects at the belt entry,
+// treating them as one cluster: the cluster's leading edge sits at the belt entry
+// (Y = 0), centred in X, with the relative layout preserved. Belt prints run from
+// the belt entry outward; the stock loader drops objects at the bed centre, which on
+// a tall belt bed maps far down the belt and aborts with "Move out of range" after
+// heating. Covers fresh imports, primitives and project/3MF loads alike (a multi-
+// object project is anchored as a single large object, per the belt placement rule).
+static void belt_place_objects_at_entry(Model& model, const std::vector<size_t>& obj_idxs)
 {
-    if (object == nullptr || object->instances.empty())
-        return;
     const DynamicPrintConfig& printer_cfg = wxGetApp().preset_bundle->printers.get_edited_preset().config;
     if (!printer_cfg.has("belt_printer") || !printer_cfg.opt_bool("belt_printer"))
         return;
@@ -7049,26 +7054,44 @@ static void belt_place_object_at_entry(ModelObject* object)
     if (area_opt == nullptr || area_opt->values.size() < 3)
         return;
 
-    object->ensure_on_bed();
-    const BoundingBoxf3 obb     = object->bounding_box_exact();
-    const BoundingBoxf  bed_ext = get_extents(area_opt->values);
+    // Collective (world-space) bounding box of the just-loaded printable instances.
+    BoundingBoxf3 grp;
+    bool   any   = false;
+    double max_h = 0.;
+    for (size_t idx : obj_idxs) {
+        if (idx >= model.objects.size()) continue;
+        ModelObject* o = model.objects[idx];
+        o->ensure_on_bed();
+        for (size_t i = 0; i < o->instances.size(); ++i)
+            if (o->instances[i]->printable) {
+                const BoundingBoxf3 ibb = o->instance_bounding_box(i);
+                grp.merge(ibb);
+                any   = true;
+                max_h = std::max(max_h, ibb.size().z());
+            }
+    }
+    if (!any) return;
 
-    double dx = bed_ext.center().x() - obb.center().x(); // centre in X
-    double dy = -obb.min.y();                            // leading edge at the belt entry (Y = 0)
+    const BoundingBoxf bed_ext = get_extents(area_opt->values);
+    double dx = bed_ext.center().x() - grp.center().x(); // centre the cluster in X
+    double dy = -grp.min.y();                            // cluster leading edge at the belt entry (Y = 0)
 
     const DynamicPrintConfig& print_cfg = wxGetApp().preset_bundle->prints.get_edited_preset().config;
     if (print_cfg.has("enable_support") && print_cfg.opt_bool("enable_support")) {
         const double angle_deg = printer_cfg.has("belt_slice_rotation_angle")
             ? printer_cfg.opt_float("belt_slice_rotation_angle") : 45.0;
         const double tan_a  = std::tan(angle_deg * (3.14159265358979323846 / 180.0));
-        // Support shadow toward the belt start: an overhang at height h drops to the belt
-        // h / tan(angle) ahead of itself. Worst case is the full object height.
-        const double shadow = (tan_a > 1e-6) ? (obb.size().z() / tan_a) : obb.size().z();
-        dy += shadow; // move the object fully onto the bed so supports don't fall off the belt start
+        // Support shadow toward the belt start: an overhang at height h drops to the
+        // belt h/tan(angle) ahead. Worst case is the tallest object in the cluster.
+        dy += (tan_a > 1e-6) ? (max_h / tan_a) : max_h;
     }
 
-    object->translate_instances(Vec3d(dx, dy, 0.0));
-    object->invalidate_bounding_box();
+    if (std::abs(dx) < 1e-9 && std::abs(dy) < 1e-9) return;
+    for (size_t idx : obj_idxs)
+        if (idx < model.objects.size()) {
+            model.objects[idx]->translate_instances(Vec3d(dx, dy, 0.0));
+            model.objects[idx]->invalidate_bounding_box();
+        }
 }
 
 std::vector<size_t> Plater::priv::load_model_objects(const ModelObjectPtrs& model_objects, bool allow_negative_z, bool split_object, bool auto_drop)
@@ -7090,10 +7113,6 @@ std::vector<size_t> Plater::priv::load_model_objects(const ModelObjectPtrs& mode
         object->sort_volumes(true);
         std::string object_name = object->name.empty() ? fs::path(object->input_file).filename().string() : object->name;
         obj_idxs.push_back(obj_count++);
-        // ORCA-Belt: objects that arrive without instances get the stock bed-centre
-        // placement below and are candidates for re-placement at the belt entry.
-        const bool belt_default_placed = model_object->instances.empty();
-
         if (model_object->instances.empty()) {
 #ifdef AUTOPLACEMENT_ON_LOAD
             object->center_around_origin();
@@ -7154,10 +7173,6 @@ std::vector<size_t> Plater::priv::load_model_objects(const ModelObjectPtrs& mode
             object->ensure_on_bed(allow_negative_z);
         }
 
-        // ORCA-Belt: re-place stock bed-centre objects at the belt starting edge.
-        if (belt_default_placed)
-            belt_place_object_at_entry(object);
-
         if (!split_object) {
             //BBS initial assemble transformation
             for (ModelObject* model_object : model.objects) {
@@ -7170,6 +7185,10 @@ std::vector<size_t> Plater::priv::load_model_objects(const ModelObjectPtrs& mode
             }            
         }
     }
+
+    // ORCA-Belt: anchor the just-loaded cluster at the belt entry (treats a multi-
+    // object project as one large object). Covers imports, primitives and 3MF loads.
+    belt_place_objects_at_entry(model, obj_idxs);
 
     BOOST_LOG_TRIVIAL(info) << __FUNCTION__ << ":" << __LINE__ << boost::format(", loaded objects, begin to auto placement");
 #ifdef AUTOPLACEMENT_ON_LOAD

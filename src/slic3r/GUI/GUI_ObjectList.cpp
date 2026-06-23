@@ -2600,6 +2600,32 @@ void ObjectList::load_mesh_object(const TriangleMesh &mesh, const wxString &name
 
     new_object->ensure_on_bed();
 
+    // ORCA-Belt: Add-Primitive drops objects at the bed centre, which on a tall
+    // belt bed (e.g. 250x2000) is ~mid-belt and out of gantry range. Re-place a
+    // freshly added belt object at the belt entry (leading edge Y=0, centred X),
+    // mirroring the file-import path (Plater belt_place_object_at_entry). Uses the
+    // world-space instance bbox so dy=-min.y moves the leading edge onto Y=0.
+    {
+        const DynamicPrintConfig& pcfg = wxGetApp().preset_bundle->printers.get_edited_preset().config;
+        const auto* area = pcfg.option<ConfigOptionPoints>("printable_area");
+        if (pcfg.has("belt_printer") && pcfg.opt_bool("belt_printer") && area && area->values.size() >= 3) {
+            double xmin = area->values[0].x(), xmax = xmin;
+            for (const Vec2d& p : area->values) { xmin = std::min(xmin, p.x()); xmax = std::max(xmax, p.x()); }
+            const BoundingBoxf3 ibb = new_object->instance_bounding_box(0);
+            double dx = 0.5 * (xmin + xmax) - ibb.center().x();
+            double dy = -ibb.min.y();
+            const DynamicPrintConfig& print_cfg = wxGetApp().preset_bundle->prints.get_edited_preset().config;
+            if (print_cfg.has("enable_support") && print_cfg.opt_bool("enable_support")) {
+                const double angle_deg = pcfg.has("belt_slice_rotation_angle")
+                    ? pcfg.opt_float("belt_slice_rotation_angle") : 45.0;
+                const double tan_a = std::tan(angle_deg * (3.14159265358979323846 / 180.0));
+                dy += (tan_a > 1e-6) ? (ibb.size().z() / tan_a) : ibb.size().z();
+            }
+            new_object->translate_instances(Vec3d(dx, dy, 0.0));
+            new_object->invalidate_bounding_box();
+        }
+    }
+
     //BBS init assmeble transformation
     Geometry::Transformation t = new_object->instances[0]->get_transformation();
     new_object->instances[0]->set_assemble_transformation(t);
