@@ -7186,10 +7186,6 @@ std::vector<size_t> Plater::priv::load_model_objects(const ModelObjectPtrs& mode
         }
     }
 
-    // ORCA-Belt: anchor the just-loaded cluster at the belt entry (treats a multi-
-    // object project as one large object). Covers imports, primitives and 3MF loads.
-    belt_place_objects_at_entry(model, obj_idxs);
-
     BOOST_LOG_TRIVIAL(info) << __FUNCTION__ << ":" << __LINE__ << boost::format(", loaded objects, begin to auto placement");
 #ifdef AUTOPLACEMENT_ON_LOAD
 #if 0
@@ -7227,6 +7223,12 @@ std::vector<size_t> Plater::priv::load_model_objects(const ModelObjectPtrs& mode
 #endif
 
 #endif /* AUTOPLACEMENT_ON_LOAD */
+
+    // ORCA-Belt: anchor the just-loaded cluster at the belt entry AFTER the stock
+    // auto-placement above (which drops fresh objects at the bed centre / nearest
+    // empty cell). Runs last so it isn't overridden. Treats a multi-object project
+    // as one large object; covers imports and 3MF loads. No-op on non-belt printers.
+    belt_place_objects_at_entry(model, obj_idxs);
 
     //BBS: remove the auto scaled_down logic when load models
     //if (scaled_down) {
