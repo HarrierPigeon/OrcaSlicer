@@ -12388,31 +12388,13 @@ void Plater::priv::set_bed_shape(const Pointfs       &shape,
             bed.set_belt_printer(true, static_cast<float>(belt_angle), tilt_axis);
             if (preview)
                 preview->get_canvas3d()->get_gcode_viewer().set_belt_printer(true, static_cast<float>(belt_angle));
-
-            // Compute the inverse of the mesh-side belt transform for the G-code
-            // viewer.  The sole mesh transform is the slicing rotation; build its
-            // matrix from config and hand the viewer its inverse (rotation is
-            // orthogonal, so the inverse is the transpose).
-            Transform3d forward = Transform3d::Identity();
-            if (rot_axis != BeltRotationAxis::None && std::abs(rot_angle) > EPSILON) {
-                Vec3d unit_axis = Vec3d::UnitX();
-                switch (rot_axis) {
-                case BeltRotationAxis::X: unit_axis = Vec3d::UnitX(); break;
-                case BeltRotationAxis::Y: unit_axis = Vec3d::UnitY(); break;
-                case BeltRotationAxis::Z: unit_axis = Vec3d::UnitZ(); break;
-                default: break;
-                }
-                forward.linear() = Eigen::AngleAxisd(Geometry::deg2rad(rot_angle), unit_axis).toRotationMatrix();
-            }
-            Transform3d inverse = forward.inverse();
-            if (preview)
-                preview->get_canvas3d()->get_gcode_viewer().set_belt_inverse_transform(inverse);
+            // The belt "designed view" back-transform is rebuilt from the print config at
+            // G-code load time (GCodeViewer::compute_belt_back_transform), so no mesh-side
+            // inverse needs to be pushed to the viewer here.
         } else {
             bed.set_belt_printer(false, 0.f);
-            if (preview) {
+            if (preview)
                 preview->get_canvas3d()->get_gcode_viewer().set_belt_printer(false, 0.f);
-                preview->get_canvas3d()->get_gcode_viewer().set_belt_inverse_transform(Transform3d::Identity());
-            }
         }
     }
 
@@ -15230,6 +15212,11 @@ void Plater::reload_gcode_from_disk()
 void Plater::reload_print()
 {
     p->preview->reload_print();
+}
+
+void Plater::refresh_belt_view()
+{
+    p->preview->refresh_belt_view();
 }
 
 // BBS
