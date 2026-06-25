@@ -4013,12 +4013,20 @@ void organic_draw_branches(
                             std::vector<BottomExtraSlice>   bottom_extra_slices;
                             Polygons                        rest_support;
                             coord_t                         bottom_radius = support_element_radius(config, *branch.path.front());
+                            // Belt printer (GeneratorOnly belt floor): the tilted belt surface is the
+                            // build surface, so a branch should terminate ON the belt with a thin tip,
+                            // not stamp its full footprint straight down to Z=0 and weld neighbouring
+                            // branches into a solid floor slab. m_belt_floor is only populated in that
+                            // mode, so it doubles as the gate (no effect on other printer types).
+                            const bool                      belt_mode = !volumes.m_belt_floor.empty();
                             // Don't propagate further than 1.5 * bottom radius.
                             //LayerIndex                      layers_propagate_max = 2 * bottom_radius / config.layer_height;
                             LayerIndex                      layers_propagate_max = 5 * bottom_radius / config.layer_height;
-                            LayerIndex                      layer_bottommost = branch.path.front()->state.verylost ?
+                            LayerIndex                      layer_bottommost = (branch.path.front()->state.verylost && !belt_mode) ?
                                 // If the tree bottom is hanging in the air, bring it down to some surface.
                                 0 :
+                                // In belt mode never force-drop to Z=0 (the belt clip below handles
+                                // termination); otherwise the "verylost" branch welds into the slab.
                                 //FIXME the "verylost" branches should stop when crossing another support.
                                 std::max(0, layer_begin - layers_propagate_max);
                             double                          support_area_min_radius = M_PI * sqr(double(config.branch_radius));
@@ -4030,14 +4038,28 @@ void organic_draw_branches(
                                 Polygons collision = volumes.getCollision(0, collision_layer, false);
                                 rest_support = diff_clipped(rest_support.empty() ? slice_front_contact : rest_support, collision, ApplySafetyOffset::Yes);
                                 // Belt floor: clip propagated support at belt surface.
-                                if (layer_idx < LayerIndex(volumes.m_belt_floor.size()) && !volumes.m_belt_floor[layer_idx].empty())
+                                bool belt_cut = false;
+                                if (layer_idx < LayerIndex(volumes.m_belt_floor.size()) && !volumes.m_belt_floor[layer_idx].empty()) {
+                                    double area_before = area(rest_support);
                                     rest_support = diff(rest_support, volumes.m_belt_floor[layer_idx]);
+                                    // The belt counts as "reached" only when it actually removes part
+                                    // of this branch's footprint. The belt half-plane is non-empty at
+                                    // every near-belt layer, so testing non-emptiness alone would
+                                    // terminate a laterally-distant branch ~1 layer above true contact,
+                                    // leaving a gap. Require a real area reduction instead.
+                                    belt_cut = belt_mode && area(rest_support) < area_before - tiny_area;
+                                }
                                 remove_small(rest_support, tiny_area);
                                 double rest_support_area = area(rest_support);
                                 if (rest_support_area < support_area_stop)
                                     // Don't propagate a fraction of the tree contact surface.
                                     break;
                                 bottom_extra_slices.push_back({ rest_support, rest_support_area });
+                                // Belt mode: once the belt surface actually starts cutting this branch
+                                // it has reached the belt — keep this last (belt-clipped) slice as the
+                                // contact and stop, rather than stamping the footprint further down.
+                                if (belt_cut)
+                                    break;
                             }
                             // Now remove those bottom slices that are not supported at all.
 #if 0
@@ -4055,7 +4077,10 @@ void organic_draw_branches(
                                 }
                             }
 #endif
-                            if (config.settings.support_floor_layers > 0) {
+                            // Belt mode: no solid support-floor pad under these branches — it is what
+                            // welds neighbouring belt-terminating branches into the dense Z=0 slab.
+                            // They simply taper out onto the tilted belt as distributed thin contacts.
+                            if (!belt_mode && config.settings.support_floor_layers > 0) {
                                 Polygons contacts;
                                 if (!bottom_extra_slices.empty()) {
                                     const int contact_idx = int(bottom_extra_slices.size()) - 1; // Use the lowest contact slice as the footprint.
@@ -4094,7 +4119,10 @@ void organic_draw_branches(
                         }
 
                         // ORCA: retain bottom contacts even when no placeable areas intersect.
-                        if (branch.has_root && config.support_rests_on_model && branch.path.front()->state.layer_idx > 0 &&
+                        // Skipped in belt mode (m_belt_floor populated) so we don't re-introduce a
+                        // solid floor pad for branches that terminate on the tilted belt surface.
+                        if (volumes.m_belt_floor.empty() &&
+                            branch.has_root && config.support_rests_on_model && branch.path.front()->state.layer_idx > 0 &&
                             config.settings.support_floor_layers > 0 && config.z_distance_bottom_layers > 0 &&
                             bottom_contacts.empty() && !slice_front_contact.empty())
                             bottom_contacts.emplace_back(slice_front_contact);

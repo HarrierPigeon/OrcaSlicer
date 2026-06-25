@@ -1506,6 +1506,16 @@ void TreeSupport::generate_toolpaths()
     // ORCA: base angle used for explicit interlaced interface orientation.
     const float base_support_angle = Geometry::deg2rad(object_config.support_angle.value);
 
+    // Belt floor: the lowest support layer rests on the moving, tilted belt, not
+    // on a flat bed — so it must NOT get the bed first-layer treatment (a brim on
+    // interface areas, a first-layer-flow sheath at raft_first_layer_density on
+    // base areas). That treatment draws a loop along the Z=0 belt-floor line that
+    // reads as a stray brim/skirt. Gate those layer_id==0 special cases off when
+    // the belt floor is active; false on non-belt printers so behavior is unchanged.
+    BeltFloorContext belt_ctx;
+    const bool belt_floor_active = belt_ctx.init(m_slicing_params, *m_print_config)
+        && m_print_config->belt_support_floor_mode.value == BeltSupportFloorMode::GeneratorOnly;
+
     // generate tree support tool paths
     tbb::parallel_for(
         tbb::blocked_range<size_t>(m_raft_layers, m_object->support_layer_count()),
@@ -1541,7 +1551,7 @@ void TreeSupport::generate_toolpaths()
                     filler_interface->angle = m_support_params.support_interface_angle(area_group.interface_id);
                     if (area_group.type != SupportLayer::BaseType) {
                         // interface
-                        if (layer_id == 0) {
+                        if (layer_id == 0 && !belt_floor_active) {
                             Flow flow = m_raft_layers == 0 ? m_object->print()->brim_flow() : support_flow;
                             ExtrusionRole brim_role = (area_group.type == SupportLayer::RoofType && !area_group.interface_as_base) ?
                                 erSupportMaterialInterface : erSupportMaterial;
@@ -1614,7 +1624,7 @@ void TreeSupport::generate_toolpaths()
                     }
                     else {
                         // base_areas
-                        bool support_base_on_bed = (layer_id == 0 && m_raft_layers == 0);
+                        bool support_base_on_bed = (layer_id == 0 && m_raft_layers == 0 && !belt_floor_active);
                         Flow flow = support_base_on_bed ? m_support_params.first_layer_flow : support_flow;
                         bool need_infill = with_infill;
                         if(m_object_config->support_base_pattern==smpDefault)
@@ -1635,7 +1645,7 @@ void TreeSupport::generate_toolpaths()
                         std::unique_ptr<ExtrusionEntityCollection> base_eec = std::make_unique<ExtrusionEntityCollection>();
                         base_eec->no_sort = true;
                         ExtrusionEntitiesPtr &base_dst = base_eec->entities;
-                        if (layer_id == 0) {
+                        if (layer_id == 0 && !belt_floor_active) {
                             float density = float(m_object_config->raft_first_layer_density.value * 0.01);
                             fill_expolygons_with_sheath_generate_paths(base_dst, loops, filler_support.get(), density, erSupportMaterial, flow,
                                                                        m_support_params, true, false);
@@ -1907,9 +1917,6 @@ void TreeSupport::generate()
                 if (!belt_ext_layers.empty()) {
                     auto &sl_vec = m_object->support_layers();
                     sl_vec.insert(sl_vec.begin(), belt_ext_layers.begin(), belt_ext_layers.end());
-                    BOOST_LOG_TRIVIAL(debug) << "[BELT-CALIB] wedge ext layers=" << belt_ext_layers.size()
-                        << " z=" << belt_ext_layers.front()->print_z << ".." << belt_ext_layers.back()->print_z
-                        << " seeded=" << seeded;
                 }
             }
         }
@@ -2171,6 +2178,16 @@ void TreeSupport::draw_circles()
     coordf_t support_extrusion_width = m_support_params.support_extrusion_width;
     const float tree_brim_width = config.tree_support_brim_width.value;
 
+    // Belt floor: the first object layer is not on a flat bed — it rests on the
+    // tilted, moving belt. So the first-object-layer adhesion features (the tree
+    // support brim, the hybrid first-layer base expansion) must be suppressed:
+    // their expanded contact rings project to a stray brim/skirt loop sitting in
+    // the Z=0 belt plane around the support footprint. false on non-belt printers,
+    // so behavior there is unchanged.
+    BeltFloorContext belt_ctx;
+    const bool belt_floor_active = belt_ctx.init(m_slicing_params, *m_print_config)
+        && m_print_config->belt_support_floor_mode.value == BeltSupportFloorMode::GeneratorOnly;
+
     if (m_object->support_layer_count() <= m_raft_layers)
         return;
     BOOST_LOG_TRIVIAL(info) << "draw_circles for object: " << m_object->model_object()->name;
@@ -2281,7 +2298,7 @@ void TreeSupport::draw_circles()
                                 circle.points[i] = circle.points[i] * scale + node.position;
                             }
                         }
-                        if (obj_layer_nr == 0 && m_raft_layers == 0) {
+                        if (obj_layer_nr == 0 && m_raft_layers == 0 && !belt_floor_active) {
                             double brim_width = !config.tree_support_auto_brim ? tree_brim_width : std::max(MIN_BRANCH_RADIUS_FIRST_LAYER, std::min(node.radius + node.dist_mm_to_top / (scale * branch_radius) * 0.5, MAX_BRANCH_RADIUS_FIRST_LAYER) - node.radius);
                             auto tmp=offset(circle, scale_(brim_width));
                             if(!tmp.empty())
@@ -2352,12 +2369,19 @@ void TreeSupport::draw_circles()
                 base_areas = intersection_ex(base_areas, m_machine_border);
 
                 // Belt floor: clip tree support polygons by the belt surface plane.
-                // ts_layer->print_z is at LOCAL Z (global offset applied later in
-                // _generate_support_material), so use init_local to subtract
-                // belt_global_z_offset from z_shift.
+                // Non-organic tree support layers inherit their print_z from the
+                // (already globally-offset) object layers — see plan_layer_heights()
+                // and add_tree_support_layer(); only ORGANIC layers get the global
+                // Z offset applied later in _generate_support_material(). So here
+                // ts_layer->print_z is in the GLOBAL frame and we must use init()
+                // (global), not init_local(): mixing a local-frame clip plane with
+                // a global print_z displaces the cutoff line by belt_global_z_offset
+                // along the shear axis, leaving an un-clipped wedge of support below
+                // the belt floor. In per-object (non-global) mode belt_global_z_offset
+                // is 0 so init() and init_local() coincide — this is a no-op there.
                 {
                     BeltFloorContext ctx;
-                    if (ctx.init_local(m_slicing_params, *m_print_config, m_object->belt_global_z_offset())
+                    if (ctx.init(m_slicing_params, *m_print_config)
                         && m_print_config->belt_support_floor_mode.value == BeltSupportFloorMode::GeneratorOnly) {
                         Polygons belt_surface = ctx.surface_polygon(ts_layer->print_z);
                         base_areas     = diff_ex(base_areas,     belt_surface);
@@ -2500,7 +2524,7 @@ void TreeSupport::draw_circles()
                 // part. area_poly is collected from ePolygon nodes above, which are the normal
                 // support nodes in Hybrid mode. Apply the expansion before area_groups and
                 // lslices are built so toolpaths and brim avoidance use the same footprint.
-                if (layer_nr == 0 && m_raft_layers == 0 && m_support_params.support_style == smsTreeHybrid &&
+                if (layer_nr == 0 && m_raft_layers == 0 && !belt_floor_active && m_support_params.support_style == smsTreeHybrid &&
                     m_object_config->raft_first_layer_expansion.value > 0.f) {
                     ExPolygons expanded_base_areas;
                     const float inflate_factor_1st_layer = float(scale_(m_object_config->raft_first_layer_expansion.value));

@@ -1297,16 +1297,41 @@ void GCodeViewer::load_as_gcode(const GCodeProcessorResult& gcode_result, const 
         size_t n_filtered = 0, n_clip = 0;
         const double y_lo = model_bb.defined ? model_bb.min.y() - ANCHOR_CLIP_MARGIN_MM : -1e30;
         const double y_hi = model_bb.defined ? model_bb.max.y() + ANCHOR_CLIP_MARGIN_MM :  1e30;
-        for (const GCodeProcessorResult::MoveVertex& mv : gcode_result.moves)
-            if (mv.type == EMoveType::Extrude && mv.layer_id >= 1) { // skip layer-0 prime/skirt
-                ++n_filtered;
-                const Vec3d p = belt_inv * mv.position.cast<double>();
-                tp_bb_full.merge(p);
-                if (p.y() >= y_lo && p.y() <= y_hi) {
-                    tp_bb_clip.merge(p);
-                    ++n_clip;
+        // The anchor aligns the toolpath body onto the object-only model bbox, so it must be
+        // built from OBJECT-body toolpaths only. Support, skirt, brim and wipe-tower extrusions
+        // are not part of the model mesh and extend past it (support especially reaches well
+        // beyond the object on a belt), so including them drags tp_bb.min and shifts the whole
+        // back-transformed g-code off the mesh — but only when those features are present. That
+        // is the "g-code shifts vs mesh as soon as supports are enabled" bug. Filter them out.
+        auto is_object_body = [](ExtrusionRole r) {
+            return r != erSupportMaterial && r != erSupportMaterialInterface
+                && r != erSupportTransition
+                && r != erSkirt && r != erBrim && r != erWipeTower;
+        };
+        auto accumulate = [&](bool body_only) {
+            tp_bb_clip = BoundingBoxf3();
+            tp_bb_full = BoundingBoxf3();
+            n_filtered = 0;
+            n_clip     = 0;
+            for (const GCodeProcessorResult::MoveVertex& mv : gcode_result.moves)
+                if (mv.type == EMoveType::Extrude && mv.layer_id >= 1 // skip layer-0 prime/skirt
+                    && (!body_only || is_object_body(mv.extrusion_role))) {
+                    ++n_filtered;
+                    const Vec3d p = belt_inv * mv.position.cast<double>();
+                    tp_bb_full.merge(p);
+                    if (p.y() >= y_lo && p.y() <= y_hi) {
+                        tp_bb_clip.merge(p);
+                        ++n_clip;
+                    }
                 }
-            }
+        };
+        accumulate(/*body_only=*/true);
+        // Fallback: a plate with no object-body extrusions above layer 0 (e.g. a
+        // support-only object) would leave tp_bb undefined and silently skip the
+        // anchor. Re-accumulate over ALL extrude moves so the min-corner anchor is
+        // still computed rather than letting the preview float by the placement offset.
+        if (n_filtered == 0)
+            accumulate(/*body_only=*/false);
         // Use the clipped bbox when it still holds the bulk of the moves (outliers removed).
         // If the object sits far from the belt entry the toolpaths are grossly offset and the
         // clip drops most of them — fall back to the full bbox so the min-corner anchor still
