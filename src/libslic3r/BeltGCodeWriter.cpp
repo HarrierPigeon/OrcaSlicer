@@ -217,7 +217,17 @@ std::string BeltGCodeWriter::travel_to_xyz(const Vec3d &point, const std::string
                 w0.emit_comment(GCodeWriter::full_gcode_comment, comment);
                 slop_move = w0.string();
             }
-            else if (m_to_lift_type == LiftType::NormalLift) {
+            else if (m_to_lift_type == LiftType::NormalLift && this->is_current_position_clear()) {
+                // Only lift-in-place when the current position is known. On a normal
+                // printer _travel_to_z emits a Z-only move, but in belt mode Z is coupled
+                // to Y/X, so _travel_to_z re-emits the current m_pos through the belt
+                // shear. At print start (and after custom gcode) m_pos.xy is still the
+                // uninitialised origin (0,0), which shears into a bogus machine point
+                // (e.g. X=bed_max, Y=layer_z) far up the gantry. Skipping the separate
+                // lift here is safe: there is nothing to lift over yet, and the
+                // xy_z_move below travels straight to the destination with full XYZ,
+                // establishing the correct position. This mirrors the SlopeLift branch
+                // above, which already guards on is_current_position_clear().
                 slop_move = _travel_to_z(target.z(), "normal lift Z");
             }
         }
