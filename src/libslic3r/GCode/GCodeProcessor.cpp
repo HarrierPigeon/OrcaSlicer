@@ -7073,6 +7073,22 @@ void GCodeProcessor::store_move_vertex(EMoveType type, EMovePathType path_type, 
         m_result.print_statistics.total_travel_distance += m_travel_dist;
     }
 
+    // During the start G-code "prepare" stage the toolhead Z is not yet a real
+    // print height on a normal printer, so it is pinned to the first-layer height
+    // to keep the preview tidy. Belt printers are the exception: there the Z is
+    // written explicitly by BeltGCodeWriter and the designed-view back-transform
+    // couples machine Z into the rendered model Y (the belt tilt mixes the height
+    // and belt-feed axes). Overriding Z therefore back-transforms the last
+    // prepare-stage move (the unretract before the first extrusion) to model
+    // Y ~= 0, and the libvgcode path builder then draws a phantom extrusion
+    // segment from Y ~= 0 to the first real toolpath. Keep the real Z for belt
+    // printers so prepare-stage moves map correctly. Gated on belt_tilt_angle (set
+    // from the G-code header before the body is processed) so non-belt processing
+    // is byte-identical.
+    const float store_z = (m_processing_start_custom_gcode && m_result.belt_tilt_angle == 0.f)
+        ? m_first_layer_height
+        : m_end_position[Z] - m_z_offset;
+
     m_result.moves.push_back({
         m_last_line_id,
         type,
@@ -7080,7 +7096,7 @@ void GCodeProcessor::store_move_vertex(EMoveType type, EMovePathType path_type, 
         static_cast<unsigned char>(filament_id),
         m_cp_color.current,
         //BBS: add plate's offset to the rendering vertices
-        Vec3f(m_end_position[X] + m_x_offset, m_end_position[Y] + m_y_offset, m_processing_start_custom_gcode ? m_first_layer_height : m_end_position[Z]- m_z_offset) + m_extruder_offsets[filament_id],
+        Vec3f(m_end_position[X] + m_x_offset, m_end_position[Y] + m_y_offset, store_z) + m_extruder_offsets[filament_id],
         static_cast<float>(m_end_position[E] - m_start_position[E]),
         m_feedrate,
         0.0f, // actual feedrate
