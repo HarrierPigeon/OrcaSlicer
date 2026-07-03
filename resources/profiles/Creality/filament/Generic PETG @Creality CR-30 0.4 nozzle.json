@@ -1,0 +1,67 @@
+{
+	"type": "filament",
+	"name": "Generic PETG @Creality CR-30 0.4 nozzle",
+	"inherits": "Generic PETG @System",
+	"from": "system",
+	"instantiation": "true",
+	"compatible_printers": [
+		"Creality CR-30 0.4 nozzle"
+	],
+	"filament_type": [
+		"PETG"
+	],
+	"filament_vendor": [
+		"Generic"
+	],
+	"filament_settings_id": [
+		"Generic PETG @Creality CR-30 0.4 nozzle"
+	],
+	"filament_diameter": [
+		"1.75"
+	],
+	"filament_flow_ratio": [
+		"0.95"
+	],
+	"filament_max_volumetric_speed": [
+		"10"
+	],
+	"nozzle_temperature": [
+		"240"
+	],
+	"nozzle_temperature_initial_layer": [
+		"245"
+	],
+	"hot_plate_temp": [
+		"70"
+	],
+	"hot_plate_temp_initial_layer": [
+		"70"
+	],
+	"cool_plate_temp": [
+		"70"
+	],
+	"cool_plate_temp_initial_layer": [
+		"70"
+	],
+	"textured_plate_temp": [
+		"70"
+	],
+	"textured_plate_temp_initial_layer": [
+		"70"
+	],
+	"fan_min_speed": [
+		"50"
+	],
+	"fan_max_speed": [
+		"70"
+	],
+	"filament_retraction_length": [
+		"0.8"
+	],
+	"filament_retraction_speed": [
+		"40"
+	],
+	"filament_z_hop": [
+		"0.4"
+	]
+}

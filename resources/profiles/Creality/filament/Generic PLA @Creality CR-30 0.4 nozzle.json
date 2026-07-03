@@ -1,0 +1,67 @@
+{
+	"type": "filament",
+	"name": "Generic PLA @Creality CR-30 0.4 nozzle",
+	"inherits": "Generic PLA @System",
+	"from": "system",
+	"instantiation": "true",
+	"compatible_printers": [
+		"Creality CR-30 0.4 nozzle"
+	],
+	"filament_type": [
+		"PLA"
+	],
+	"filament_vendor": [
+		"Generic"
+	],
+	"filament_settings_id": [
+		"Generic PLA @Creality CR-30 0.4 nozzle"
+	],
+	"filament_diameter": [
+		"1.75"
+	],
+	"filament_flow_ratio": [
+		"0.98"
+	],
+	"filament_max_volumetric_speed": [
+		"12"
+	],
+	"nozzle_temperature": [
+		"210"
+	],
+	"nozzle_temperature_initial_layer": [
+		"215"
+	],
+	"hot_plate_temp": [
+		"60"
+	],
+	"hot_plate_temp_initial_layer": [
+		"60"
+	],
+	"cool_plate_temp": [
+		"60"
+	],
+	"cool_plate_temp_initial_layer": [
+		"60"
+	],
+	"textured_plate_temp": [
+		"60"
+	],
+	"textured_plate_temp_initial_layer": [
+		"60"
+	],
+	"fan_min_speed": [
+		"100"
+	],
+	"fan_max_speed": [
+		"100"
+	],
+	"filament_retraction_length": [
+		"0.8"
+	],
+	"filament_retraction_speed": [
+		"40"
+	],
+	"filament_z_hop": [
+		"0.4"
+	]
+}
