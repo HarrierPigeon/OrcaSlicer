@@ -1,9 +1,13 @@
 {
 	"name": "Creality",
-	"version": "02.03.02.73",
+	"version": "02.03.02.74",
 	"force_update": "0",
 	"description": "Creality configurations",
 	"machine_model_list": [
+		{
+			"name": "Creality CR-30",
+			"sub_path": "machine/Creality CR-30.json"
+		},
 		{
 			"name": "Creality CR-10 Max",
 			"sub_path": "machine/Creality CR-10 Max.json"
@@ -173,6 +177,10 @@
 		{
 			"name": "fdm_process_common",
 			"sub_path": "process/fdm_process_common.json"
+		},
+		{
+			"name": "0.20mm Standard @Creality CR-30 0.4 nozzle",
+			"sub_path": "process/0.20mm Standard @Creality CR-30 0.4 nozzle.json"
 		},
 		{
 			"name": "fdm_process_creality_common",
@@ -1627,6 +1635,14 @@
 		{
 			"name": "fdm_filament_common",
 			"sub_path": "filament/fdm_filament_common.json"
+		},
+		{
+			"name": "Generic PLA @Creality CR-30 0.4 nozzle",
+			"sub_path": "filament/Generic PLA @Creality CR-30 0.4 nozzle.json"
+		},
+		{
+			"name": "Generic PETG @Creality CR-30 0.4 nozzle",
+			"sub_path": "filament/Generic PETG @Creality CR-30 0.4 nozzle.json"
 		},
 		{
 			"name": "Creality Generic ABS @Ender-5Max-all",
@@ -3841,6 +3857,14 @@
 		{
 			"name": "fdm_creality_common",
 			"sub_path": "machine/fdm_creality_common.json"
+		},
+		{
+			"name": "fdm_belt_common",
+			"sub_path": "machine/fdm_belt_common.json"
+		},
+		{
+			"name": "Creality CR-30 0.4 nozzle",
+			"sub_path": "machine/Creality CR-30 0.4 nozzle.json"
 		},
 		{
 			"name": "Creality CR-10 Max 0.4 nozzle",
