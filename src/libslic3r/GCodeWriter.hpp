@@ -173,14 +173,17 @@ protected:
     // Apply axis remap to a point. Returns pos unchanged if remap is identity.
     Vec3d apply_axis_remap(const Vec3d &pos) const;
 
+    // Motion uses the global/base process variant until a filament becomes active.
+    // Protected so BeltGCodeWriter indexes the per-extruder speed options (travel_speed,
+    // travel_speed_z, initial_layer_travel_speed) exactly as the base writer does.
+    size_t     m_cached_extruder_idx;
+
 private:
 	// Extruders are sorted by their ID, so that binary search is possible.
     std::vector<Extruder> m_filament_extruders;
     bool            m_single_extruder_multi_material;
     std::vector<Extruder*> m_curr_filament_extruder;
     int        m_curr_extruder_id;
-    // Motion uses the global/base process variant until a filament becomes active.
-    size_t     m_cached_extruder_idx;
     unsigned int              m_last_acceleration;
     unsigned int              m_last_travel_acceleration;
     std::vector<unsigned int> m_max_travel_acceleration;
