@@ -7248,7 +7248,13 @@ void PrintConfigDef::init_fff_params()
     def->enum_values   = {"auto", "xy", "yz", "xz", "belt_affine"};
     def->enum_labels   = {L("Auto"), L("XY (machine bed)"), L("YZ"), L("XZ"), L("Belt affine plane")};
     def->mode = comExpert;
-    def->set_default_value(new ConfigOptionEnum<FirstLayerPlaneMode>(FirstLayerPlaneMode::BeltAffine));
+    // Auto, not BeltAffine: BeltAffine activates the plane evaluator unconditionally, so on a
+    // non-belt printer on_first_layer(point) stopped agreeing with the legacy slicing-layer-0
+    // test and first-layer speeds were skipped (brim printed at the volumetric fallback rather
+    // than initial_layer_speed). Auto resolves to BeltAffine only when belt_printer is set with
+    // a non-zero slicing rotation, and to XY (evaluator inactive, legacy behaviour) otherwise --
+    // which is what this option's own description promises.
+    def->set_default_value(new ConfigOptionEnum<FirstLayerPlaneMode>(FirstLayerPlaneMode::Auto));
 
     def = this->add("first_layer_plane_offset", coFloat);
     def->label = L("Belt plane offset");
