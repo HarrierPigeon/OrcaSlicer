@@ -9,7 +9,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: Orca Slicer\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-07-29 17:40-0300\n"
+"POT-Creation-Date: 2026-08-03 02:15-0500\n"
 "PO-Revision-Date: 2025-11-28 13:48-0600\n"
 "Last-Translator: tntchn <15895303+tntchn@users.noreply.github.com>\n"
 "Language-Team: \n"
@@ -5663,6 +5663,12 @@ msgstr "顯示靜音模式"
 msgid "Show normal mode"
 msgstr "顯示普通模式"
 
+msgid "Belt Printer"
+msgstr ""
+
+msgid "Show raw G-code (belt only) [B]"
+msgstr ""
+
 msgid ""
 "An object is placed in the left/right nozzle-only area or exceeds the printable height of the left nozzle.\n"
 "Please ensure the filaments used by this object are not arranged to other nozzles."
@@ -5877,6 +5883,9 @@ msgstr "畫布工具列"
 
 msgid "Fit camera to scene or selected object."
 msgstr "將攝影機對齊場景或選取的物件"
+
+msgid "Show raw G-code (belt only)"
+msgstr ""
 
 msgid "3D Navigator"
 msgstr "3D 導覽器"
@@ -8326,6 +8335,11 @@ msgstr "專案已下載 %d%%"
 msgid "Importing to Orca Slicer failed. Please download the file and manually import it."
 msgstr "匯入 Orca Slicer 失敗。 請下載該檔案並手動匯入。"
 
+msgid ""
+"PA Line and PA Pattern tests are not enabled yet on belt printers.\n"
+"Please use the PA Tower method instead."
+msgstr ""
+
 msgid "INFO:"
 msgstr "資訊："
 
@@ -10637,6 +10651,42 @@ msgstr "相容的切片設定"
 msgid "Printable space"
 msgstr "可列印區域"
 
+msgid "Belt printer"
+msgstr ""
+
+msgid "Belt tilt"
+msgstr ""
+
+msgid "Belt tilt axis and angle, applied as a mesh rotation before slicing.  Also drives bed rendering and support gravity tilt.  Isometric (no distortion); the back-transform inverts it before the machine-frame remap."
+msgstr ""
+
+msgid "Pre-slice axis remap"
+msgstr ""
+
+msgid "Remap model axes before slicing so the slicer's coordinate system matches the physical bed orientation. For belt printers whose bed is NOT in the XY plane, use this to swap axes so layers are stacked in the correct physical direction."
+msgstr ""
+
+msgid "First layer plane"
+msgstr ""
+
+msgid "Reference plane used to decide which extrusions get first-layer settings (no fan, slow speed, deferred temperature drop). On belt printers, Auto resolves to the tilted belt-shear plane so that first-layer treatment follows perpendicular distance from the belt surface, not slicing layer index."
+msgstr ""
+
+msgid "Machine frame transforms"
+msgstr ""
+
+msgid "G-code axis remap (post-slice)"
+msgstr ""
+
+msgid "Remap slicing-frame axes to machine axes in G-code output. Applied AFTER slicing, during G-code generation."
+msgstr ""
+
+msgid "Machine-frame tilt"
+msgstr ""
+
+msgid "The machine-frame shear (tan) and scale (1/cos) are derived from the belt tilt angle.  Enable 'Decouple' to set an independent machine-frame angle when the physical gantry tilt differs from the slicing rotation."
+msgstr ""
+
 #. TRN: The first argument is the parameter's name; the second argument is its value.
 #, boost-format
 msgid "Invalid value provided for parameter %1%: %2%"
@@ -12125,6 +12175,12 @@ msgstr "如果您仍想列印，可以在「偏好設定 / 控制 / 切片 / 移
 msgid "No extrusions under current settings."
 msgstr "根據目前設定，不會進行任何列印。"
 
+msgid "Raft is not compatible with belt printer mode."
+msgstr ""
+
+msgid "Draft shield is not compatible with belt printer mode."
+msgstr ""
+
 msgid "Smooth mode of timelapse is not supported when \"by object\" sequence is enabled."
 msgstr "逐件列印模式下不支援使用平滑模式的縮時錄影。"
 
@@ -12148,15 +12204,15 @@ msgid "While the object %1% itself fits the build volume, it exceeds the maximum
 msgstr "物件 %1% 本身雖然符合建構體積，但由於材料收縮補償，導致其超出了最大建構高度限制。"
 
 #, boost-format
-msgid "The object %1% exceeds the maximum build volume height."
-msgstr "物件 %1% 超出了最大體積高度。"
-
-#, boost-format
 msgid "While the object %1% itself fits the build volume, its last layer exceeds the maximum build volume height."
 msgstr "物件 %1% 本身雖符合建構體積限制，但其最後一層超出了最大建構高度。"
 
 msgid "You might want to reduce the size of your model or change current print settings and retry."
 msgstr "您可能想要減小模型的尺寸或更改目前的列印設定並重試。"
+
+#, boost-format
+msgid "The object %1% exceeds the maximum build volume height."
+msgstr "物件 %1% 超出了最大體積高度。"
 
 msgid "Variable layer height is not supported with Organic supports."
 msgstr "有機樹支撐不支持可變層高。"
@@ -16696,6 +16752,159 @@ msgstr "門檻值疊加比例"
 msgid "If threshold angle is zero, support will be generated for overhangs whose overlap is below the threshold. The smaller this value is, the steeper the overhang that can be printed without support."
 msgstr "當門檻值角度設為 0 時，系統將為重疊比例低於該門檻值的懸垂部分產生支撐。數值越小，代表可以在不使用支撐的情況下列印更陡峭的懸垂結構。"
 
+msgid "Build plate tilt X"
+msgstr ""
+
+msgid "Tilt angle of the build plate along the X axis. A positive value tilts the plate so the +X side is higher, shifting gravity toward -X and increasing overhangs on the +X side. A negative value tilts the -X side higher. Set to 0 for no X-axis tilt. In belt printer mode, this is automatically synced to the belt angle."
+msgstr ""
+
+msgid "Build plate tilt Y"
+msgstr ""
+
+msgid "Tilt angle of the build plate along the Y axis. A positive value tilts the plate so the +Y side is higher, shifting gravity toward -Y and increasing overhangs on the +Y side. A negative value tilts the -Y side higher. Set to 0 for no Y-axis tilt."
+msgstr ""
+
+msgid "Enable belt printing"
+msgstr ""
+
+msgid "Enable belt printer mode. Belt printers use a conveyor belt as the build surface, tilted at an angle (typically 45 degrees). The slicer will rotate the slicing plane and transform G-code coordinates for the tilted build surface."
+msgstr ""
+
+msgid "Infinite Y axis"
+msgstr ""
+
+msgid "Enable infinite Y axis for belt printers. When enabled, the Y axis build volume limit is effectively removed, allowing objects of any length to be printed along the belt direction."
+msgstr ""
+
+msgid "Belt tilt axis"
+msgstr ""
+
+msgid "Axis the mesh is rotated about before slicing. This is the belt printer's tilt: an isometric (no distortion) rotation that also drives bed rendering and support gravity tilt, and that the g-code back-transform inverts before the machine-frame shear/scale and remap. X is the typical gantry tilt (belt travels along Y)."
+msgstr ""
+
+msgid "Z"
+msgstr ""
+
+msgid "Belt tilt angle"
+msgstr ""
+
+msgid "Tilt angle of the belt surface, in degrees. Most belt printers use 45°. Positive values rotate counter-clockwise looking down the positive tilt axis; the magnitude is also the physical belt tilt used for bed rendering and support gravity."
+msgstr ""
+
+msgid "°"
+msgstr "°"
+
+msgid "Treat the slicing rotation as part of the global forward transform that BeltBackTransform inverts before the machine-frame remap. Required for rotation-mode belt printers. Defaults to on because virtually all rotation-mode printers need it."
+msgstr ""
+
+msgid "Decouple machine-frame tilt"
+msgstr ""
+
+msgid "Expert override: set the machine-frame (g-code shear/scale) tilt angle independently of the pre-slice rotation angle. When disabled, the machine-frame transform is derived from the belt tilt angle, so a single angle drives both stages. Enable only to compensate for a machine whose physical gantry tilt differs from the slicing rotation."
+msgstr ""
+
+msgid "Machine-frame tilt angle"
+msgstr ""
+
+msgid "Tilt angle (degrees) used to derive the machine-frame shear (tan) and scale (1/cos) applied to G-code. Only used when 'Decouple machine-frame tilt' is enabled; otherwise the belt tilt angle is used."
+msgstr ""
+
+msgid "+X"
+msgstr ""
+
+msgid "+Y"
+msgstr ""
+
+msgid "+Z"
+msgstr ""
+
+msgid "-X"
+msgstr ""
+
+msgid "-Y"
+msgstr ""
+
+msgid "-Z"
+msgstr ""
+
+msgid "Rev X"
+msgstr ""
+
+msgid "Rev Y"
+msgstr ""
+
+msgid "Rev Z"
+msgstr ""
+
+msgid "When enabled, the pre-slice axis remap accounts for each object's bed position. Without this, the remap is applied locally around each object's center, so objects at different positions don't get a position-dependent contribution. Mirrors the 'Global' option on the belt slicing rotation, but for the remap."
+msgstr ""
+
+msgid "G-code back-transform"
+msgstr ""
+
+msgid "Reverse the shear/scale transform applied during slicing so G-code coordinates are in the machine's physical coordinate space. Requires at least one shear axis with global mode enabled."
+msgstr ""
+
+msgid "Global mesh transforms"
+msgstr ""
+
+msgid "When enabled, pre-slice belt transforms (remap, shear, scale) account for each object's bed position, producing correct machine coordinates without relying on origin snap. Each instance gets its own PrintObject."
+msgstr ""
+
+msgid "Selects the reference plane used to decide which extrusions get first-layer settings (no fan, slow speed, initial-layer accel/jerk, deferred temperature drop). On belt printers a single slicing layer contains paths at many machine-Z values, so layer-index based detection fails. Auto resolves to Belt affine plane when any belt-side affine transform (Z shear or slicing rotation) is active, otherwise XY (legacy). Pick XY explicitly to opt out and force the legacy slicing-layer-0 detection."
+msgstr ""
+
+msgid "XY (machine bed)"
+msgstr ""
+
+msgid "YZ"
+msgstr ""
+
+msgid "XZ"
+msgstr ""
+
+msgid "Belt affine plane"
+msgstr ""
+
+msgid "Belt plane offset"
+msgstr ""
+
+msgid "Shifts the first-layer plane along its normal (mm). For axis-aligned planes this is just a coordinate shift. Positive values move the plane away from the belt surface (deeper into the model)."
+msgstr ""
+
+msgid "Plane band thickness"
+msgstr ""
+
+msgid "Thickness of one 'band' relative to the first-layer plane, in mm. Used as the unit by which 'No cooling for the first N layers' (and similar layer-count thresholds) is multiplied when the first-layer plane is active. -1 means use initial_layer_print_height."
+msgstr ""
+
+msgid "Support Floor Z offset"
+msgstr ""
+
+msgid "Shifts the computed belt floor up or down (mm). Negative values lower the floor, allowing more supports to survive. Use this to diagnose belt floor formula issues."
+msgstr ""
+
+msgid "Floor mode"
+msgstr ""
+
+msgid "Controls belt floor awareness for supports. 'None' disables belt floor logic. 'Generator only' stops support generation at the belt floor plane."
+msgstr ""
+
+msgid "Generator only"
+msgstr ""
+
+msgid "Z offset mode"
+msgstr ""
+
+msgid "How global Z offset is applied to support layers for belt printers with global shear. 'None' = don't offset. 'Unconditional' = offset all layers. 'Raft only' = only offset raft layers."
+msgstr ""
+
+msgid "Unconditional"
+msgstr ""
+
+msgid "Raft only"
+msgstr ""
+
 msgid "Tree support branch angle"
 msgstr "樹狀支撐分支角度"
 
@@ -18579,6 +18788,9 @@ msgstr ""
 "加速度值必須大於速度值。\n"
 "請驗證輸入。"
 
+msgid "Not enabled yet on belt printers — use the PA Tower method instead."
+msgstr ""
+
 msgid "Temperature calibration"
 msgstr "溫度校正"
 
@@ -18605,6 +18817,12 @@ msgstr "PA-CF"
 
 msgid "PET-CF"
 msgstr "PET-CF"
+
+msgid "Test model"
+msgstr "測試模型"
+
+msgid "Overhang"
+msgstr ""
 
 msgid "Start temp: "
 msgstr "起始溫度： "
@@ -18733,9 +18951,6 @@ msgstr "結束回抽長度："
 
 msgid "Input shaping Frequency test"
 msgstr "輸入整形頻率測試"
-
-msgid "Test model"
-msgstr "測試模型"
 
 msgid "Ringing Tower"
 msgstr "振鈴塔"
@@ -21676,9 +21891,6 @@ msgstr ""
 
 #~ msgid "part selection"
 #~ msgstr "零件選擇"
-
-#~ msgid "°"
-#~ msgstr "°"
 
 #~ msgid ""
 #~ "The Wipe option is not available when using the Firmware Retraction mode.\n"

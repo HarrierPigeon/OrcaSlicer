@@ -52,8 +52,6 @@ src/slic3r/GUI/DeviceTab/uiDeviceUpdateVersion.h
 src/slic3r/GUI/DeviceTab/uiDeviceUpdateVersion.cpp
 src/slic3r/GUI/DeviceTab/wgtDeviceNozzleRack.h
 src/slic3r/GUI/DeviceTab/wgtDeviceNozzleRack.cpp
-src/slic3r/GUI/DeviceTab/wgtDeviceNozzleRackNozzleItem.h
-src/slic3r/GUI/DeviceTab/wgtDeviceNozzleRackNozzleItem.cpp
 src/slic3r/GUI/DeviceTab/wgtDeviceNozzleRackUpdate.h
 src/slic3r/GUI/DeviceTab/wgtDeviceNozzleRackUpdate.cpp
 src/slic3r/GUI/DeviceTab/wgtDeviceNozzleSelect.h
