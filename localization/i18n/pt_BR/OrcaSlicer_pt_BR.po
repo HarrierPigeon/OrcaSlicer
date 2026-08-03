@@ -3,7 +3,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: Orca Slicer\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-08-03 02:15-0500\n"
+"POT-Creation-Date: 2026-08-03 02:21-0500\n"
 "PO-Revision-Date: 2026-07-26 11:14-0300\n"
 "Last-Translator: Alexandre Folle de Menezes\n"
 "Language-Team: Portuguese, Brazilian\n"
@@ -5527,7 +5527,7 @@ msgstr "Mostrar modo furtivo"
 msgid "Show normal mode"
 msgstr "Mostrar modo normal"
 
-msgid "Belt Printer"
+msgid "Belt printer"
 msgstr ""
 
 msgid "Show raw G-code (belt only) [B]"
@@ -10454,9 +10454,6 @@ msgstr "Perfis de processo compatíveis"
 
 msgid "Printable space"
 msgstr "Espaço de impressão"
-
-msgid "Belt printer"
-msgstr ""
 
 msgid "Belt tilt"
 msgstr ""

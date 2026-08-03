@@ -3,7 +3,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: Orca Slicer\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-08-03 02:15-0500\n"
+"POT-Creation-Date: 2026-08-03 02:21-0500\n"
 "PO-Revision-Date: 2025-10-02 17:43+0700\n"
 "Last-Translator: \n"
 "Language-Team: hainguyen.ts13@gmail.com\n"
@@ -6024,7 +6024,7 @@ msgstr "Hiện chế độ yên tĩnh"
 msgid "Show normal mode"
 msgstr "Hiện chế độ thường"
 
-msgid "Belt Printer"
+msgid "Belt printer"
 msgstr ""
 
 msgid "Show raw G-code (belt only) [B]"
@@ -11379,9 +11379,6 @@ msgstr "Hồ sơ quy trình tương thích"
 
 msgid "Printable space"
 msgstr "Không gian in"
-
-msgid "Belt printer"
-msgstr ""
 
 msgid "Belt tilt"
 msgstr ""

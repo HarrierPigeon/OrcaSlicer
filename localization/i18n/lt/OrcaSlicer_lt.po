@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: \n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-08-03 02:15-0500\n"
+"POT-Creation-Date: 2026-08-03 02:21-0500\n"
 "PO-Revision-Date: 2026-07-02 14:13+0300\n"
 "Last-Translator: Gintaras Kučinskas <sharanchius@gmail.com>\n"
 "Language-Team: \n"
@@ -5685,7 +5685,7 @@ msgstr "Rodyti slaptąjį režimą"
 msgid "Show normal mode"
 msgstr "Rodyti normalųjį režimą"
 
-msgid "Belt Printer"
+msgid "Belt printer"
 msgstr ""
 
 msgid "Show raw G-code (belt only) [B]"
@@ -10686,9 +10686,6 @@ msgstr "Suderinami apdorojimo profiliai"
 
 msgid "Printable space"
 msgstr "Erdvė spausdinimui"
-
-msgid "Belt printer"
-msgstr ""
 
 msgid "Belt tilt"
 msgstr ""

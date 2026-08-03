@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: Orca Slicer\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-08-03 02:15-0500\n"
+"POT-Creation-Date: 2026-08-03 02:21-0500\n"
 "PO-Revision-Date: 2026-06-19 13:40+0700\n"
 "Last-Translator: Icezaza\n"
 "Language-Team: Thai\n"
@@ -5678,7 +5678,7 @@ msgstr "แสดงโหมดซ่อนตัว"
 msgid "Show normal mode"
 msgstr "แสดงโหมดปกติ"
 
-msgid "Belt Printer"
+msgid "Belt printer"
 msgstr ""
 
 msgid "Show raw G-code (belt only) [B]"
@@ -10655,9 +10655,6 @@ msgstr "โปรไฟล์กระบวนการที่เข้าก
 
 msgid "Printable space"
 msgstr "พื้นที่ที่สามารถพิมพ์ได้"
-
-msgid "Belt printer"
-msgstr ""
 
 msgid "Belt tilt"
 msgstr ""
