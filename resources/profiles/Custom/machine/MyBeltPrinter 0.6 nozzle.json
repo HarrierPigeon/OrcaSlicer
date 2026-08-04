@@ -3,7 +3,7 @@
 	"name": "MyBeltPrinter 0.6 nozzle",
 	"inherits": "fdm_belt_common",
 	"from": "system",
-	"setting_id": "GM_BELT_003",
+	"setting_id": "K0m9HbUNwKT4UCJV",
 	"instantiation": "true",
 	"printer_model": "Generic Belt Printer",
 	"nozzle_diameter": [

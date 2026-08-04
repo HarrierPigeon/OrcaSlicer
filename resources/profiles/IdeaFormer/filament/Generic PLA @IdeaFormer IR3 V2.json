@@ -3,6 +3,7 @@
 	"name": "Generic PLA @IdeaFormer IR3 V2",
 	"inherits": "Generic PLA @System",
 	"from": "system",
+	"setting_id": "1xjycsEAFh6KQIhp",
 	"instantiation": "true",
 	"compatible_printers": [
 		"IdeaFormer IR3 V2 0.4 nozzle"

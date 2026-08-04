@@ -3,7 +3,7 @@
 	"name": "IdeaFormer IR3 V2 0.4 nozzle",
 	"inherits": "fdm_belt_common",
 	"from": "system",
-	"setting_id": "GMIF001",
+	"setting_id": "MDQZgwRgg72lmjtu",
 	"instantiation": "true",
 	"printer_model": "IdeaFormer IR3 V2",
 	"printer_variant": "0.4",

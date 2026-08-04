@@ -3,6 +3,7 @@
 	"name": "eSUN PLA @IdeaFormer IR3 V2",
 	"inherits": "Generic PLA @IdeaFormer IR3 V2",
 	"from": "system",
+	"setting_id": "XqkviBmFHEglXueX",
 	"instantiation": "true",
 	"compatible_printers": [
 		"IdeaFormer IR3 V2 0.4 nozzle"

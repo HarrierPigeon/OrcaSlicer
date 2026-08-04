@@ -3,6 +3,7 @@
 	"name": "Generic PETG @BabyBelt Pro",
 	"inherits": "Generic PETG @System",
 	"from": "system",
+	"setting_id": "gCzHpDNgVwQR6tgk",
 	"instantiation": "true",
 	"compatible_printers": [
 		"BabyBelt Pro 0.4 nozzle"

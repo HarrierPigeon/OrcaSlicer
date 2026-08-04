@@ -3,7 +3,7 @@
 	"name": "BabyBelt Pro 0.4 nozzle",
 	"inherits": "fdm_belt_common",
 	"from": "system",
-	"setting_id": "GMPC0BBP01",
+	"setting_id": "34OWINlJpJgA9DwQ",
 	"instantiation": "true",
 	"printer_model": "BabyBelt Pro",
 	"printer_variant": "0.4",

@@ -3,6 +3,7 @@
 	"name": "eSUN PLA @BabyBelt Pro",
 	"inherits": "Generic PLA @BabyBelt Pro",
 	"from": "system",
+	"setting_id": "EH3X7oE0DU5tSpjW",
 	"instantiation": "true",
 	"compatible_printers": [
 		"BabyBelt Pro 0.4 nozzle"

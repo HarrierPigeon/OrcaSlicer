@@ -3,6 +3,7 @@
 	"name": "Generic PLA @BabyBelt Pro",
 	"inherits": "Generic PLA @System",
 	"from": "system",
+	"setting_id": "24PpcnhVx9v5f4fD",
 	"instantiation": "true",
 	"compatible_printers": [
 		"BabyBelt Pro 0.4 nozzle"

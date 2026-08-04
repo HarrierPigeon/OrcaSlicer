@@ -3,9 +3,10 @@
 	"name": "MyBeltPrinter 0.2 nozzle",
 	"inherits": "fdm_belt_common",
 	"from": "system",
-	"setting_id": "GM_BELT_001",
+	"setting_id": "3w1uyJdmm14QhDnH",
 	"instantiation": "true",
 	"printer_model": "Generic Belt Printer",
+	"default_print_profile": "0.12mm Fine @MyBeltPrinter",
 	"nozzle_diameter": [
 		"0.2"
 	],

@@ -1,6 +1,6 @@
 {
 	"name": "Custom Printer",
-	"version": "02.04.00.03",
+	"version": "02.04.00.04",
 	"force_update": "0",
 	"description": "My configurations",
 	"machine_model_list": [
@@ -65,6 +65,14 @@
 		{
 			"name": "0.16mm Optimal @MyKlipper",
 			"sub_path": "process/0.16mm Optimal @MyKlipper.json"
+		},
+		{
+			"name": "0.12mm Fine @MyBeltPrinter",
+			"sub_path": "process/0.12mm Fine @MyBeltPrinter.json"
+		},
+		{
+			"name": "0.20mm Standard @MyBeltPrinter",
+			"sub_path": "process/0.20mm Standard @MyBeltPrinter.json"
 		},
 		{
 			"name": "0.20mm Standard @MyKlipper",
