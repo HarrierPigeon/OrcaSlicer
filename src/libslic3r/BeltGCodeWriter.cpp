@@ -264,7 +264,9 @@ std::string BeltGCodeWriter::travel_to_xyz(const Vec3d &point, const std::string
     // Belt mode: always emit full XYZ
     GCodeG1Formatter w;
     w.emit_xyz(point_on_plate);
-    w.emit_f(this->config.travel_speed.get_at(m_cached_extruder_idx) * 60.0);
+    // Use the first-layer-aware travel_speed computed at the top of this function,
+    // not the raw config travel_speed, so initial-layer travels are correctly slowed.
+    w.emit_f(travel_speed * 60.0);
     w.emit_comment(GCodeWriter::full_gcode_comment, comment);
 
     m_pos = dest_point;

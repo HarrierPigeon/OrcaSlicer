@@ -2967,16 +2967,18 @@ void GCode::_do_export(Print& print, GCodeOutputStream &file, ThumbnailsGenerato
     this->init_belt_writer(print, is_bbl_printers);
 
     // Standalone axis remap (works with or without belt mode).
+    // Sync the writer's remap state to the current export UNCONDITIONALLY — even at
+    // the identity mapping (0,1,2) — so a reused writer never retains a stale
+    // non-identity mapping from a prior export. has_axis_remap() returns false at
+    // identity, so identity/default output stays unchanged.
     {
         int rx = int(print.config().gcode_remap_x.value);
         int ry = int(print.config().gcode_remap_y.value);
         int rz = int(print.config().gcode_remap_z.value);
-        if (rx != 0 || ry != 1 || rz != 2) {
-            m_writer->set_axis_remap(rx, ry, rz);
-            BoundingBoxf bbox_bed(print.config().printable_area.values);
-            m_writer->set_build_volume_max(Vec3d(bbox_bed.max.x(), bbox_bed.max.y(),
-                                                  print.config().printable_height.value));
-        }
+        m_writer->set_axis_remap(rx, ry, rz);
+        BoundingBoxf bbox_bed(print.config().printable_area.values);
+        m_writer->set_build_volume_max(Vec3d(bbox_bed.max.x(), bbox_bed.max.y(),
+                                              print.config().printable_height.value));
     }
 
     // Build the FirstLayerPlane evaluator.  When inactive (non-belt printers

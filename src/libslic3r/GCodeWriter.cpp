@@ -937,7 +937,10 @@ std::string GCodeWriter::travel_to_xyz(const Vec3d &point, const std::string &co
                 Vec2d temp = delta_no_z.normalized() * delta(2) / tan(this->filament()->travel_slope());
                 Vec3d slope_top_point = Vec3d(temp(0), temp(1), delta(2)) + source;
                 GCodeG1Formatter w0;
-                w0.emit_xyz(slope_top_point);
+                // A slope lift is a straight (linear) diagonal move, so remapping its
+                // endpoint is exact. Route the destination through apply_axis_remap()
+                // when a remap is active (no-op at identity).
+                w0.emit_xyz(has_axis_remap() ? apply_axis_remap(slope_top_point) : slope_top_point);
                 w0.emit_f(travel_speed * 60.0);
                 //BBS
                 w0.emit_comment(GCodeWriter::full_gcode_comment, comment);
@@ -951,7 +954,14 @@ std::string GCodeWriter::travel_to_xyz(const Vec3d &point, const std::string &co
         std::string xy_z_move;
         {
             GCodeG1Formatter w0;
-            if (this->is_current_position_clear()) {
+            if (has_axis_remap()) {
+                // Remap may couple XY with Z; emit full XYZ in machine coordinates.
+                w0.emit_xyz(apply_axis_remap(target));
+                w0.emit_f(travel_speed * 60.0);
+                w0.emit_comment(GCodeWriter::full_gcode_comment, comment);
+                xy_z_move = w0.string();
+            }
+            else if (this->is_current_position_clear()) {
                 w0.emit_xyz(target);
                 w0.emit_f(travel_speed * 60.0);
                 w0.emit_comment(GCodeWriter::full_gcode_comment, comment);
@@ -989,7 +999,13 @@ std::string GCodeWriter::travel_to_xyz(const Vec3d &point, const std::string &co
     Vec3d point_on_plate = { dest_point(0) - m_x_offset, dest_point(1) - m_y_offset, dest_point(2) };
     std::string out_string;
     GCodeG1Formatter w;
-    if (!this->is_current_position_clear())
+    if (has_axis_remap()) {
+        // Remap may couple XY with Z; emit full XYZ in machine coordinates.
+        w.emit_xyz(apply_axis_remap(point_on_plate));
+        w.emit_f(this->config.travel_speed.get_at(m_cached_extruder_idx) * 60.0);
+        w.emit_comment(GCodeWriter::full_gcode_comment, comment);
+        out_string = w.string();
+    } else if (!this->is_current_position_clear())
     {
         //force to move xy first then z after filament change
         w.emit_xy(Vec2d(point_on_plate.x(), point_on_plate.y()));
@@ -1054,6 +1070,14 @@ std::string GCodeWriter::_travel_to_z(double z, const std::string &comment)
 
 std::string GCodeWriter::_spiral_travel_to_z(double z, const Vec2d &ij_offset, const std::string &comment)
 {
+    // A circular XY arc / spiral lift cannot be correctly axis-remapped by
+    // transforming only its endpoint: the arc plane (G17/XY) and the I-J center
+    // would change under the remap. When an axis remap is active, fall back to a
+    // plain linear lift instead of emitting a possibly-wrong spiral/arc. This
+    // single guard covers every spiral call site (lazy/eager lift and travel_to_xyz).
+    if (has_axis_remap())
+        return _travel_to_z(z, comment);
+
     std::string output;
     double speed = this->config.travel_speed_z.get_at(m_cached_extruder_idx);
 
@@ -1203,14 +1227,19 @@ std::string GCodeWriter::extrude_to_xyz(const Vec3d &point, double dE, const std
     //BBS: take plate offset into consider
     Vec3d point_on_plate = { point(0) - m_x_offset, point(1) - m_y_offset, point(2) };
 
-    if (has_axis_remap())
-        point_on_plate = apply_axis_remap(point_on_plate);
-
     GCodeG1Formatter w;
-    if (z_changed)
+    if (has_axis_remap()) {
+        // z_changed was computed from the ORIGINAL slicing Z, but an axis remap can
+        // make machine-Z depend on slicing X/Y. An X/Y-only move (slicing-Z
+        // unchanged) would then drop the required machine-Z word, so always emit
+        // full XYZ whenever a remap is active.
+        point_on_plate = apply_axis_remap(point_on_plate);
         w.emit_xyz(point_on_plate);
-    else
+    } else if (z_changed) {
+        w.emit_xyz(point_on_plate);
+    } else {
         w.emit_xy(Vec2d(point_on_plate.x(), point_on_plate.y()));
+    }
     if (!force_no_extrusion)
         w.emit_e(filament()->E());
     //BBS
