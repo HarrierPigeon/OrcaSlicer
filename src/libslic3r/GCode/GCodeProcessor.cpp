@@ -2531,6 +2531,11 @@ void GCodeProcessorResult::reset() {
     timelapse_warning_code = 0;
     printable_height = 0.0f;
     machine_frame_transform_active = false;
+    belt_tilt_angle = 0.f;
+    belt_z_origin   = 0.f;
+    preslice_remap_x = RemapAxis::PosX;
+    preslice_remap_y = RemapAxis::PosY;
+    preslice_remap_z = RemapAxis::PosZ;
     settings_ids.reset();
     filaments_count = 0;
     backtrace_enabled = false;
