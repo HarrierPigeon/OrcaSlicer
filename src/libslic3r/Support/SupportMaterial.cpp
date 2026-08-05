@@ -1475,6 +1475,19 @@ static inline ExPolygons detect_overhangs(
             }
         }
 
+        // Apply build plate tilt: shift lower layer polygons to simulate tilted gravity.
+        // This is loop-invariant across regions, so compute it once here.
+        const Polygons *effective_lower = &lower_layer_polygons;
+        Polygons tilted_lower;
+        if (has_tilt) {
+            tilted_lower = lower_layer_polygons;
+            const double lh = lower_layer.height;
+            Point tilt_shift(coord_t(scale_(lh * tan(tilt_y_rad))),
+                             coord_t(scale_(lh * tan(tilt_x_rad))));
+            translate(tilted_lower, tilt_shift);
+            effective_lower = &tilted_lower;
+        }
+
         for (LayerRegion *layerm : layer.regions()) {
             // Extrusion width accounts for the roundings of the extrudates.
             // It is the maximum widh of the extrudate.
@@ -1491,17 +1504,9 @@ static inline ExPolygons detect_overhangs(
             // Overhang polygons for this layer and region.
             Polygons diff_polygons;
             Polygons layerm_polygons = to_polygons(layerm->slices.surfaces);
-            // Apply build plate tilt: shift lower layer polygons to simulate tilted gravity
-            Polygons effective_lower = lower_layer_polygons;
-            if (has_tilt) {
-                const double lh = lower_layer.height;
-                Point tilt_shift(coord_t(scale_(lh * tan(tilt_y_rad))),
-                                 coord_t(scale_(lh * tan(tilt_x_rad))));
-                translate(effective_lower, tilt_shift);
-            }
             if (lower_layer_offset == 0.f) {
                 // Support everything.
-                diff_polygons = diff(layerm_polygons, effective_lower);
+                diff_polygons = diff(layerm_polygons, *effective_lower);
                 if (buildplate_only) {
                     // Don't support overhangs above the top surfaces.
                     // This step is done before the contact surface is calculated by growing the overhang region.
@@ -1512,7 +1517,7 @@ static inline ExPolygons detect_overhangs(
                 //FIXME cache the lower layer offset if this layer has multiple regions.
                 diff_polygons =
                     diff(layerm_polygons,
-                            expand(effective_lower, lower_layer_offset, SUPPORT_SURFACES_OFFSET_PARAMETERS));
+                            expand(*effective_lower, lower_layer_offset, SUPPORT_SURFACES_OFFSET_PARAMETERS));
                 if (buildplate_only && ! annotations.buildplate_covered[layer_id].empty()) {
                     // Don't support overhangs above the top surfaces.
                     // This step is done before the contact surface is calculated by growing the overhang region.
@@ -1522,7 +1527,7 @@ static inline ExPolygons detect_overhangs(
                     // Offset the support regions back to a full overhang, restrict them to the full overhang.
                     // This is done to increase size of the supporting columns below, as they are calculated by
                     // propagating these contact surfaces downwards.
-                    diff_polygons = diff(intersection(expand(diff_polygons, lower_layer_offset, SUPPORT_SURFACES_OFFSET_PARAMETERS), layerm_polygons), effective_lower);
+                    diff_polygons = diff(intersection(expand(diff_polygons, lower_layer_offset, SUPPORT_SURFACES_OFFSET_PARAMETERS), layerm_polygons), *effective_lower);
                 }
                 //FIXME add user defined filtering here based on minimal area or minimum radius or whatever.
 

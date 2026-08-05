@@ -260,14 +260,17 @@ static std::vector<std::pair<TreeSupportSettings, std::vector<size_t>>> group_me
                 } else
                     lower_layer_offset = scaled<float>(lower_layer.height / tan_threshold);
                 // Apply build plate tilt: shift lower layer polygons to simulate tilted gravity
-                Polygons lower_src = to_polygons(lower_layer.lslices_extrudable);
+                Polygons lower_layer_offseted;
                 if (has_tilt) {
+                    Polygons lower_src = to_polygons(lower_layer.lslices_extrudable);
                     const double lh = lower_layer.height;
                     Point tilt_shift(coord_t(scale_(lh * tan(tilt_y_rad))),
                                      coord_t(scale_(lh * tan(tilt_x_rad))));
                     translate(lower_src, tilt_shift);
+                    lower_layer_offseted = offset(lower_src, lower_layer_offset);
+                } else {
+                    lower_layer_offseted = offset(lower_layer.lslices_extrudable, lower_layer_offset);
                 }
-                Polygons lower_layer_offseted = offset(lower_src, lower_layer_offset);
                 overhangs = diff(current_layer.lslices_extrudable, lower_layer_offseted);
                 if (lower_layer_offset == 0) {
                     raw_overhangs = overhangs;
