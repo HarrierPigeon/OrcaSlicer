@@ -5896,6 +5896,18 @@ if (is_marlin_flavor)
 // this gets executed after preset is loaded and before GUI fields are updated
 void TabPrinter::on_preset_loaded()
 {
+    // R8: reset the belt-tilt transition tracking to reflect the freshly loaded preset WITHOUT
+    // running update_fff()'s reset logic. on_preset_loaded() is called from Tab::load_current_preset()
+    // on every printer preset load, right before update()->update_fff(). Seeding m_was_belt_printer
+    // from the loaded preset's belt_printer flag means a preset switch (belt preset -> non-belt preset)
+    // enters update_fff() with m_was_belt_printer==false, so the belt->off clear branch is skipped and
+    // the newly loaded preset's manual tilt is preserved. An in-place belt toggle does NOT go through
+    // here (only through on_value_change->update), so m_was_belt_printer stays true there and the clear
+    // still fires. Seed m_belt_synced_tilt from the loaded tilt as a safeguard.
+    m_was_belt_printer   = m_config->opt_bool("belt_printer");
+    m_belt_synced_tilt_x = m_config->opt_float("build_plate_tilt_x");
+    m_belt_synced_tilt_y = m_config->opt_float("build_plate_tilt_y");
+
     // Orca
     //update nozzle_volume_type
     const Preset& current_printer = m_preset_bundle->printers.get_selected_preset();
@@ -6520,9 +6532,15 @@ void TabPrinter::update_fff()
 
     // Belt printer: auto-sync build_plate_tilt_{x,y} (which drives support gravity tilt)
     // from the belt slicing rotation, the single source of truth for the physical tilt.
-    // Tilt about X drives tilt_x, tilt about Y drives tilt_y.  When belt mode is off,
-    // reset whichever tilt axis matches a leftover belt value so we don't clobber a
-    // manually-set tilt on a non-belt tilted printer.
+    // Tilt about X drives tilt_x, tilt about Y drives tilt_y.
+    //
+    // R8: value-guessing (zeroing any tilt matching the dormant belt-derived tilt) wiped a
+    // legitimate manual build_plate_tilt on a non-belt tilted-bed printer, because the belt
+    // defaults (rotation=X, angle=45) make a manual tilt of 45 look belt-derived. Instead we
+    // track the belt->non-belt transition and the exact values belt-sync wrote, and clear the
+    // tilt only on a genuine in-place belt-off toggle, and only if the value is still what
+    // belt-sync last wrote. Preset switches reset the tracking in on_preset_loaded(), so they
+    // never trip the reset.
     if (m_config->opt_bool("belt_printer")) {
         auto rot_axis = m_config->option<ConfigOptionEnum<BeltRotationAxis>>("belt_slice_rotation")->value;
         const auto tilt = BeltTransformPipeline::physical_tilt(
@@ -6531,17 +6549,20 @@ void TabPrinter::update_fff()
             m_config->set_key_value("build_plate_tilt_x", new ConfigOptionFloat(tilt.tilt_x_deg));
         if (m_config->opt_float("build_plate_tilt_y") != tilt.tilt_y_deg)
             m_config->set_key_value("build_plate_tilt_y", new ConfigOptionFloat(tilt.tilt_y_deg));
-    } else {
-        const auto tilt = BeltTransformPipeline::physical_tilt(
-            m_config->option<ConfigOptionEnum<BeltRotationAxis>>("belt_slice_rotation")->value,
-            m_config->opt_float("belt_slice_rotation_angle"));
-        double tx = m_config->opt_float("build_plate_tilt_x");
-        double ty = m_config->opt_float("build_plate_tilt_y");
-        if (tx != 0. && std::abs(tx - tilt.tilt_x_deg) < 0.01)
+        // Remember exactly what belt-sync wrote, so an in-place belt-off toggle can distinguish
+        // a still-belt-derived tilt (safe to clear) from a since-edited manual one (keep).
+        m_belt_synced_tilt_x = tilt.tilt_x_deg;
+        m_belt_synced_tilt_y = tilt.tilt_y_deg;
+    } else if (m_was_belt_printer) {
+        // Genuine in-place belt->off toggle on the same preset (on_preset_loaded() was not called
+        // since the last update, so m_was_belt_printer still reflects belt mode). Clear each axis
+        // only if it still holds the value belt-sync last wrote; a manual override is preserved.
+        if (m_config->opt_float("build_plate_tilt_x") == m_belt_synced_tilt_x)
             m_config->set_key_value("build_plate_tilt_x", new ConfigOptionFloat(0.));
-        if (ty != 0. && std::abs(ty - tilt.tilt_y_deg) < 0.01)
+        if (m_config->opt_float("build_plate_tilt_y") == m_belt_synced_tilt_y)
             m_config->set_key_value("build_plate_tilt_y", new ConfigOptionFloat(0.));
     }
+    m_was_belt_printer = m_config->opt_bool("belt_printer");
 
     toggle_options();
 }
