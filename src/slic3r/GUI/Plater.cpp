@@ -12392,6 +12392,12 @@ void Plater::priv::set_bed_shape(const Pointfs       &shape,
             // G-code load time (GCodeViewer::compute_belt_back_transform), so no mesh-side
             // inverse needs to be pushed to the viewer here.
         } else {
+            // Reset the BuildVolume belt state too: Bed3D::set_shape early-returns when
+            // the bed params are unchanged, so a belt->normal switch (or toggling belt off
+            // on the same printer) would otherwise leave the BuildVolume with
+            // m_is_belt_printer=true and an inflated Y bbox, wrongly treating out-of-bounds
+            // objects as printable. Idempotent for a printer that was never belt.
+            bed.build_volume().set_belt_printer(false, 0., false);
             bed.set_belt_printer(false, 0.f);
             if (preview)
                 preview->get_canvas3d()->get_gcode_viewer().set_belt_printer(false, 0.f);
