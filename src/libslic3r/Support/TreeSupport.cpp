@@ -3099,22 +3099,20 @@ void TreeSupport::drop_nodes()
                     // Treat as object-surface termination (not buildplate) so
                     // the node gets floor/interface areas instead of base pads.
                     if (has_belt_floor && print_z_next <= belt_floor_print_z(next_position)) {
+                        std::scoped_lock lock(m_ts_data->m_mutex);
                         node_parent->to_buildplate = false;
-                        m_ts_data->m_mutex.lock();
                         neighbour->valid = false;
                         p_node->valid = false;
-                        m_ts_data->m_mutex.unlock();
                     } else {
                         const bool to_buildplate = !is_inside_ex(get_collision(0, obj_layer_nr_next), next_position);
                         SupportNode* next_node = m_ts_data->create_node(next_position, node_parent->distance_to_top + 1, obj_layer_nr_next,
                             node_parent->support_roof_layers_below - (node_parent->distance_to_top >= 0 ? 1 : 0),
                             to_buildplate, node_parent, print_z_next, height_next);
                         get_max_move_dist(next_node);
-                        m_ts_data->m_mutex.lock();
+                        std::scoped_lock lock(m_ts_data->m_mutex);
                         contact_nodes[layer_nr_next].push_back(next_node);
                         neighbour->valid = false;
                         p_node->valid = false;
-                        m_ts_data->m_mutex.unlock();
                     }
                 }
                 else if (neighbours.size() > 1) //Don't merge leaf nodes because we would then incur movement greater than the maximum move distance.
