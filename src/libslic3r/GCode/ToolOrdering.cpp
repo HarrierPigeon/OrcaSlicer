@@ -876,18 +876,32 @@ void ToolOrdering::collect_extruders(const PrintObject &object, const std::vecto
     // push.  Deliberately not layer_tools.has_object, which drives skirt marking
     // and wiping overrides.
     if (! object.belt_brim_prologue().empty()) {
-        unsigned int brim_filament = 0;
-        for (size_t i = 0; i < object.num_printing_regions(); ++ i) {
-            const unsigned int f = object.printing_region(i).config().outer_wall_filament_id.value;
-            if (f > 0 && (brim_filament == 0 || f < brim_filament))
-                brim_filament = f;
-        }
-        if (brim_filament == 0)
-            brim_filament = 1;
+        // 1-based, same domain the object/support pushes above use; reindexed to 0-based
+        // with the rest of the list later.
+        const unsigned int brim_filament = object.belt_brim_filament();
         for (const BeltBrimBand &band : object.belt_brim_prologue()) {
             if (band.fills.empty())
                 continue;
             LayerTools &layer_tools = this->tools_for_layer(band.print_z);
+            layer_tools.extruders.push_back(brim_filament);
+            layer_tools.has_belt_brim = true;
+        }
+    }
+
+    // Coincident brim bands (belt_brim_by_layer) print ON an object layer rather than
+    // below it, but that layer can produce no InstanceVisit in process_layer - a
+    // zero-extrusion lead-in slice with no coinciding support - and the band would then
+    // be silently dropped.  Register the brim filament on every layer that carries a
+    // coincident band, in the same 1-based domain as the prologue push above, so a brim
+    // pass always exists there.
+    if (object.has_belt_brim()) {
+        const unsigned int brim_filament = object.belt_brim_filament();
+        const auto        &by_layer      = object.belt_brim_by_layer();
+        const size_t       n             = std::min(by_layer.size(), object.layers().size());
+        for (size_t i = 0; i < n; ++ i) {
+            if (by_layer[i].empty())
+                continue;
+            LayerTools &layer_tools = this->tools_for_layer(object.layers()[i]->print_z);
             layer_tools.extruders.push_back(brim_filament);
             layer_tools.has_belt_brim = true;
         }
@@ -940,6 +954,14 @@ void ToolOrdering::fill_wipe_tower_partitions(const PrintConfig &config, coordf_
     // below the object's first layer, and treating those layers as raft would put a
     // wipe tower at negative Z.  Belt brim and the prime tower are mutually
     // exclusive (rejected in Print::validate()), so simply drop the clause there.
+    //
+    // Gate on config.belt_printer, NOT on has_belt_brim: every layer below the
+    // object bottom on a belt printer is legitimately a sub-object stream - brim
+    // apron, belt support printed below Z0, or the object's own lead-in - and none of
+    // them is ever raft, because Print::validate() rejects raft_layers>0 on a belt
+    // printer outright.  Narrowing this to has_belt_brim would reclassify
+    // belt-support-below-floor layers as raft on brim-less belt prints and reintroduce
+    // the negative-Z wipe tower, so the broad belt_printer gate is correct.
     const bool belt_no_raft_gap = config.belt_printer.value;
     for (LayerTools &lt : m_layer_tools)
         lt.has_wipe_tower |= (lt.has_object && (config.timelapse_type == TimelapseType::tlSmooth || lt.wipe_tower_partitions > 0))

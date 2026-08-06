@@ -393,6 +393,12 @@ public:
     // trimming and the spiral vase probe, and widening it would perturb belt
     // support output.
     bool                         has_belt_brim() const;
+    // Brim filament for this object's belt brim, returned in the 1-based domain of
+    // PrintRegion::outer_wall_filament_id and the raw values pushed into
+    // LayerTools::extruders in ToolOrdering::collect_extruders (ToolOrdering reindexes
+    // the whole list to 0-based afterwards).  Lowest positive outer_wall_filament_id
+    // over the printing regions, 1 if none is explicitly set.
+    unsigned int                 belt_brim_filament() const;
     // False when this object's instances sit at different points ALONG the belt, which
     // would need a separate set of bands each.  Public so validate() can explain it.
     bool                         belt_brim_instances_compatible() const;

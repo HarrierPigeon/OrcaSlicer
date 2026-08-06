@@ -1400,9 +1400,15 @@ StringObjectException Print::validate(std::vector<StringObjectException> *warnin
 
         for (const PrintObject *object : m_objects) {
             const PrintObjectConfig &ocfg = object->config();
+            // Mirror PrintObject::has_belt_brim(): an inner-only brim needs a positive
+            // brim_width (leading/extra widen only the outer ring), so keep this
+            // predicate in step or the belt-brim warnings below would fire for a brim
+            // that has_belt_brim() rejects.
             const bool wants_brim = ocfg.brim_type != btNoBrim
-                                 && (ocfg.brim_width.value > 0. || ocfg.leading_brim_length.value > 0.
-                                     || ocfg.extra_brim_width.value > 0.);
+                                 && (ocfg.brim_type == btInnerOnly
+                                         ? ocfg.brim_width.value > 0.
+                                         : (ocfg.brim_width.value > 0. || ocfg.leading_brim_length.value > 0.
+                                            || ocfg.extra_brim_width.value > 0.));
             if (! wants_brim)
                 continue;
 

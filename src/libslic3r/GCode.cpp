@@ -5908,16 +5908,12 @@ LayerResult GCode::process_layer(
     //BBS: set layer time fan speed after layer change gcode
     gcode += ";_SET_FAN_SPEED_CHANGING_LAYER\n";
 
-    // Belt printers: an apron band prints below its own object's first layer, but with
-    // several objects on the belt another one can already be printing at this print_z.
-    // The layer then has an object layer and takes this ordinary path instead of the
-    // brim-only branch, so the band has to be emitted here or it would be dropped.
-    // Before any object extrusion at this Z, as the brim must go down first.
-    if (print.has_belt_brim()) {
-        const Vec2d saved_origin = m_origin;
-        gcode += this->emit_belt_brim_bands(print, layers, single_object_instance_idx);
-        this->set_origin(saved_origin);
-    }
+    // Belt printers: ordinary-layer apron bands (a band whose print_z coincides with an
+    // object/support layer, so it takes this path rather than the brim-only branch) are
+    // NOT emitted here anymore.  They used to be laid down with whatever tool happened to
+    // be active; instead they are now emitted inside the extruder loop below, in their
+    // own brim-filament pass and before that pass's object extrusion, so the brim goes
+    // down first with the correct tool.  See the emit_belt_brim_for_extruder call.
 
     //Calibration Layer-specific GCode
     // ORCA-Belt: on belt printers the calibration object is counter-rotated to
@@ -6601,6 +6597,49 @@ LayerResult GCode::process_layer(
 
     // Extrude the skirt, brim, support, perimeters, infill ordered by the extruders.
     m_skirt_group_done.resize(print.skirt_brim_groups().size());
+
+    // Belt brim bookkeeping.  A coincident belt_brim_by_layer band must be emitted
+    // exactly once, in its object's brim-filament pass; this records which have gone
+    // down so the in-visit emit and the end-of-layer orphan sweep never double it.
+    // Key = (LayerToPrint index, instance_id).
+    std::set<std::pair<size_t, size_t>> belt_brim_emitted;
+
+    // Emit every ORDINARY-layer apron band (belt_brim_prologue band coinciding with an
+    // object/support layer) whose brim filament is this pass's extruder.  Mirrors
+    // emit_belt_brim_bands() per band, but filtered to one brim filament so each band
+    // prints in the correct tool's pass (Finding B).  extruder_id is 0-based (the
+    // reindexed tool domain); belt_brim_filament() is 1-based, so subtract one.
+    auto emit_belt_brim_for_extruder = [this, &print, &layers, single_object_instance_idx](unsigned int extruder_id) -> std::string {
+        std::string gc;
+        for (const LayerToPrint &ltp : layers) {
+            const BeltBrimBand *band = ltp.belt_brim_band;
+            if (band == nullptr || band->fills.empty() || ltp.original_object == nullptr)
+                continue;
+            const PrintObject &object = *ltp.original_object;
+            if (! object.has_belt_brim() || (unsigned int)(object.belt_brim_filament() - 1) != extruder_id)
+                continue;
+            // Speeds, flow and retraction all read m_config.
+            m_config.apply(print.default_region_config());
+            m_config.apply(object.config(), true);
+            const size_t i_begin = single_object_instance_idx == size_t(-1) ? 0 : single_object_instance_idx;
+            const size_t i_end   = single_object_instance_idx == size_t(-1) ? object.instances().size()
+                                                                           : single_object_instance_idx + 1;
+            for (size_t i = i_begin; i < i_end && i < object.instances().size(); ++ i) {
+                // Band geometry is object-local, like the object's own extrusions.
+                const Point &offset = object.instances()[i].shift;
+                this->set_origin(unscale(offset));
+                this->on_set_origin(&object, offset);
+                m_avoid_crossing_perimeters.use_external_mp();
+                for (const ExtrusionEntity *ee : band->fills.entities)
+                    if (ee != nullptr)
+                        gc += this->extrude_entity(*ee, "brim", NOZZLE_CONFIG(support_speed));
+                m_avoid_crossing_perimeters.use_external_mp(false);
+                m_avoid_crossing_perimeters.disable_once();
+            }
+        }
+        return gc;
+    };
+
     for (unsigned int extruder_id : layer_tools.extruders)
     {
         if (print.config().skirt_type == stCombined && !print.skirt_brim_groups().empty()) {
@@ -6698,6 +6737,16 @@ LayerResult GCode::process_layer(
         if (layer_tools.has_wipe_tower && m_wipe_tower)
             m_last_processor_extrusion_role = erWipeTower;
 
+        // Belt printers: now that this pass's tool is selected, lay down any ordinary-layer
+        // apron band whose brim filament is this extruder, before the object extrusion at
+        // this Z (brim goes down first, with the correct tool).  Restore the origin so the
+        // object-setup code below is unaffected.
+        if (print.has_belt_brim()) {
+            const Vec2d saved_origin = m_origin;
+            gcode += emit_belt_brim_for_extruder(extruder_id);
+            this->set_origin(saved_origin);
+        }
+
         auto &filament_plan = filament_to_print_instances[extruder_id];
         std::vector<InstanceToPrint>     &instances_to_print = filament_plan.first;
         const std::vector<InstanceVisit> &instance_visits    = filament_plan.second;
@@ -6714,8 +6763,20 @@ LayerResult GCode::process_layer(
                 const LayerToPrint &layer_to_print = layers[instance_to_print.layer_id];
                 if (visit.first_visit && print_wipe_extrusions == (is_anything_overridden ? 1 : 0)) {
                     gcode += generate_object_skirt_group(print, instance_to_print.print_object, instance_to_print.instance_id, layer_tools, layer, extruder_id);
-                    gcode += generate_object_brim(print, instance_to_print.print_object, instance_to_print.instance_id, first_layer,
-                                                  layer_to_print.object_layer);
+                    const PrintObject &vobj = instance_to_print.print_object;
+                    if (vobj.has_belt_brim()) {
+                        // Coincident belt brim: emit once, only in this object's brim-filament
+                        // pass (extruder_id and belt_brim_filament()-1 are both 0-based here),
+                        // and dedup on the LayerToPrint index (not Layer::id()) so the orphan
+                        // sweep below never re-emits it.
+                        if (extruder_id == (unsigned int)(vobj.belt_brim_filament() - 1) &&
+                            belt_brim_emitted.insert({ instance_to_print.layer_id, instance_to_print.instance_id }).second)
+                            gcode += generate_object_brim(print, vobj, instance_to_print.instance_id, first_layer,
+                                                          layer_to_print.object_layer);
+                    } else {
+                        gcode += generate_object_brim(print, vobj, instance_to_print.instance_id, first_layer,
+                                                      layer_to_print.object_layer);
+                    }
                 }
 
                 // To control print speed of the 1st object layer printed over raft interface.
@@ -6903,6 +6964,37 @@ LayerResult GCode::process_layer(
             }
         }
     }
+
+    // Belt brim orphan sweep (Finding C).  A coincident belt_brim_by_layer band lives on
+    // an object layer, but that layer can yield no InstanceVisit above - a zero-extrusion
+    // lead-in slice with no coinciding support - so the in-visit emit never fired and the
+    // band would be dropped.  Emit any such band exactly once here, keyed the same way as
+    // the in-visit emit so already-printed bands are skipped.  These orphan layers carry
+    // no object material, so ending on the brim's position is harmless; we still save and
+    // restore m_origin, and only toolchange when the brim filament differs from the active
+    // one - a no-op on single-extruder prints, keeping their output unchanged.
+    if (print.has_belt_brim()) {
+        const Vec2d saved_origin = m_origin;
+        for (const LayerToPrint &ltp : layers) {
+            const PrintObject *obj = ltp.original_object;
+            if (obj == nullptr || ! obj->has_belt_brim() || ltp.object_layer == nullptr)
+                continue;
+            const size_t       ltp_idx = size_t(&ltp - layers.data());
+            const unsigned int brim0   = (unsigned int)(obj->belt_brim_filament() - 1);
+            const size_t       i_begin = single_object_instance_idx == size_t(-1) ? 0 : single_object_instance_idx;
+            const size_t       i_end   = single_object_instance_idx == size_t(-1) ? obj->instances().size()
+                                                                                 : single_object_instance_idx + 1;
+            for (size_t instance_id = i_begin; instance_id < i_end && instance_id < obj->instances().size(); ++ instance_id) {
+                if (! belt_brim_emitted.insert({ ltp_idx, instance_id }).second)
+                    continue;
+                if (m_writer->filament() == nullptr || m_writer->filament()->id() != brim0)
+                    gcode += this->set_extruder(brim0, print_z);
+                gcode += generate_object_brim(print, *obj, instance_id, first_layer, ltp.object_layer);
+            }
+        }
+        this->set_origin(saved_origin);
+    }
+
     if (first_layer) {
         for (auto iter = by_extruder.begin(); iter != by_extruder.end(); ++iter) {
             if (!iter->second.empty())
