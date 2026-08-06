@@ -1167,11 +1167,7 @@ bool PrintObject::has_belt_brim() const
 {
     if (! m_print->has_tilted_belt())
         return false;
-    // Translating an instance along the belt axis changes its physical belt-floor
-    // Z, so one set of bands cannot serve several instances sharing a PrintObject.
-    // belt_force_separate() in PrintApply.cpp gives one instance per object
-    // whenever a global belt flag is set, which the shipped belt profiles do.
-    if (m_instances.size() > 1)
+    if (! this->belt_brim_instances_compatible())
         return false;
     if (m_config.brim_type == btNoBrim)
         return false;
@@ -1179,6 +1175,28 @@ bool PrintObject::has_belt_brim() const
         && m_config.extra_brim_width.value <= 0.)
         return false;
     return ! this->has_raft();
+}
+
+bool PrintObject::belt_brim_instances_compatible() const
+{
+    // One set of bands is shared by every instance of this object, so they must all sit at
+    // the same height on the belt.  Moving an instance ALONG the belt axis changes its
+    // physical belt-floor Z and would put its brim at the wrong height; moving it ACROSS
+    // the belt does not, so side-by-side copies are fine.
+    //
+    // belt_force_separate() in PrintApply.cpp already gives one instance per PrintObject
+    // whenever a global belt flag is set, which the shipped belt profiles do - this only
+    // matters for configurations that do not.
+    if (m_instances.size() <= 1)
+        return true;
+    const int    axis = m_slicing_params.belt_floor_from_axis;
+    const Point &ref  = m_instances.front().shift;
+    for (const PrintInstance &inst : m_instances) {
+        const coord_t along = axis == 0 ? inst.shift.x() - ref.x() : inst.shift.y() - ref.y();
+        if (std::abs(along) > SCALED_EPSILON)
+            return false;
+    }
+    return true;
 }
 
 void PrintObject::clear_belt_brim()

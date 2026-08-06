@@ -783,3 +783,107 @@ TEST_CASE("Belt brim lines all have the same width", "[SkirtBrim][belt]")
     const float hi = *std::max_element(widths.begin(), widths.end());
     CHECK_THAT(hi, Catch::Matchers::WithinRel(lo, 1e-4));
 }
+
+TEST_CASE("Belt apron survives another object printing at the same Z", "[SkirtBrim][belt]")
+{
+    // An apron band prints below its OWN object's first layer, but with two objects on the
+    // belt the second one is already printing at that print_z.  The layer then has an
+    // object layer and takes the ordinary process_layer() path rather than the brim-only
+    // branch, so the band must be emitted from both or it is silently dropped.  A
+    // single-object print cannot exercise this.
+    auto brim_passes = [](int object_count) {
+        DynamicPrintConfig config = belt_brim_config();
+        config.set_deserialize_strict({
+            { "brim_type",           "outer_only" },
+            { "brim_width",          3 },
+            { "leading_brim_length", 8 },
+            { "brim_object_gap",     0 },
+        });
+        std::vector<TriangleMesh> meshes;
+        for (int i = 0; i < object_count; ++ i) {
+            TriangleMesh m = cube(20);
+            // Offset along the belt so the second object starts well after the first.
+            m.translate(0.f, float(40 * i), 0.f);
+            meshes.emplace_back(std::move(m));
+        }
+        Print print;
+        Model model;
+        init_print(std::move(meshes), print, model, config);
+        print.process();
+        return role_passes(gcode(print), "brim");
+    };
+
+    const int one = brim_passes(1);
+    const int two = brim_passes(2);
+    REQUIRE(one > 0);
+    // Two identical objects should carry twice the brim.  Merely asserting `two > one`
+    // would not be decisive: the FIRST object's apron survives the bug, because nothing
+    // else is printing that early, so only the second object's apron goes missing.
+    // Requiring close to 2x is what actually detects the dropped bands.
+    CHECK(two >= 1.8 * one);
+}
+
+TEST_CASE("Belt brim allows instances placed across the belt", "[SkirtBrim][belt]")
+{
+    // Only movement ALONG the belt changes an instance's belt-floor Z, so copies placed
+    // side by side ACROSS it share one set of bands and must still get a brim.  The first
+    // version of this guard refused every multi-instance object outright, silently
+    // dropping the brim.
+    //
+    // The global belt flags are off here so the instances stay in one PrintObject; with
+    // them on, PrintApply splits each instance into its own object and the case cannot
+    // arise at all.
+    auto multi_instance_has_brim = [](double dx, double dy) {
+        DynamicPrintConfig config = belt_brim_config();
+        config.set_deserialize_strict({
+            { "belt_slice_rotation_global", 0 },
+            { "belt_preslice_global",       0 },
+            { "preslice_remap_global",      0 },
+            { "brim_type",                  "outer_only" },
+            { "brim_width",                 4 },
+            { "brim_object_gap",            0 },
+        });
+        Print  print;
+        Model  model;
+        ModelObject *object = model.add_object();
+        object->name += "object.stl";
+        object->add_volume(cube(20));
+        object->add_instance()->set_offset(Vec3d(80., 80., 0.));
+        object->add_instance()->set_offset(Vec3d(80. + dx, 80. + dy, 0.));
+        object->ensure_on_bed();
+        print.auto_assign_extruders(object);
+        print.apply(model, config);
+        print.validate();
+        print.set_status_silent();
+        print.process();
+        REQUIRE(print.objects().size() == 1);
+        REQUIRE(print.objects().front()->instances().size() == 2);
+        return print.objects().front()->has_belt_brim();
+    };
+
+    // X is across the belt when the tilt is about X, since the shear then runs along Y.
+    CHECK(multi_instance_has_brim(40., 0.));
+    // Y is along the belt: the copies sit at different belt heights and would each need
+    // their own bands, so the brim is refused (and validate() warns).
+    CHECK_FALSE(multi_instance_has_brim(0., 40.));
+}
+
+TEST_CASE("Belt brim coexists with support material", "[SkirtBrim][belt]")
+{
+    // Supports put extra layers into the same z stream as the apron bands, which is what
+    // the three-way merge in collect_layers_to_print() exists to handle: a band sharing a
+    // print_z with a support layer of the SAME object used to overwrite it in the
+    // print-wide merge.  A smoke test - it cannot prove the collision occurred - but it
+    // does exercise the merge with all three streams populated.
+    DynamicPrintConfig config = belt_brim_config();
+    config.set_deserialize_strict({
+        { "brim_type",           "outer_only" },
+        { "brim_width",          4 },
+        { "leading_brim_length", 6 },
+        { "brim_object_gap",     0 },
+        { "enable_support",      1 },
+    });
+    const std::string gc = slice({ TestMesh::overhang }, config);
+    REQUIRE(! gc.empty());
+    CHECK(role_passes(gc, "brim") > 0);
+}

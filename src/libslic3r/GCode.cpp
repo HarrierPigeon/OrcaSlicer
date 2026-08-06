@@ -2139,22 +2139,20 @@ std::vector<GCode::LayerToPrint> GCode::collect_layers_to_print(const PrintObjec
 
     std::vector<std::pair<double, double>> warning_ranges;
 
-    // Belt printers: the brim apron is stuck to the belt AHEAD of the part, which
-    // on a tilted belt means below the object's first layer.  Those bands carry no
-    // object or support layer, so they are emitted first and handled by
-    // process_layer()'s brim-only branch.  Already ordered lowest print_z first.
-    for (const BeltBrimBand &band : object.belt_brim_prologue()) {
-        LayerToPrint prologue_layer;
-        prologue_layer.belt_brim_band  = &band;
-        prologue_layer.original_object = &object;
-        layers_to_print.push_back(prologue_layer);
-    }
-
     // Pair the object layers with the support layers by z.
+    //
+    // Belt printers add a third stream: brim apron bands, which sit on the belt AHEAD of
+    // the part and so print below the object's first layer.  They are merged here rather
+    // than pushed as standalone records, because a band's print_z can coincide with a
+    // support layer of this same object - and the print-wide merge downstream keeps only
+    // one record per object per z, so a standalone band would be silently overwritten.
     size_t idx_object_layer = 0;
     size_t idx_support_layer = 0;
+    size_t idx_brim_band = 0;
+    const auto &brim_bands = object.belt_brim_prologue();   // ordered by ascending print_z
     const LayerToPrint* last_extrusion_layer = nullptr;
-    while (idx_object_layer < object.layers().size() || idx_support_layer < object.support_layers().size()) {
+    while (idx_object_layer < object.layers().size() || idx_support_layer < object.support_layers().size()
+        || idx_brim_band < brim_bands.size()) {
         LayerToPrint layer_to_print;
         double print_z_min = std::numeric_limits<double>::max();
         if (idx_object_layer < object.layers().size()) {
@@ -2167,6 +2165,11 @@ std::vector<GCode::LayerToPrint> GCode::collect_layers_to_print(const PrintObjec
             print_z_min = std::min(print_z_min, layer_to_print.support_layer->print_z);
         }
 
+        if (idx_brim_band < brim_bands.size()) {
+            layer_to_print.belt_brim_band = &brim_bands[idx_brim_band++];
+            print_z_min = std::min(print_z_min, layer_to_print.belt_brim_band->print_z);
+        }
+
         if (layer_to_print.object_layer && layer_to_print.object_layer->print_z > print_z_min + EPSILON) {
             layer_to_print.object_layer = nullptr;
             --idx_object_layer;
@@ -2177,11 +2180,17 @@ std::vector<GCode::LayerToPrint> GCode::collect_layers_to_print(const PrintObjec
             --idx_support_layer;
         }
 
+        if (layer_to_print.belt_brim_band && layer_to_print.belt_brim_band->print_z > print_z_min + EPSILON) {
+            layer_to_print.belt_brim_band = nullptr;
+            --idx_brim_band;
+        }
+
         layer_to_print.original_object = &object;
         layers_to_print.push_back(layer_to_print);
 
         bool has_extrusions = (layer_to_print.object_layer && layer_to_print.object_layer->has_extrusions())
-            || (layer_to_print.support_layer && layer_to_print.support_layer->has_extrusions());
+            || (layer_to_print.support_layer && layer_to_print.support_layer->has_extrusions())
+            || (layer_to_print.belt_brim_band && ! layer_to_print.belt_brim_band->fills.empty());
 
         // Check that there are extrusions on the very first layer. The case with empty
         // first layer may result in skirt/brim in the air and maybe other issues.
@@ -5283,20 +5292,26 @@ LayerResult GCode::process_belt_brim_layer(
     const bool                       last_layer,
     const size_t                     single_object_instance_idx)
 {
-    // layer_id 0: the apron precedes every object layer and nothing downstream
-    // indexes by it.  spiral_vase_enable false: spiral vase is refused alongside
-    // belt brim in Print::validate().  cooling_buffer_flush true: an apron layer is
-    // a complete layer, and the default (object_layer || raft_layer || last_layer)
-    // would be false here, so fan and slowdown would never be applied to it.
+    // layer_id 0 is deliberate, not a placeholder.  CoolingBuffer reads it for the
+    // initial_layer_fan_speed override and the close_fan_the_first_x_layers gate
+    // (CoolingBuffer.cpp), and every apron band is first-layer material by the only
+    // definition that means anything on a belt: it lies on the belt plane itself.  Numbering
+    // the bands 1, 2, 3... would ramp the fan up while still printing on the belt.
+    // spiral_vase_enable false: spiral vase is refused alongside belt brim in
+    // Print::validate().  cooling_buffer_flush true: an apron layer is a complete layer, and
+    // the default (object_layer || raft_layer || last_layer) is false here, so fan and
+    // slowdown would otherwise never be applied to it.
     LayerResult result { {}, 0, false, true };
     if (layer_tools.extruders.empty())
         // Nothing to extrude.
         return result;
 
     coordf_t print_z = 0.;
+    coordf_t height  = 0.;
     for (const LayerToPrint &ltp : layers)
         if (ltp.belt_brim_band != nullptr) {
             print_z = ltp.belt_brim_band->print_z;
+            height  = ltp.belt_brim_band->height;
             break;
         }
 
@@ -5315,8 +5330,63 @@ LayerResult GCode::process_belt_brim_layer(
     const unsigned int extruder_id = layer_tools.extruders.front();
     if (m_writer->filament() == nullptr || m_writer->filament()->id() != extruder_id)
         gcode += this->set_extruder(extruder_id, print_z);
+
+    // An apron band is a real printed layer: it is counted in m_layer_count, it advances
+    // m_layer_index through change_layer(), and the G-code viewer needs its Z/height tags.
+    // Keep the same caches and hooks the ordinary path maintains, or the first object layer
+    // would compute its height against a stale pre-apron Z and layer-change templates would
+    // skip these layers entirely.
+    {
+        char buf[64];
+        sprintf(buf, ";%s%g\n", GCodeProcessor::reserved_tag(GCodeProcessor::ETags::Layer_Change).c_str(), print_z);
+        gcode += buf;
+        sprintf(buf, ";Z:%g\n", print_z);
+        gcode += buf;
+        const float band_height = float(height);
+        sprintf(buf, ";%s%g\n", GCodeProcessor::reserved_tag(GCodeProcessor::ETags::Height).c_str(), band_height);
+        gcode += buf;
+        m_last_layer_z = float(print_z);
+        m_max_layer_z  = std::max(m_max_layer_z, m_last_layer_z);
+        m_last_height  = band_height;
+    }
+
+    if (! m_config.before_layer_change_gcode.value.empty()) {
+        DynamicConfig config;
+        config.set_key_value("layer_num",   new ConfigOptionInt(m_layer_index + 1));
+        config.set_key_value("layer_z",     new ConfigOptionFloat(print_z));
+        config.set_key_value("max_layer_z", new ConfigOptionFloat(m_max_layer_z));
+        gcode += this->placeholder_parser_process("before_layer_change_gcode",
+            print.config().before_layer_change_gcode.value, m_writer->filament()->id(), &config) + "\n";
+    }
+
     gcode += this->change_layer(print_z);
 
+    if (! m_config.layer_change_gcode.value.empty()) {
+        DynamicConfig config;
+        config.set_key_value("layer_num",   new ConfigOptionInt(m_layer_index));
+        config.set_key_value("layer_z",     new ConfigOptionFloat(print_z));
+        config.set_key_value("max_layer_z", new ConfigOptionFloat(m_max_layer_z));
+        gcode += this->placeholder_parser_process("layer_change_gcode",
+            print.config().layer_change_gcode.value, m_writer->filament()->id(), &config) + "\n";
+    }
+
+    gcode += this->emit_belt_brim_bands(print, layers, single_object_instance_idx);
+
+    result.gcode = std::move(gcode);
+    return result;
+}
+
+// Emit every apron band carried by this set of layers.
+//
+// Shared by the brim-only branch above and the ordinary process_layer() path.  Both need
+// it: an apron band prints below its OWN object's first layer, but on a multi-object belt
+// another object can already be printing at that print_z, in which case the layer has an
+// object layer, takes the ordinary path, and the band would be silently dropped.
+std::string GCode::emit_belt_brim_bands(const Print                     &print,
+                                        const std::vector<LayerToPrint> &layers,
+                                        const size_t                     single_object_instance_idx)
+{
+    std::string gcode;
     for (const LayerToPrint &ltp : layers) {
         const BeltBrimBand *band = ltp.belt_brim_band;
         if (band == nullptr || band->fills.empty() || ltp.original_object == nullptr)
@@ -5341,9 +5411,7 @@ LayerResult GCode::process_belt_brim_layer(
             m_avoid_crossing_perimeters.disable_once();
         }
     }
-
-    result.gcode = std::move(gcode);
-    return result;
+    return gcode;
 }
 
 // Bedslinger model. The heavier the bed load, the lower the achievable Y acceleration for a given
@@ -5837,6 +5905,17 @@ LayerResult GCode::process_layer(
     }
     //BBS: set layer time fan speed after layer change gcode
     gcode += ";_SET_FAN_SPEED_CHANGING_LAYER\n";
+
+    // Belt printers: an apron band prints below its own object's first layer, but with
+    // several objects on the belt another one can already be printing at this print_z.
+    // The layer then has an object layer and takes this ordinary path instead of the
+    // brim-only branch, so the band has to be emitted here or it would be dropped.
+    // Before any object extrusion at this Z, as the brim must go down first.
+    if (print.has_belt_brim()) {
+        const Vec2d saved_origin = m_origin;
+        gcode += this->emit_belt_brim_bands(print, layers, single_object_instance_idx);
+        this->set_origin(saved_origin);
+    }
 
     //Calibration Layer-specific GCode
     // ORCA-Belt: on belt printers the calibration object is counter-rotated to

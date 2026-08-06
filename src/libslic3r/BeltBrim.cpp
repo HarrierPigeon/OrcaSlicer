@@ -324,24 +324,46 @@ static void belt_brim_band_paths(const BeltBrimContext      &bc,
     }
 }
 
-// Union of everything actually extruded at `print_z` by any object, expressed in
-// `self`'s local slicing frame.  Includes `self` itself: its slice at this Z can
-// overhang outside the belt footprint and land in the brim ring, which the
-// flattened brim_object_gap - a belt-plane separation - does not cover.
-static Polygons belt_brim_obstacles(const Print &print, const PrintObject &self, coordf_t print_z, coordf_t tol)
+// Union of everything extruded at `print_z` that the brim must keep clear of, expressed
+// in `self`'s local slicing frame.  Includes `self` itself: its slice at this Z can
+// overhang outside the belt footprint and land in the brim ring, which the flattened
+// brim_object_gap - a belt-plane separation - does not cover.
+//
+// THREADING: this runs inside posSupportMaterial, which Print::process() executes for all
+// objects in a tbb::parallel_for (Print.cpp).  Object slices are finished by then and safe
+// to read across objects, but SUPPORT layers are not: another object's thread may be
+// inside clear_support_layers() - which deletes the SupportLayer pointers - right now, so
+// touching a foreign object's support_layers() here is a use-after-free.  Only this
+// object's own supports are consulted; they are complete, because make_belt_brim() runs at
+// the tail of this object's own generate_support_material().  The cost is that the brim
+// does not dodge a *different* object's support at the same Z, which needs the objects to
+// overlap in the belt direction in the first place.
+// `region_bbox` bounds the brim; anything outside it cannot clip a brim line, so whole
+// objects are skipped without materialising their polygons.  On a typical plate the
+// objects do not overlap and every foreign object drops out here, which matters because
+// this runs once per band - hundreds of times per object.
+static Polygons belt_brim_obstacles(const Print &print, const PrintObject &self,
+                                    const BoundingBox &region_bbox, coordf_t print_z, coordf_t tol)
 {
     const Point shift_self = self.instances().empty() ? Point(0, 0)
                                                       : self.instances().front().shift_without_plate_offset();
     Polygons out;
-    for (const PrintObject *o : print.objects())
+    for (const PrintObject *o : print.objects()) {
+        const bool is_self = (o == &self);
         for (const PrintInstance &inst : o->instances()) {
             const Point delta = inst.shift_without_plate_offset() - shift_self;
             if (const Layer *l = o->get_layer_at_printz(print_z, tol)) {
-                Polygons ps = to_polygons(l->lslices);
-                for (Polygon &p : ps)
-                    p.translate(delta);
-                polygons_append(out, std::move(ps));
+                BoundingBox lb = get_extents(l->lslices);
+                lb.translate(delta.x(), delta.y());
+                if (lb.overlap(region_bbox)) {
+                    Polygons ps = to_polygons(l->lslices);
+                    for (Polygon &p : ps)
+                        p.translate(delta);
+                    polygons_append(out, std::move(ps));
+                }
             }
+            if (! is_self)
+                continue;
             if (const SupportLayer *sl = o->get_support_layer_at_printz(print_z, tol)) {
                 Polygons ps = sl->support_fills.polygons_covered_by_spacing();
                 for (Polygon &p : ps)
@@ -349,6 +371,9 @@ static Polygons belt_brim_obstacles(const Print &print, const PrintObject &self,
                 polygons_append(out, std::move(ps));
             }
         }
+    }
+    if (out.size() < 2)
+        return out;   // union_() of 0 or 1 polygons is pure overhead
     return union_(out);
 }
 
@@ -453,7 +478,7 @@ void make_belt_brim(PrintObject &object)
     std::vector<ExPolygons>                areas_by_layer(nlayers);
     for (size_t i = 0; i < nlayers; ++ i) {
         const Layer &layer = *object.layers()[i];
-        const Polygons obstacles = belt_brim_obstacles(print, object, layer.print_z, 0.5 * layer.height);
+        const Polygons obstacles = belt_brim_obstacles(print, object, bc.region_bbox, layer.print_z, 0.5 * layer.height);
         belt_brim_band_paths(bc, layer.print_z, layer.height, obstacles, by_layer[i], areas_by_layer[i]);
     }
 
@@ -473,7 +498,7 @@ void make_belt_brim(PrintObject &object)
                                + bc.ctx.floor_offset() + bc.ctx.z_shift();
         if (h > EPSILON)
             for (coordf_t z = first.print_z - h; z > z_lead - h; z -= h) {
-                const Polygons obstacles = belt_brim_obstacles(print, object, z, 0.5 * h);
+                const Polygons obstacles = belt_brim_obstacles(print, object, bc.region_bbox, z, 0.5 * h);
                 BeltBrimBand band;
                 band.print_z = z;
                 band.height  = h;

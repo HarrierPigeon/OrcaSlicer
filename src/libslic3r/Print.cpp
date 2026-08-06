@@ -1427,10 +1427,13 @@ StringObjectException Print::validate(std::vector<StringObjectException> *warnin
                        "brim length."),
                      "brim_object_gap", object->model_object());
 
-            if (ocfg.leading_brim_length.value > 0. && object->instances().size() > 1)
-                warn(L("This object has several instances sharing one belt position, so no brim is "
-                       "generated for it. Arrange the copies along the belt instead."),
-                     "leading_brim_length", object->model_object());
+            // Unconditional: this suppresses the WHOLE belt brim, not just the apron, so a
+            // user asking for any brim at all needs to be told they are getting none.
+            if (! object->belt_brim_instances_compatible())
+                warn(L("This object's copies are spaced along the belt, so they would each need "
+                       "their own brim and none is generated. Print them as separate objects, or "
+                       "arrange the copies side by side across the belt."),
+                     "brim_type", object->model_object());
         }
         if (this->has_belt_brim() && m_objects.size() > 1)
             warn(L("Leading brim length extends ahead of each object along the belt, and Arrange does "

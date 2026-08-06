@@ -393,6 +393,9 @@ public:
     // trimming and the spiral vase probe, and widening it would perturb belt
     // support output.
     bool                         has_belt_brim() const;
+    // False when this object's instances sit at different points ALONG the belt, which
+    // would need a separate set of bands each.  Public so validate() can explain it.
+    bool                         belt_brim_instances_compatible() const;
     const std::vector<ExtrusionEntityCollection>& belt_brim_by_layer()       const { return m_belt_brim_by_layer; }
     const std::vector<ExPolygons>&                belt_brim_areas_by_layer() const { return m_belt_brim_areas_by_layer; }
     const std::vector<BeltBrimBand>&              belt_brim_prologue()       const { return m_belt_brim_prologue; }
