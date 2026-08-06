@@ -10,7 +10,12 @@
 
 #include <boost/algorithm/string.hpp>
 
+#include <cctype>
 #include <cmath>
+#include <limits>
+#include <map>
+#include <set>
+#include <string>
 
 #include "test_helpers.hpp" // get access to init_print, etc
 
@@ -621,6 +626,298 @@ static DynamicPrintConfig belt_brim_config()
         { "machine_start_gcode",        "T[initial_tool]\n" },
     });
     return config;
+}
+
+// Same belt as belt_brim_config(), but with `filaments` distinct filaments so the brim's
+// tool selection can be observed.  Kept separate from belt_brim_config() so the existing
+// single-filament belt tests are untouched.
+static DynamicPrintConfig belt_brim_multifilament_config(unsigned int filaments,
+    std::initializer_list<Slic3r::ConfigBase::SetDeserializeItem> extra = {})
+{
+    DynamicPrintConfig config = multifilament_config(filaments);
+    config.set_deserialize_strict({
+        { "belt_printer",               1 },
+        { "belt_slice_rotation",        "x" },
+        { "belt_slice_rotation_angle",  45 },
+        { "belt_slice_rotation_global", 1 },
+        { "gcode_remap_x",              "rev_x" },
+        { "gcode_remap_y",              "pos_z" },
+        { "gcode_remap_z",              "pos_y" },
+        { "layer_height",               0.2 },
+        { "initial_layer_print_height", 0.2 },
+        { "skirt_loops",                0 },
+        { "top_shell_layers",           0 },
+        { "bottom_shell_layers",        1 },
+        { "machine_start_gcode",        "T[initial_tool]\n" },
+    });
+    if (extra.size() > 0)
+        config.set_deserialize_strict(extra);
+    return config;
+}
+
+// 0-based tool indices used by extrusions whose role comment contains `role` (needs
+// gcode_comments).  Mirrors tools_for_role in test_multifilament.cpp; statics do not cross
+// translation units, so it is repeated here.
+static std::set<int> belt_tools_for_role(const std::string &gcode, const std::string &role)
+{
+    std::set<int> tools;
+    int current_tool = 0;
+    GCodeReader reader;
+    reader.parse_buffer(gcode, [&](GCodeReader &self, const GCodeReader::GCodeLine &line) {
+        const std::string cmd(line.cmd());
+        if (cmd.size() >= 2 && cmd[0] == 'T' && std::isdigit((unsigned char) cmd[1]))
+            current_tool = std::stoi(cmd.substr(1));
+        else if (line.extruding(self) && std::string(line.comment()).find(role) != std::string::npos)
+            tools.insert(current_tool);
+    });
+    return tools;
+}
+
+// Machine Z of the first extruding move whose role comment contains `role`, in file order;
+// numeric_limits<double>::max() when the role never extrudes.
+static double first_role_z(const std::string &gcode, const std::string &role)
+{
+    double z = std::numeric_limits<double>::max();
+    GCodeReader parser;
+    parser.parse_buffer(gcode, [&z, &role](GCodeReader &self, const GCodeReader::GCodeLine &line) {
+        if (line.extruding(self) && line.comment().find(role) != std::string_view::npos) {
+            z = self.z();
+            self.quit_parsing();
+        }
+    });
+    return z;
+}
+
+// Number of object layers that carry a belt brim band.  Each such band is emitted as one
+// contiguous brim pass, so for a single object whose first-contact layer carries a band
+// (the apron prologue folds into that layer's pass) this equals role_passes(gcode, "brim").
+static int nonempty_belt_brim_layers(const PrintObject &object)
+{
+    int n = 0;
+    for (const ExtrusionEntityCollection &band : object.belt_brim_by_layer())
+        if (! band.empty())
+            ++ n;
+    return n;
+}
+
+// For each active tool, the ordinal (1-based, over extruding moves) of the FIRST move whose
+// role comment contains `role`.  Lets a per-object ordering check key off the object's
+// unique wall filament.
+static std::map<int, long> first_move_by_tool(const std::string &gcode, const std::string &role)
+{
+    std::map<int, long> first;
+    int  tool = 0;
+    long idx  = 0;
+    GCodeReader reader;
+    reader.parse_buffer(gcode, [&](GCodeReader &self, const GCodeReader::GCodeLine &line) {
+        const std::string cmd(line.cmd());
+        if (cmd.size() >= 2 && cmd[0] == 'T' && std::isdigit((unsigned char) cmd[1])) {
+            tool = std::stoi(cmd.substr(1));
+            return;
+        }
+        if (! line.extruding(self))
+            return;
+        ++ idx;
+        if (std::string(line.comment()).find(role) != std::string::npos && ! first.count(tool))
+            first[tool] = idx;
+    });
+    return first;
+}
+
+// C - the band coincident with the object's FIRST contact with the belt must not be dropped:
+// a belt brim has to appear at or below the object's first perimeter.  On the unfixed feature
+// the first-contact band is dropped and the first brim then appears only at a later (higher)
+// layer.  Machine Z is meaningful and shared between roles under the belt remap, so the first
+// brim's Z must not exceed the first perimeter's.  Both with and without support.
+TEST_CASE("Belt brim is laid at the object's first belt contact", "[SkirtBrim][belt]")
+{
+    const bool support = GENERATE(false, true);
+    DYNAMIC_SECTION("enable_support=" << support) {
+        DynamicPrintConfig config = belt_brim_config();
+        config.set_deserialize_strict({
+            { "brim_type",           "outer_only" },
+            { "brim_width",          4 },
+            { "leading_brim_length", 0 },
+            { "extra_brim_width",    0 },
+            { "brim_object_gap",     0 },
+            { "enable_support",      support ? 1 : 0 },
+        });
+        const std::string gcode = slice({ cube(20) }, config);
+
+        const double brim_z = first_role_z(gcode, "brim");
+        const double peri_z = first_role_z(gcode, "perimeter");
+        REQUIRE(brim_z < std::numeric_limits<double>::max());
+        REQUIRE(peri_z < std::numeric_limits<double>::max());
+        CHECK(brim_z <= peri_z + EPSILON);
+    }
+}
+
+// C control - when the band's own object layer has extrusion (any interior layer of a solid
+// cube), the band takes the ordinary process_layer() path and must be drawn immediately
+// before that layer's perimeters, and exactly once: never dropped, never double-emitted.
+TEST_CASE("Belt brim on an object layer precedes its perimeters, once", "[SkirtBrim][belt]")
+{
+    DynamicPrintConfig config = belt_brim_config();
+    config.set_deserialize_strict({
+        { "brim_type",       "outer_only" },
+        { "brim_width",      4 },
+        { "brim_object_gap", 0 },
+    });
+    Print print;
+    Model model;
+    init_print({ cube(20) }, print, model, config);
+    const std::string gc = gcode(print);
+
+    // Ordering: the first thing extruded is brim, then perimeter.
+    const std::vector<std::string> seq = role_sequence(gc, { "brim", "perimeter" });
+    REQUIRE(seq.size() >= 2);
+    CHECK(seq[0] == "brim");
+    CHECK(seq[1] == "perimeter");
+
+    // Exactly once: every band is one contiguous pass (the apron prologue folds into the
+    // first layer's), so the pass count equals the number of layers carrying a band - not
+    // twice it, which double-emission would give, nor fewer, which a dropped band would.
+    const int bands = nonempty_belt_brim_layers(*print.objects().front());
+    REQUIRE(bands > 0);
+    CHECK(role_passes(gc, "brim") == bands);
+}
+
+// B - single extruder (filament id 1).  Every band must survive the 1-based -> 0-based
+// filament-id conversion the apron path performs: a wrong conversion drops all single-extruder
+// bands, so the pass count would collapse.  The expected count is derived from the sliced
+// layers, not a ratio.
+TEST_CASE("Belt brim on a single extruder emits every band once", "[SkirtBrim][belt]")
+{
+    DynamicPrintConfig config = belt_brim_config();
+    config.set_deserialize_strict({
+        { "brim_type",       "outer_only" },
+        { "brim_width",      4 },
+        { "brim_object_gap", 0 },
+    });
+    Print print;
+    Model model;
+    init_print({ cube(20) }, print, model, config);
+    const std::string gc = gcode(print);
+
+    const int expected = nonempty_belt_brim_layers(*print.objects().front());
+    REQUIRE(expected > 0);
+    CHECK(role_passes(gc, "brim") == expected);
+    CHECK(belt_tools_for_role(gc, "brim") == std::set<int>{ 0 });   // filament 1 -> tool 0
+}
+
+// B - multi extruder (wall filament id 2).  Every belt-brim line must print on the object's
+// wall filament (index 2 -> tool 1), and the total number of passes must equal the
+// single-extruder baseline: no per-filament doubling.
+TEST_CASE("Belt brim on a multi-extruder object uses the wall filament, no doubling", "[SkirtBrim][belt]")
+{
+    // Single-extruder baseline built the same way (same nozzle/flow), so the band geometry -
+    // and thus the band count - is identical and only the filament assignment differs.
+    DynamicPrintConfig base = belt_brim_multifilament_config(1, {
+        { "brim_type",       "outer_only" },
+        { "brim_width",      4 },
+        { "brim_object_gap", 0 },
+    });
+    const int baseline = role_passes(slice({ cube(20) }, base), "brim");
+    REQUIRE(baseline > 0);
+
+    DynamicPrintConfig config = belt_brim_multifilament_config(2, {
+        { "brim_type",              "outer_only" },
+        { "brim_width",             4 },
+        { "brim_object_gap",        0 },
+        { "outer_wall_filament_id", 2 },
+        { "inner_wall_filament_id", 2 },
+    });
+    const std::string gc = slice({ cube(20) }, config);
+
+    CHECK(belt_tools_for_role(gc, "brim") == std::set<int>{ 1 });   // filament 2 -> tool 1
+    CHECK(role_passes(gc, "brim") == baseline);
+}
+
+// B - two objects offset ALONG the belt (Y, since the tilt is about X), each with its own
+// wall filament.  Each object's brim/apron must print on that object's filament AND before
+// that object's own perimeters.  The object is identified by its unique tool.
+TEST_CASE("Belt brim of each object precedes its perimeters on its own filament", "[SkirtBrim][belt]")
+{
+    DynamicPrintConfig config = belt_brim_multifilament_config(2, {
+        { "brim_type",           "outer_only" },
+        { "brim_width",          4 },
+        { "leading_brim_length", 6 },
+        { "brim_object_gap",     0 },
+    });
+
+    std::vector<TriangleMesh> meshes;
+    meshes.emplace_back(cube(20));
+    TriangleMesh second = cube(20);
+    second.translate(0.f, 40.f, 0.f);   // offset along the belt so it lands well after the first
+    meshes.emplace_back(std::move(second));
+
+    const std::vector<std::vector<Slic3r::ConfigBase::SetDeserializeItem>> overrides {
+        { { "outer_wall_filament_id", 1 }, { "inner_wall_filament_id", 1 } },
+        { { "outer_wall_filament_id", 2 }, { "inner_wall_filament_id", 2 } },
+    };
+    Print print;
+    Model model;
+    init_print(std::move(meshes), print, model, config, &overrides, /*arrange=*/false);
+    print.process();
+    const std::string gc = gcode(print);
+
+    // Both brims appear, each on its object's wall filament (1 -> T0, 2 -> T1).
+    CHECK(belt_tools_for_role(gc, "brim") == std::set<int>{ 0, 1 });
+
+    const std::map<int, long> brim_first = first_move_by_tool(gc, "brim");
+    const std::map<int, long> peri_first = first_move_by_tool(gc, "perimeter");
+    for (int tool : { 0, 1 }) {
+        REQUIRE(brim_first.count(tool) == 1);
+        REQUIRE(peri_first.count(tool) == 1);
+        CHECK(brim_first.at(tool) < peri_first.at(tool));
+    }
+}
+
+// D - the belt-brim predicate must not fire on a request that produces no belt brim.
+// leading_brim_length / extra_brim_width only feed the OUTER ring, so inner_only with zero
+// brim_width yields nothing and must not claim the layers the prime tower / spiral vase need.
+TEST_CASE("Belt inner-only leading brim does not reject the prime tower or spiral vase", "[SkirtBrim][belt]")
+{
+    auto inner_leading = [](std::initializer_list<Slic3r::ConfigBase::SetDeserializeItem> extra) {
+        DynamicPrintConfig config = belt_brim_config();
+        config.set_deserialize_strict({
+            { "brim_type",           "inner_only" },
+            { "brim_width",          0 },
+            { "leading_brim_length", 6 },
+            { "brim_object_gap",     0 },
+        });
+        config.set_deserialize_strict(extra);
+        return config;
+    };
+
+    SECTION("prime tower is left alone") {
+        Print print;
+        Model model;
+        init_print({ cube(20) }, print, model, inner_leading({ { "enable_prime_tower", 1 } }));
+        CHECK_FALSE(print.objects().front()->has_belt_brim());
+        CHECK(print.validate().string.empty());
+    }
+    SECTION("spiral vase is left alone") {
+        Print print;
+        Model model;
+        init_print({ cube(20) }, print, model, inner_leading({ { "spiral_mode", 1 } }));
+        CHECK_FALSE(print.objects().front()->has_belt_brim());
+        CHECK(print.validate().string.empty());
+    }
+    SECTION("a real inner brim still rejects the prime tower") {
+        DynamicPrintConfig config = belt_brim_config();
+        config.set_deserialize_strict({
+            { "brim_type",          "inner_only" },
+            { "brim_width",         4 },
+            { "brim_object_gap",    0 },
+            { "enable_prime_tower", 1 },
+        });
+        Print print;
+        Model model;
+        init_print({ cube(20) }, print, model, config);
+        CHECK(print.objects().front()->has_belt_brim());
+        CHECK_FALSE(print.validate().string.empty());
+    }
 }
 
 TEST_CASE("Belt brim spans many layers instead of one", "[SkirtBrim][belt]")

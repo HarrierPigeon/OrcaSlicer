@@ -275,6 +275,80 @@ SCENARIO("belt_brim_region reduces to the plate brim without an apron", "[BeltBr
     }
 }
 
+SCENARIO("belt_brim_region builds an inner ring inside a hole", "[BeltBrim]") {
+    // Holed prisms (a washer) are the only footprints an inner brim has anything to grab.
+    // The inner path offsets the hole boundary inward and keeps the ring between the two
+    // offsets, clipped back inside the hole - it must be non-empty and live in the hole,
+    // never spill out onto the plate.  No apron is applied to the inner ring.
+    const coord_t mm = scale_(1.);
+    const BeltBrimFrame frame { 1.0, 1 };
+    const coord_t width = 3 * mm;
+    const coord_t gap   = 1 * mm;
+
+    GIVEN("a 40x40 mm washer with a 20 mm square hole") {
+        ExPolygon washer = make_box(0, 0, 40 * mm, 40 * mm);
+        add_hole(washer, 10 * mm, 10 * mm, 30 * mm, 30 * mm);
+        const ExPolygons footprint { washer };
+        const BoundingBox hole_bb = get_extents(washer.holes.front());
+
+        WHEN("an inner-only brim is requested") {
+            const ExPolygons region = belt_brim_region(footprint, false, true, width, gap, 0, 0, frame);
+            THEN("a non-empty ring is produced strictly inside the hole") {
+                REQUIRE(! region.empty());
+                CHECK(area(region) > 0);
+                const BoundingBox rb = get_extents(region);
+                CHECK(rb.min.x() >= hole_bb.min.x());
+                CHECK(rb.min.y() >= hole_bb.min.y());
+                CHECK(rb.max.x() <= hole_bb.max.x());
+                CHECK(rb.max.y() <= hole_bb.max.y());
+            }
+        }
+        WHEN("no inner brim is requested") {
+            THEN("the hole contributes nothing") {
+                CHECK(belt_brim_region(footprint, false, false, width, gap, 0, 0, frame).empty());
+            }
+        }
+    }
+}
+
+SCENARIO("Leading-edge-only retains the downhill half of the brim region", "[BeltBrim]") {
+    // BeltBrim.cpp ~445-458 clips the region to the object's first-contact band and keeps
+    // only what lies at or downhill of it.  That clip is built with band_box(), which is
+    // file-static, so the rectangular half-band is reconstructed here with the SAME sign
+    // rule the code uses (low_side = shear > 0, i.e. downhill is -u) to pin the convention
+    // for both tilt signs.  downhill_sign() is the exported accessor the flag mirrors.
+    const coord_t mm    = scale_(1.);
+    const double  shear = GENERATE(1.0, -1.0);
+    DYNAMIC_SECTION("shear " << shear) {
+        const BeltBrimFrame frame { shear, 1 };   // from_axis 1 => u is Y
+        CHECK((frame.downhill_sign() < 0) == (frame.shear > 0.));
+
+        const ExPolygons region { make_box(0, 0, 20 * mm, 20 * mm) };   // straddles the cut
+        const coord_t     u_cut = 8 * mm;
+        const BoundingBox bb    = get_extents(region);
+
+        const bool    low_side = frame.shear > 0.;
+        const coord_t lo = low_side ? bb.min.y() : u_cut;
+        const coord_t hi = low_side ? u_cut      : bb.max.y();
+        Polygon keep;
+        keep.points = { Point(bb.min.x(), lo), Point(bb.max.x(), lo),
+                        Point(bb.max.x(), hi), Point(bb.min.x(), hi) };
+        const ExPolygons kept = intersection_ex(region, Polygons{ keep });
+
+        REQUIRE(! kept.empty());
+        const BoundingBox kb = get_extents(kept);
+        if (frame.shear > 0.) {
+            // downhill is -u: nothing above the cut survives.
+            CHECK(kb.max.y() <= u_cut + 2);
+            CHECK(kb.min.y() <  u_cut);
+        } else {
+            // downhill is +u: nothing below the cut survives.
+            CHECK(kb.min.y() >= u_cut - 2);
+            CHECK(kb.max.y() >  u_cut);
+        }
+    }
+}
+
 SCENARIO("The apron follows the sign of the shear", "[BeltBrim]") {
     // Guards the one sign convention that is easiest to get backwards: which way
     // is downhill, i.e. which way the belt carries the part.
