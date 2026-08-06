@@ -66,7 +66,7 @@ Polygons BeltFloorContext::half_plane(coordf_t print_z, bool belt_surface) const
     if (!m_active)
         return {};
 
-    const double cutoff = (print_z - m_z_shift - m_floor_offset) / m_shear_factor;
+    const double cutoff = this->cutoff_u(print_z);
     const coord_t cutoff_scaled = scale_(cutoff);
     const coord_t large_bound   = scale_(1e3);
 

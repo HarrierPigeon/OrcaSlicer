@@ -510,6 +510,7 @@ static const t_config_enum_values s_keys_map_BrimType = {
     {"auto_brim", btAutoBrim},  // BBS
     {"brim_ears", btEar},     // Orca
     {"painted", btPainted},  // BBS
+    {"leading_edge_only", btLeadingEdgeOnly},  // belt printers
 };
 CONFIG_OPTION_ENUM_DEFINE_STATIC_MAPS(BrimType)
 
@@ -1901,6 +1902,45 @@ void PrintConfigDef::init_fff_params()
     def->mode = comSimple;
     def->set_default_value(new ConfigOptionFloat(0.));
 
+    def = this->add("leading_brim_length", coFloat);
+    def->label = L("Leading brim length");
+    def->category = L("Support");
+    def->tooltip = L("Belt printers only. Extends the brim AHEAD of the object along the belt, on "
+                     "every downhill-facing edge of its contact area - both the object's first "
+                     "contact with the belt and any island that lands later. This apron is laid "
+                     "onto the belt before the object reaches it, so the leading edge has "
+                     "something already stuck down to hold on to.\n\n"
+                     "Measured on the belt surface, and added on top of Brim width: the brim "
+                     "reaches Brim-object gap + Leading brim length + Brim width ahead of the "
+                     "object. Set Brim-object gap to 0, or the apron will not touch the object it "
+                     "is meant to anchor.\n\n"
+                     "On a tilted belt each layer lays one strip of the brim, so the thickness of "
+                     "the resulting brim sheet is set by flow rather than by layer height. Use "
+                     "Brim flow ratio to tune it.\n\n"
+                     "Set to 0 to disable.");
+    def->sidetext = L("mm");	// millimeters, CIS languages need translation
+    def->min = 0;
+    def->max = 100;
+    def->mode = comAdvanced;
+    def->set_default_value(new ConfigOptionFloat(0.));
+
+    def = this->add("extra_brim_width", coFloat);
+    def->label = L("Extra brim width");
+    def->category = L("Support");
+    def->tooltip = L("Belt printers only. Widens the brim SIDEWAYS, across the belt, without "
+                     "extending it further ahead of or behind the object. Use it when a part needs "
+                     "more grip along its length than Brim width alone gives.\n\n"
+                     "Measured on the belt surface, and added on top of Brim width: the brim "
+                     "reaches Brim-object gap + Brim width + Extra brim width to either side of "
+                     "the object. To extend the brim ahead of the object instead, use Leading brim "
+                     "length.\n\n"
+                     "Set to 0 to disable.");
+    def->sidetext = L("mm");	// millimeters, CIS languages need translation
+    def->min = 0;
+    def->max = 100;
+    def->mode = comAdvanced;
+    def->set_default_value(new ConfigOptionFloat(0.));
+
     def = this->add("brim_type", coEnum);
     def->label = L("Brim type");
     def->category = L("Support");
@@ -1914,6 +1954,7 @@ void PrintConfigDef::init_fff_params()
     def->enum_values.emplace_back("inner_only");
     def->enum_values.emplace_back("outer_and_inner");
     def->enum_values.emplace_back("no_brim");
+    def->enum_values.emplace_back("leading_edge_only");
     def->enum_labels.emplace_back(L("Auto"));
     def->enum_labels.emplace_back(L("Mouse ear"));
     def->enum_labels.emplace_back(L("Painted"));
@@ -1921,6 +1962,7 @@ void PrintConfigDef::init_fff_params()
     def->enum_labels.emplace_back(L("Inner brim only"));
     def->enum_labels.emplace_back(L("Outer and inner brim"));
     def->enum_labels.emplace_back(L("No-brim"));
+    def->enum_labels.emplace_back(L("Leading edge only"));
     def->mode = comSimple;
     def->set_default_value(new ConfigOptionEnum<BrimType>(btAutoBrim));
 

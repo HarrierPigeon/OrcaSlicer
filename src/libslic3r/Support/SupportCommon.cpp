@@ -268,7 +268,9 @@ SupportGeneratorLayersPtr generate_raft_base(
         // The object does not have a raft.
         // Calculate the area covered by the brim.
         const BrimType brim_type       = object.config().brim_type;
-        const bool     brim_outer      = brim_type == btOuterOnly || brim_type == btOuterAndInner;
+        // btLeadingEdgeOnly only means anything on a belt printer, where this code path
+        // does not run; elsewhere it degrades to an outer brim (see Brim.cpp).
+        const bool     brim_outer      = brim_type == btOuterOnly || brim_type == btOuterAndInner || brim_type == btLeadingEdgeOnly;
         const bool     brim_inner      = brim_type == btInnerOnly || brim_type == btOuterAndInner;
         // BBS: the pattern of raft and brim are the same, thus the brim can be serpated by support raft.
         const auto     brim_object_gap = scaled<float>(object.config().brim_object_gap.value);

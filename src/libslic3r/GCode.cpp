@@ -2139,6 +2139,17 @@ std::vector<GCode::LayerToPrint> GCode::collect_layers_to_print(const PrintObjec
 
     std::vector<std::pair<double, double>> warning_ranges;
 
+    // Belt printers: the brim apron is stuck to the belt AHEAD of the part, which
+    // on a tilted belt means below the object's first layer.  Those bands carry no
+    // object or support layer, so they are emitted first and handled by
+    // process_layer()'s brim-only branch.  Already ordered lowest print_z first.
+    for (const BeltBrimBand &band : object.belt_brim_prologue()) {
+        LayerToPrint prologue_layer;
+        prologue_layer.belt_brim_band  = &band;
+        prologue_layer.original_object = &object;
+        layers_to_print.push_back(prologue_layer);
+    }
+
     // Pair the object layers with the support layers by z.
     size_t idx_object_layer = 0;
     size_t idx_support_layer = 0;
@@ -2982,6 +2993,9 @@ void GCode::_do_export(Print& print, GCodeOutputStream &file, ThumbnailsGenerato
                 zs.push_back(layer->print_z);
             for (auto layer : object->support_layers())
                 zs.push_back(layer->print_z);
+            // Belt brim apron bands each get their own change_layer() call.
+            for (const BeltBrimBand &band : object->belt_brim_prologue())
+                zs.push_back(band.print_z);
             std::sort(zs.begin(), zs.end());
             //BBS: merge numerically very close Z values.
             auto end_it = std::unique(zs.begin(), zs.end());
@@ -3001,6 +3015,9 @@ void GCode::_do_export(Print& print, GCodeOutputStream &file, ThumbnailsGenerato
                 zs.push_back(layer->print_z);
             for (auto layer : object->support_layers())
                 zs.push_back(layer->print_z);
+            // See the ByObject branch: apron bands are real printed layers.
+            for (const BeltBrimBand &band : object->belt_brim_prologue())
+                zs.push_back(band.print_z);
         }
         if (!zs.empty())
         {
@@ -5180,8 +5197,39 @@ std::string GCode::generate_object_skirt_group(const Print &print,
                           object_skirt_tools, layer, extruder_id, m_skirt_group_done[group_idx]);
 }
 
-std::string GCode::generate_object_brim(const Print &print, const PrintObject &object, size_t instance_id, bool first_layer)
+std::string GCode::generate_object_brim(const Print &print, const PrintObject &object, size_t instance_id, bool first_layer,
+                                        const Layer *object_layer)
 {
+    // Belt printers lay the brim onto the tilted belt over many layers, so there is
+    // nothing special about the first one.  The bands that coincide with an object
+    // layer are emitted here; those below the object's first layer are apron and go
+    // through process_belt_brim_layer() instead.
+    if (object.has_belt_brim()) {
+        if (object_layer == nullptr)
+            return {};
+        const std::vector<ExtrusionEntityCollection> &by_layer = object.belt_brim_by_layer();
+        const size_t layer_idx = object_layer->id();
+        if (layer_idx >= by_layer.size() || by_layer[layer_idx].empty())
+            return {};
+        std::string gcode;
+        // The band geometry is in the object's local slicing frame, exactly like its
+        // perimeters, so it needs this instance's origin.  The caller does not set it
+        // until later, and the plate brim path deliberately uses (0, 0) because its
+        // geometry is already in plate coordinates.
+        m_config.apply(print.default_region_config());
+        m_config.apply(object.config(), true);
+        const Point &offset = object.instances()[instance_id].shift;
+        this->set_origin(unscale(offset));
+        this->on_set_origin(&object, offset);
+        m_avoid_crossing_perimeters.use_external_mp();
+        for (const ExtrusionEntity *ee : by_layer[layer_idx].entities)
+            if (ee != nullptr)
+                gcode += this->extrude_entity(*ee, "brim", NOZZLE_CONFIG(support_speed));
+        m_avoid_crossing_perimeters.use_external_mp(false);
+        m_avoid_crossing_perimeters.disable_once();
+        return gcode;
+    }
+
     if (!first_layer)
         return {};
 
@@ -5216,6 +5264,86 @@ std::string GCode::generate_object_brim(const Print &print, const PrintObject &o
     }
 
     return {};
+}
+
+// Belt printers: emit one brim-only apron layer.  On a tilted belt the brim ahead
+// of the part lands at slicing Z below the object's first layer, because the
+// object's layer 0 IS its leading contact with the belt.  Those layers carry brim
+// and nothing else.
+//
+// This is intentionally a short path rather than a variant of process_layer(): an
+// apron band has no Layer, and giving it a synthetic one would feed a fabricated
+// Layer::id() into initial-layer temperature selection, the spiral vase probe,
+// gradual interpolation and cooling.  Correct first-layer treatment comes from
+// FirstLayerPlane in BeltAffine mode, which is evaluated per point.
+LayerResult GCode::process_belt_brim_layer(
+    const Print                     &print,
+    const std::vector<LayerToPrint> &layers,
+    const LayerTools                &layer_tools,
+    const bool                       last_layer,
+    const size_t                     single_object_instance_idx)
+{
+    // layer_id 0: the apron precedes every object layer and nothing downstream
+    // indexes by it.  spiral_vase_enable false: spiral vase is refused alongside
+    // belt brim in Print::validate().  cooling_buffer_flush true: an apron layer is
+    // a complete layer, and the default (object_layer || raft_layer || last_layer)
+    // would be false here, so fan and slowdown would never be applied to it.
+    LayerResult result { {}, 0, false, true };
+    if (layer_tools.extruders.empty())
+        // Nothing to extrude.
+        return result;
+
+    coordf_t print_z = 0.;
+    for (const LayerToPrint &ltp : layers)
+        if (ltp.belt_brim_band != nullptr) {
+            print_z = ltp.belt_brim_band->print_z;
+            break;
+        }
+
+    m_cur_layer_idx = m_belt_brim_layer_idx ++;
+
+    // Publish the band's Z for _extrude()'s first-layer-plane probe, and make sure
+    // it cannot leak past this layer even if an extrusion throws.
+    struct BeltBrimZGuard {
+        std::optional<coordf_t> &slot;
+        ~BeltBrimZGuard() { slot.reset(); }
+    } z_guard { m_belt_brim_z };
+    m_belt_brim_z = print_z;
+    m_layer = nullptr;
+
+    std::string gcode;
+    const unsigned int extruder_id = layer_tools.extruders.front();
+    if (m_writer->filament() == nullptr || m_writer->filament()->id() != extruder_id)
+        gcode += this->set_extruder(extruder_id, print_z);
+    gcode += this->change_layer(print_z);
+
+    for (const LayerToPrint &ltp : layers) {
+        const BeltBrimBand *band = ltp.belt_brim_band;
+        if (band == nullptr || band->fills.empty() || ltp.original_object == nullptr)
+            continue;
+        const PrintObject &object = *ltp.original_object;
+        // Speeds, flow and retraction all read m_config.
+        m_config.apply(print.default_region_config());
+        m_config.apply(object.config(), true);
+        const size_t i_begin = single_object_instance_idx == size_t(-1) ? 0 : single_object_instance_idx;
+        const size_t i_end   = single_object_instance_idx == size_t(-1) ? object.instances().size()
+                                                                       : single_object_instance_idx + 1;
+        for (size_t i = i_begin; i < i_end && i < object.instances().size(); ++ i) {
+            // Band geometry is object-local, like the object's own extrusions.
+            const Point &offset = object.instances()[i].shift;
+            this->set_origin(unscale(offset));
+            this->on_set_origin(&object, offset);
+            m_avoid_crossing_perimeters.use_external_mp();
+            for (const ExtrusionEntity *ee : band->fills.entities)
+                if (ee != nullptr)
+                    gcode += this->extrude_entity(*ee, "brim", NOZZLE_CONFIG(support_speed));
+            m_avoid_crossing_perimeters.use_external_mp(false);
+            m_avoid_crossing_perimeters.disable_once();
+        }
+    }
+
+    result.gcode = std::move(gcode);
+    return result;
 }
 
 // Bedslinger model. The heavier the bed load, the lower the achievable Y acceleration for a given
@@ -5539,6 +5667,13 @@ LayerResult GCode::process_layer(
                 raft_layer = support_layer;
         }
     }
+
+    // Belt printers: a brim-only apron layer has neither an object nor a support
+    // layer, so it must be handled before layer_ptr is dereferenced below.
+    if (object_layer == nullptr && support_layer == nullptr &&
+        std::any_of(layers.begin(), layers.end(),
+                    [](const LayerToPrint &l) { return l.belt_brim_band != nullptr; }))
+        return this->process_belt_brim_layer(print, layers, layer_tools, last_layer, single_object_instance_idx);
 
     const Layer* layer_ptr = nullptr;
     if (object_layer != nullptr)
@@ -6498,7 +6633,8 @@ LayerResult GCode::process_layer(
                 const LayerToPrint &layer_to_print = layers[instance_to_print.layer_id];
                 if (visit.first_visit && print_wipe_extrusions == (is_anything_overridden ? 1 : 0)) {
                     gcode += generate_object_skirt_group(print, instance_to_print.print_object, instance_to_print.instance_id, layer_tools, layer, extruder_id);
-                    gcode += generate_object_brim(print, instance_to_print.print_object, instance_to_print.instance_id, first_layer);
+                    gcode += generate_object_brim(print, instance_to_print.print_object, instance_to_print.instance_id, first_layer,
+                                                  layer_to_print.object_layer);
                 }
 
                 // To control print speed of the 1st object layer printed over raft interface.
@@ -7608,10 +7744,13 @@ std::string GCode::_extrude(const ExtrusionPath &path, std::string description, 
     // evaluator is inactive (non-belt printers, or belt printers without
     // a Z-axis shear) `path_on_first_layer` falls back to the legacy
     // layer-id check, so behavior is bit-identical to the pre-feature path.
+    // A belt brim apron band has no Layer of its own, so it publishes its Z
+    // through m_belt_brim_z instead; without that the plane would be probed at
+    // Z=0 and the apron mis-classified for fan and speed.
     const Vec3d path_point_mm{
         unscale<double>(path.first_point().x()),
         unscale<double>(path.first_point().y()),
-        m_layer ? m_layer->print_z : 0.0
+        m_layer ? m_layer->print_z : (m_belt_brim_z ? *m_belt_brim_z : 0.0)
     };
     const bool path_on_first_layer = this->on_first_layer(path_point_mm);
 

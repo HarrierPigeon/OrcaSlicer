@@ -161,6 +161,10 @@ public:
     // Should a skirt be printed at this layer?
     // Layers are marked for infinite skirt aka draft shield. Not all the layers have to be printed.
     bool                        has_skirt = false;
+    // Belt printers: is this one of the brim-only apron layers below the object's
+    // first layer?  Kept separate from has_object so skirt marking and wiping
+    // overrides are unaffected.
+    bool                        has_belt_brim = false;
     // Will there be anything extruded on this layer for the wipe tower?
     // Due to the support layers possibly interleaving the object layers,
     // wipe tower will be disabled for some support only layers.

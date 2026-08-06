@@ -675,11 +675,25 @@ void ConfigManipulation::toggle_print_fff_options(DynamicPrintConfig *config, in
     const bool gcf_is_klipper = gcflavor == GCodeFlavor::gcfKlipper;
 
     // Belt printer: detect early since it affects multiple toggle decisions below.
+    // `is_belt_tilted` is the stricter test that mirrors PrintObject::has_belt_brim():
+    // only a tilted belt gets the belt-plane brim, while a belt printer with no
+    // rotation is geometrically a flat bed and keeps the ordinary plate brim.
     bool is_belt_printer = false;
+    bool is_belt_tilted  = false;
     {
-        const auto *belt_opt = preset_bundle->printers.get_edited_preset().config.option<ConfigOptionBool>("belt_printer");
+        const auto &printer_cfg = preset_bundle->printers.get_edited_preset().config;
+        const auto *belt_opt = printer_cfg.option<ConfigOptionBool>("belt_printer");
         if (belt_opt)
             is_belt_printer = belt_opt->value;
+        const auto *axis  = printer_cfg.option<ConfigOptionEnum<BeltRotationAxis>>("belt_slice_rotation");
+        const auto *angle = printer_cfg.option<ConfigOptionFloat>("belt_slice_rotation_angle");
+        if (is_belt_printer && axis != nullptr && angle != nullptr) {
+            // Same window as Print::has_tilted_belt(); shared constants so the GUI and
+            // the backend cannot drift apart.
+            const double tilt = std::abs(angle->value);
+            is_belt_tilted = (axis->value == BeltRotationAxis::X || axis->value == BeltRotationAxis::Y)
+                          && tilt >= BELT_BRIM_MIN_TILT_DEG && tilt <= BELT_BRIM_MAX_TILT_DEG;
+        }
     }
 
     bool have_volumetric_extrusion_rate_slope = config->option<ConfigOptionFloat>("max_volumetric_extrusion_rate_slope")->value > 0;
@@ -854,22 +868,35 @@ void ConfigManipulation::toggle_print_fff_options(DynamicPrintConfig *config, in
         toggle_field("skirt_height", false);
     }
 
-    bool have_brim = (config->opt_enum<BrimType>("brim_type") != btNoBrim) && !is_belt_printer;
-    if (is_belt_printer)
-        toggle_field("brim_type", false);
+    // Belt printers now get a brim too, laid onto the tilted belt by BeltBrim.cpp,
+    // so brim type / width / object gap all apply.  A belt printer with no tilt is
+    // geometrically a flat bed and uses the ordinary plate brim, hence the separate
+    // is_belt_tilted test.
+    bool have_brim = config->opt_enum<BrimType>("brim_type") != btNoBrim;
     toggle_field("brim_object_gap", have_brim);
-    toggle_field("brim_use_efc_outline", have_brim);
-    toggle_field("combine_brims", have_brim);
-    bool have_brim_width = (config->opt_enum<BrimType>("brim_type") != btNoBrim) && config->opt_enum<BrimType>("brim_type") != btAutoBrim &&
+    // Both are first-layer-only concepts that the belt path cannot honour.
+    toggle_field("brim_use_efc_outline", have_brim && !is_belt_tilted);
+    toggle_field("combine_brims", have_brim && !is_belt_tilted);
+    bool have_brim_width = have_brim && config->opt_enum<BrimType>("brim_type") != btAutoBrim &&
                            config->opt_enum<BrimType>("brim_type") != btPainted;
-    toggle_field("brim_width", have_brim_width);
+    // On a tilted belt Auto / Mouse ear / Painted all collapse to outer-only at the
+    // configured width, so the width field has to stay live for them too.
+    toggle_field("brim_width", have_brim_width || (have_brim && is_belt_tilted));
     toggle_field("brim_flow_ratio", have_brim);
+    // Paired toggle_line + toggle_field: cb_toggle_line is null in the per-object
+    // override panel, so the row cannot be hidden there and greying out is the
+    // fallback.  Both extras are belt-only: one extends the brim ahead along the belt,
+    // the other widens it across the belt.
+    for (auto el : { "leading_brim_length", "extra_brim_width" }) {
+        toggle_line(el, is_belt_tilted);
+        toggle_field(el, is_belt_tilted && have_brim);
+    }
     // Wall filament selectors use the same logic as in Print::extruders().
     toggle_field("outer_wall_filament_id", have_perimeters || have_brim);
     toggle_field("inner_wall_filament_id", have_perimeters || have_brim);
 
     const BrimType brim_type = config->opt_enum<BrimType>("brim_type");
-    const bool have_auto_brim_ear = brim_type == btEar;
+    const bool have_auto_brim_ear = brim_type == btEar && !is_belt_tilted;
     const bool have_painted_brim_ear = brim_type == btPainted;
     set_option_label("brim_width", have_auto_brim_ear ? _L("Brim ear radius") : _L("Brim width"));
     const auto brim_width = config->opt_float("brim_width");

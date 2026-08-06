@@ -391,6 +391,10 @@ enum BrimType {
     btInnerOnly,
     btOuterAndInner,
     btNoBrim,
+    // Belt printers: brim only where the part first touches the belt, nothing after
+    // that.  Appended last so no existing value shifts.  On a non-belt printer this
+    // has no meaning and behaves as btOuterOnly.
+    btLeadingEdgeOnly,
 };
 
 enum TimelapseType : int {
@@ -1140,6 +1144,8 @@ PRINT_CONFIG_CLASS_DEFINE(
     ((ConfigOptionBool,                brim_use_efc_outline))
     ((ConfigOptionEnum<BrimType>,      brim_type))
     ((ConfigOptionFloat,               brim_width))
+    ((ConfigOptionFloat,               leading_brim_length))
+    ((ConfigOptionFloat,               extra_brim_width))
     ((ConfigOptionFloat,               brim_ears_detection_length))
     ((ConfigOptionFloat,               brim_ears_max_angle))
     ((ConfigOptionBool,                brim_ears_outer_only))

@@ -47,6 +47,12 @@ public:
     // Returns -infinity if not active.
     double floor_print_z(const Point &pos_slicing) const;
 
+    // The from_axis coordinate (unscaled, slicing frame) where the belt surface
+    // crosses a horizontal plane at print_z.  Inverse of floor_print_z() along
+    // the shear axis.  Only meaningful when is_active().
+    coordf_t cutoff_u(coordf_t print_z) const
+        { return (print_z - m_z_shift - m_floor_offset) / m_shear_factor; }
+
     // Pre-compute belt floor polygons for a range of layers.
     // layer_print_z(i) returns the print_z for layer index i.
     std::vector<Polygons> compute_per_layer_floors(

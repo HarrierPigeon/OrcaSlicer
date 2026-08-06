@@ -33,6 +33,7 @@
 
 #include <memory>
 #include <map>
+#include <optional>
 #include <set>
 #include <string>
 #include <cfloat>
@@ -290,6 +291,13 @@ public:
         const Layer* 		object_layer;
         const SupportLayer* support_layer;
         const PrintObject*  original_object; //BBS: used for shared object logic
+        // Belt printers only: an apron band that prints BELOW the object's first
+        // layer, so it has no object or support layer of its own.  Deliberately
+        // not a Layer, so it cannot leak Layer::id() semantics into initial-layer
+        // temperature, spiral vase, cooling or interpolation logic.  When this is
+        // the only thing set, layer() is null and process_layer() takes its
+        // dedicated brim-only branch.
+        const BeltBrimBand* belt_brim_band { nullptr };
         const Layer* 		layer()   const
         {
             if (object_layer != nullptr)
@@ -318,6 +326,12 @@ public:
                 sum_z += support_layer->print_z;
                 count++;
             }
+
+            // A brim-only apron band contributes no object/support layer, and
+            // averaging zero terms would yield NaN.  Never folded into the
+            // average, so the non-belt result is bit-identical.
+            if (count == 0 && belt_brim_band != nullptr)
+                return belt_brim_band->print_z;
 
             return sum_z / count;
         }
@@ -389,7 +403,20 @@ protected:
     std::string generate_object_brim(const Print &print,
         const PrintObject &object,
         size_t instance_id,
-        bool first_layer);
+        bool first_layer,
+        const Layer *object_layer);
+
+    // Belt printers: emit one brim-only apron layer.  These print below the
+    // object's first layer, so there is no object or support layer for the normal
+    // process_layer() machinery to work from.  Kept to the minimum a layer needs -
+    // tool, Z move, extrusions - so that nothing here can perturb the
+    // Layer::id()-based logic the ordinary path relies on.
+    LayerResult process_belt_brim_layer(
+        const Print                     &print,
+        const std::vector<LayerToPrint> &layers,
+        const LayerTools                &layer_tools,
+        const bool                       last_layer,
+        const size_t                     single_object_instance_idx);
 
     LayerResult process_layer(
         const Print                     &print,
@@ -779,6 +806,13 @@ protected:
     // Object layer id of the layer being generated; keys the per-filament config-slot
     // resolvers. Distinct from m_layer_index (an export progress counter starting at -1).
     size_t m_cur_layer_idx{0};
+
+    // Belt brim apron layers only.  They have no Layer, so the print_z that
+    // _extrude() needs for the first-layer-plane probe is published here instead.
+    // Scoped by BeltBrimZGuard in process_belt_brim_layer(), never left set.
+    std::optional<coordf_t> m_belt_brim_z;
+    // Counter standing in for Layer::id() on apron layers, which precede layer 0.
+    size_t m_belt_brim_layer_idx{0};
 
     std::set<unsigned int>                  m_initial_layer_extruders;
     std::vector<std::vector<unsigned int>>  m_sorted_layer_filaments;
