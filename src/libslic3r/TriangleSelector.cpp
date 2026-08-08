@@ -2515,7 +2515,7 @@ TriangleSelector::TriangleSplittingData TriangleSelector::remap_painting(
             if (TriangleCursor::check_normal(norm_b, -norm_a) && check_overlap(pv0, pv1, pv2, ta, tb, tc)) {
                 // Paint this face
                 target_selector.select_patch(face_idx, TriangleCursor::build_cursor(source_selector, tri), tri.get_state(),
-                                             Transform3d::Identity(), true, 0.f, true);
+                                             Transform3d::Identity(), true, 0.f, Vec3f::UnitZ(), true);
             }
             return true; // continue traversal
         });

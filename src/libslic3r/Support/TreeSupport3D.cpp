@@ -4007,7 +4007,10 @@ void organic_draw_branches(
                                 if (!contacts.empty())
                                     bottom_contacts.emplace_back(std::move(contacts));
                             }
-                        } else if (layer_begin > 0) {
+                        } else if (layer_begin > 0 && (volumes.m_belt_floor.empty() || num_empty == 0)) {
+                            // Belt-floor clipping makes initial slices empty often; without this
+                            // gate, "verylost" branches propagate rest_support down to layer 0 and
+                            // OOM on tall belt prints.
                             // Drop down areas that do rest non - gracefully on the model to ensure the branch actually rests on something.
                             struct BottomExtraSlice {
                                 Polygons polygons;

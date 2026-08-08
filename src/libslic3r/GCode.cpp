@@ -8953,7 +8953,6 @@ float GCode::interpolate_value_across_layers(float start_value, float end_value,
     } else {
         ratio = m_layer_index / (m_layer_count - 1.f);
     }
-    const float ratio = m_layer_index / (m_layer_count - 1.f);
     if (step > 0.f) {
         // Discrete equal-width bands. band is clamped to the last band so the result can't overshoot the range:
         // at the top layer ratio * n_bands == n_bands, which would otherwise index one band past the end.

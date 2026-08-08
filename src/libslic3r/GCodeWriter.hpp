@@ -142,12 +142,6 @@ public:
     void set_build_volume_max(const Vec3d &max);
     bool has_axis_remap() const;
 
-    // Axis remap: permute/negate/reverse axes in G-code output.
-    // Works standalone (without belt mode) for printers with non-standard axis conventions.
-    void set_axis_remap(int rx, int ry, int rz);
-    void set_build_volume_max(const Vec3d &max);
-    bool has_axis_remap() const;
-
     // Returns whether this flavor supports separate print and travel acceleration.
     static bool supports_separate_travel_acceleration(GCodeFlavor flavor);
 protected:

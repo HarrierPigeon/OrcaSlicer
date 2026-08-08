@@ -2603,10 +2603,10 @@ static inline SupportGeneratorLayer* detect_belt_floor_bottom_contacts(
     layer_new.print_z = layer.print_z + layer_new.height + slicing_params.gap_object_support;
     layer_new.bottom_z = layer.print_z;
     layer_new.idx_object_layer_below = layer_id;
-    layer_new.bridging = ! slicing_params.soluble_interface && object.config().thick_bridges;
+    layer_new.bridging = ! slicing_params.zero_gap_interface_bottom && object.config().thick_bridges;
     layer_new.polygons = expand(touching, float(support_params.support_material_flow.scaled_width()), SUPPORT_SURFACES_OFFSET_PARAMETERS);
 
-    if (! slicing_params.soluble_interface) {
+    if (! slicing_params.zero_gap_interface_bottom) {
         // Snap to nearby top contact layers to avoid very thin support layers.
         for (size_t top_idx = size_t(std::max<int>(0, int(contact_idx)));
             top_idx < top_contacts.size() && top_contacts[top_idx]->print_z < layer_new.print_z + support_params.support_layer_height_min + EPSILON;

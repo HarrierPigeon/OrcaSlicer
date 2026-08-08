@@ -20,7 +20,6 @@
 #include "BeltBrim.hpp"
 #include "BeltTransform.hpp"
 #include "ObjectID.hpp"
-#include "BeltTransform.hpp"
 #include "libslic3r.h"
 
 #include <Eigen/Geometry>
