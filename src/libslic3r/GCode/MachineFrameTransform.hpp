@@ -15,7 +15,7 @@ namespace Slic3r {
 //
 // Derived entirely from the single belt tilt (belt_slice_rotation axis +
 // belt_slice_rotation_angle): a shear coupling the height axis to the belt-feed
-// axis (factor tan a) plus a 1/cos a scale on the belt-feed axis.  The expert
+// axis (factor cot a) plus a 1/sin a scale on the gantry-height axis.  The expert
 // belt_frame_tilt_decouple flag lets the machine-frame angle differ from the
 // pre-slice rotation angle via belt_frame_tilt_angle.
 class MachineFrameTransform

@@ -29,31 +29,34 @@ bool MachineFrameTransform::init_from_config(const PrintConfig &config)
         return false;
 
     const double angle_rad = Geometry::deg2rad(angle_deg);
-    const double cos_a      = std::cos(angle_rad);
-    if (std::abs(cos_a) <= EPSILON)
+    const double sin_a      = std::sin(angle_rad);
+    if (std::abs(sin_a) <= EPSILON)
         return false;
-    const double tan_a   = std::sin(angle_rad) / cos_a;
-    const double inv_cos = 1.0 / cos_a;
+    const double cot_a   = std::cos(angle_rad) / sin_a;
+    const double inv_sin = 1.0 / std::abs(sin_a);
 
-    // Couple the height axis (Z) to the belt-feed axis and stretch the belt-feed
-    // axis by 1/cos so a unit slicing move maps to the correct belt travel.  The
-    // shear sign matches the belt-floor slope derived from the same rotation in
-    // BeltTransformPipeline::compute_belt_height_and_floor:
-    //   tilt about X: feed axis Y, Z += +tan·Y, scale Y *= 1/cos
-    //   tilt about Y: feed axis X, Z += -tan·X, scale X *= 1/cos
+    // This stage runs after the conventional belt axis swap. For an X-axis
+    // slicing rotation, remapped Y is model height and remapped Z is travel
+    // along the belt. Convert those Cartesian coordinates to machine axes with
+    // the established belt-printer convention:
+    //   machine gantry = model height / sin(a)
+    //   machine belt   = model belt + model height * cot(a)
+    // The Y-rotation case is the same mapping on X/Z, with the rotation sign.
+    // At 45 degrees tan/cot and sin/cos are equal, which previously hid the
+    // incorrect complementary-angle formulas used by this unified transform.
     Matrix3d shear = Matrix3d::Identity();
     Matrix3d scale = Matrix3d::Identity();
     if (axis == BeltRotationAxis::X) {
-        shear(2, 1) =  tan_a;   // Z from Y
-        scale(1, 1) =  inv_cos; // Y
+        shear(2, 1) =  cot_a;   // Z from Y
+        scale(1, 1) =  inv_sin; // Y
     } else { // BeltRotationAxis::Y
-        shear(2, 0) = -tan_a;   // Z from X
-        scale(0, 0) =  inv_cos; // X
+        shear(2, 0) = -cot_a;   // Z from X
+        scale(0, 0) =  inv_sin; // X
     }
 
     // Apply shear first, then scale (the historical default ShearThenScale order:
     // result = scale * shear * p).  For the canonical 45°/X belt this maps
-    // (x,y,z) -> (x, y/cos, y + z), matching the previous per-axis config.
+    // (x,y,z) -> (x, y/sin, y + z), matching the previous per-axis config.
     Transform3d combined = Transform3d::Identity();
     combined.linear() = scale * shear;
 

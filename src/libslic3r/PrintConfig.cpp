@@ -7255,9 +7255,9 @@ void PrintConfigDef::init_fff_params()
     def = this->add("gcode_back_transform", coBool);
     def->label = L("G-code back-transform");
     def->category = L("Printable space");
-    def->tooltip = L("Reverse the shear/scale transform applied during slicing so G-code "
-                      "coordinates are in the machine's physical coordinate space. "
-                      "Requires at least one shear axis with global mode enabled.");
+    def->tooltip = L("Undo the pre-slice mesh transform before applying the G-code axis remap "
+                      "and machine-frame shear/scale. Required for the standard belt-printer "
+                      "rotation pipeline.");
     def->mode = comExpert;
     def->set_default_value(new ConfigOptionBool(true));
 

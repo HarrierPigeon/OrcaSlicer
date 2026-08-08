@@ -20,11 +20,48 @@
 #include <algorithm>
 #include <limits>
 #include "libslic3r/BeltGCodeWriter.hpp"
+#include "libslic3r/BeltTransform.hpp"
 #include "libslic3r/GCodeReader.hpp"
 #include "libslic3r/PrintConfig.hpp"
 
 using namespace Slic3r;
 using namespace Slic3r::Test;
+
+TEST_CASE("Belt machine coordinates retain a non-45-degree slicing angle", "[GCodeWriter][belt]")
+{
+    PrintConfig config;
+    config.belt_printer.value               = true;
+    config.belt_slice_rotation.value        = BeltRotationAxis::X;
+    config.belt_slice_rotation_angle.value  = 30.;
+    config.belt_slice_rotation_global.value = true;
+    config.gcode_back_transform.value       = true;
+    config.gcode_remap_x.value              = RemapAxis::PosX;
+    config.gcode_remap_y.value              = RemapAxis::PosZ;
+    config.gcode_remap_z.value              = RemapAxis::PosY;
+
+    BeltGCodeWriter writer;
+    writer.set_belt_back_transform(config);
+    writer.set_machine_frame_transform(config);
+    writer.set_axis_remap(int(config.gcode_remap_x.value),
+                          int(config.gcode_remap_y.value),
+                          int(config.gcode_remap_z.value));
+
+    // Start with a point in the unrotated model frame, then feed the writer the
+    // same rotated coordinate produced by the pre-slice mesh transform. The
+    // back-transform must recover the model point before the axis swap and
+    // machine-frame shear/scale are applied.
+    const Vec3d model(4., 10., 3.);
+    Transform3d forward = BeltTransformPipeline::build_forward_transform(config);
+    const Vec3d machine = writer.to_machine_coords(forward * model);
+
+    // The conventional X-tilt remap produces (x, z, y). At 30 degrees the
+    // gantry coordinate is z/sin(30) and belt travel is y + z*cot(30).
+    // The complementary tan/inv-cos formulas accidentally used by the unified
+    // transform are indistinguishable at 45 degrees, but fail this case.
+    REQUIRE_THAT(machine.x(), Catch::Matchers::WithinAbs(4., 1e-9));
+    REQUIRE_THAT(machine.y(), Catch::Matchers::WithinAbs(3. / std::sin(Geometry::deg2rad(30.)), 1e-9));
+    REQUIRE_THAT(machine.z(), Catch::Matchers::WithinAbs(10. + 3. / std::tan(Geometry::deg2rad(30.)), 1e-9));
+}
 
 // Arrange on a finite bed, not an unbounded InfiniteBed: the latter places items
 // near INT64_MIN/4 (~2.3e18), which reaches ClipperLib's coordinate limit and throws
