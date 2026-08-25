@@ -18,7 +18,10 @@ add_executable(${_TEST_NAME}_tests
     test_preset_bundle_loading.cpp
     test_preset_setting_id.cpp
     test_preset_diff.cpp
+    test_vendor_cache.cpp
     test_elephant_foot_compensation.cpp
+    test_fill_corner_smoothing.cpp
+    test_fill_plane_path.cpp
     test_geometry.cpp
     test_multimaterial_segmentation.cpp
     test_placeholder_parser.cpp
@@ -29,6 +32,7 @@ add_executable(${_TEST_NAME}_tests
     test_stl.cpp
     test_meshboolean.cpp
     test_marchingsquares.cpp
+    test_model.cpp
     test_utils.cpp
     test_timeutils.cpp
     test_voronoi.cpp
