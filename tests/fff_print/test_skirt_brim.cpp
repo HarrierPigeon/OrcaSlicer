@@ -624,6 +624,7 @@ static DynamicPrintConfig belt_brim_config()
         { "top_shell_layers",           0 },
         { "bottom_shell_layers",        1 },
         { "machine_start_gcode",        "T[initial_tool]\n" },
+        { "layer_change_gcode",         "G92 E0\n" },
     });
     return config;
 }
@@ -649,6 +650,7 @@ static DynamicPrintConfig belt_brim_multifilament_config(unsigned int filaments,
         { "top_shell_layers",           0 },
         { "bottom_shell_layers",        1 },
         { "machine_start_gcode",        "T[initial_tool]\n" },
+        { "layer_change_gcode",         "G92 E0\n" },
     });
     if (extra.size() > 0)
         config.set_deserialize_strict(extra);
@@ -889,11 +891,24 @@ TEST_CASE("Belt inner-only leading brim does not reject the prime tower or spira
         config.set_deserialize_strict(extra);
         return config;
     };
+    auto init_inner_leading_with_prime_tower = [](Print &print, Model &model, double brim_width) {
+        DynamicPrintConfig config = belt_brim_multifilament_config(2, {
+            { "brim_type",                 "inner_only" },
+            { "brim_width",                brim_width },
+            { "leading_brim_length",       6 },
+            { "brim_object_gap",           0 },
+            { "enable_prime_tower",        1 },
+        });
+        const std::vector<std::vector<Slic3r::ConfigBase::SetDeserializeItem>> overrides {
+            { { "extruder", 1 } }, { { "extruder", 2 } },
+        };
+        init_print({ cube(20), cube(20) }, print, model, config, &overrides);
+    };
 
     SECTION("prime tower is left alone") {
         Print print;
         Model model;
-        init_print({ cube(20) }, print, model, inner_leading({ { "enable_prime_tower", 1 } }));
+        init_inner_leading_with_prime_tower(print, model, 0);
         CHECK_FALSE(print.objects().front()->has_belt_brim());
         CHECK(print.validate().string.empty());
     }
@@ -905,16 +920,9 @@ TEST_CASE("Belt inner-only leading brim does not reject the prime tower or spira
         CHECK(print.validate().string.empty());
     }
     SECTION("a real inner brim still rejects the prime tower") {
-        DynamicPrintConfig config = belt_brim_config();
-        config.set_deserialize_strict({
-            { "brim_type",          "inner_only" },
-            { "brim_width",         4 },
-            { "brim_object_gap",    0 },
-            { "enable_prime_tower", 1 },
-        });
         Print print;
         Model model;
-        init_print({ cube(20) }, print, model, config);
+        init_inner_leading_with_prime_tower(print, model, 4);
         CHECK(print.objects().front()->has_belt_brim());
         CHECK_FALSE(print.validate().string.empty());
     }
