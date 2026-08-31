@@ -7054,17 +7054,17 @@ LayerResult GCode::process_layer(
                 }
                 if (m_enable_exclude_object) {
                     if (is_BBL_Printer()) {
-                        m_writer.set_object_start_str(
+                        m_writer->set_object_start_str(
                             std::string("; start printing object, unique label id: ") +
                             std::to_string(instance_to_print.label_object_id) + "\n" + "M624 " +
                             _encode_label_ids_to_base64({instance_to_print.label_object_id}) + "\n");
                     } else {
                         const auto gflavor = print.config().gcode_flavor.value;
                         if (gflavor == gcfKlipper) {
-                            m_writer.set_object_start_str(std::string("EXCLUDE_OBJECT_START NAME=") +
+                            m_writer->set_object_start_str(std::string("EXCLUDE_OBJECT_START NAME=") +
                                                           get_instance_name(&instance_to_print.print_object, inst.id) + "\n");
                         } else if (gflavor == gcfMarlinLegacy || gflavor == gcfMarlinFirmware || gflavor == gcfRepRapFirmware) {
-                            m_writer.set_object_start_str(std::string("M486 S") + std::to_string(inst.unique_id) + "\n");
+                            m_writer->set_object_start_str(std::string("M486 S") + std::to_string(inst.unique_id) + "\n");
                         }
                     }
                 }
@@ -7276,20 +7276,20 @@ LayerResult GCode::process_layer(
                 }
 
                 // --- Shared instance footer (mirrors Orca's main instance loop) ---
-                if (!m_writer.is_object_start_str_empty()) {
-                    m_writer.set_object_start_str("");
+                if (!m_writer->is_object_start_str_empty()) {
+                    m_writer->set_object_start_str("");
                 } else if (m_enable_exclude_object) {
                     if (is_BBL_Printer()) {
-                        m_writer.set_object_end_str(std::string("; stop printing object, unique label id: ") +
+                        m_writer->set_object_end_str(std::string("; stop printing object, unique label id: ") +
                                                     std::to_string(instance_to_print.label_object_id) + "\n" +
                                                     "M625\n");
                     } else {
                         const auto gflavor = print.config().gcode_flavor.value;
                         if (gflavor == gcfKlipper) {
-                            m_writer.set_object_end_str(std::string("EXCLUDE_OBJECT_END NAME=") +
+                            m_writer->set_object_end_str(std::string("EXCLUDE_OBJECT_END NAME=") +
                                                         get_instance_name(&instance_to_print.print_object, inst.id) + "\n");
                         } else if (gflavor == gcfMarlinLegacy || gflavor == gcfMarlinFirmware || gflavor == gcfRepRapFirmware) {
-                            m_writer.set_object_end_str(std::string("M486 S-1\n"));
+                            m_writer->set_object_end_str(std::string("M486 S-1\n"));
                         }
                     }
                 }
@@ -7302,7 +7302,7 @@ LayerResult GCode::process_layer(
         // wipe tower's add_object_end_labels may consume it into a local temp string and the
         // M625 would be lost for BBL printers.
         if (!layer_tools.mixed_sub_layer_groups.empty()) {
-            m_writer.add_object_end_labels(gcode);
+            m_writer->add_object_end_labels(gcode);
             m_nominal_z = print_z;
             m_need_change_layer_lift_z = true;
         }
