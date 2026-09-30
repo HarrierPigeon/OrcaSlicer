@@ -715,6 +715,9 @@ TEST_CASE("Belt printers never start a scarf seam below the layer", "[Print][bel
         { "seam_slope_type",            "external" },
         { "seam_slope_inner_walls",     1 },
         { "seam_slope_start_height",    0 },
+        // No z-hop: on a belt a lift is a move along the belt axis (0.4 mm / sin 45 = 0.57 mm)
+        // and its return would read as a back-step. The shipped belt profiles print without one.
+        { "z_hop",                      0 },
         { "machine_start_gcode",        "T[initial_tool]\n" },
         { "layer_change_gcode",         "G92 E0\n" },
     });

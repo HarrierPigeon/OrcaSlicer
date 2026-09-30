@@ -2922,7 +2922,11 @@ bool GCodeProcessor::check_multi_extruder_gcode_valid(const int                 
                     valid = false;
                 }
             }
-            if ( iter->second.max_print_z > plate_printable_height ) { //over height
+            // Belt printers: machine Z is belt travel, which grows without bound over a
+            // print, while printable_height is the clearance above the belt; the two are
+            // not comparable, so the over-height check is skipped, as the preview's
+            // ToolHeightOutside warning already is.
+            if ( !machine_frame_active && iter->second.max_print_z > plate_printable_height ) { //over height
                 m_result.gcode_check_result.error_code |= (1 << 3);
                 std::pair<int, int> filament_to_object_id;
                 filament_to_object_id.first  = iter->first;
@@ -2963,7 +2967,7 @@ bool GCodeProcessor::check_multi_extruder_gcode_valid(const int                 
                     }
 
                 // check printable height
-                if ((extruder_id < printable_heights.size()) && (iter->second.max_print_z > printable_heights[extruder_id])) {
+                if (!machine_frame_active && (extruder_id < printable_heights.size()) && (iter->second.max_print_z > printable_heights[extruder_id])) {
                     m_result.gcode_check_result.error_code |= (1 << 1);
                     std::pair<int, int> filament_to_object_id;
                     filament_to_object_id.first  = iter->first;
