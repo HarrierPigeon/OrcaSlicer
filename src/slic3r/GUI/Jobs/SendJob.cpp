@@ -1,4 +1,5 @@
 #include "SendJob.hpp"
+#include "libslic3r/LifecycleEvents.hpp"
 #include "slic3r/GUI/I18N.hpp"
 #include "slic3r/Utils/NetworkAgent.hpp"
 #include "libslic3r/MTUtils.hpp"
@@ -126,7 +127,7 @@ void SendJob::process(Ctl &ctl)
     if (m_is_check_mode) {
         PrintParams verify_params;
         verify_params.dev_ip           = m_dev_ip;
-        verify_params.username         = "bblp";
+        verify_params.username         = agent->default_lan_username();
         verify_params.password         = m_access_code;
         verify_params.use_ssl_for_ftp  = m_local_use_ssl_for_ftp;
         verify_params.use_ssl_for_mqtt = m_local_use_ssl;
@@ -147,6 +148,13 @@ void SendJob::process(Ctl &ctl)
             return;
         }
     }
+
+    LifecycleEventContext start_ctx;
+    start_ctx.name = m_project_name;
+    start_ctx.device_id = m_dev_id;
+    start_ctx.source = "send_job";
+    fire_lifecycle_event(LifecycleEvent::SendJobStarted, start_ctx);
+    m_lifecycle_started = true;
 
     int total_plate_num = m_plater->get_partplate_list().get_plate_count();
 
@@ -211,7 +219,7 @@ void SendJob::process(Ctl &ctl)
 
     // local print access
     params.dev_ip = m_dev_ip;
-    params.username = "bblp";
+    params.username = agent->default_lan_username();
     params.password = m_access_code;
     params.use_ssl_for_ftp = m_local_use_ssl_for_ftp;
     params.use_ssl_for_mqtt = m_local_use_ssl;
@@ -422,6 +430,19 @@ void SendJob::finalize(bool canceled, std::exception_ptr &eptr)
         eptr = nullptr;
     } catch (...) {
         eptr = std::current_exception();
+    }
+
+    if (m_lifecycle_started && !m_lifecycle_finished) {
+        LifecycleEventContext finish_ctx;
+        finish_ctx.name = m_project_name;
+        finish_ctx.device_id = m_dev_id;
+        finish_ctx.source = "send_job";
+        finish_ctx.code = canceled ? LifecycleEvtCode::Warn :
+            (eptr ? LifecycleEvtCode::Error : (m_job_finished ? LifecycleEvtCode::Ok : LifecycleEvtCode::Error));
+        finish_ctx.msg = canceled ? "cancelled" : (eptr ? "exception" :
+            (m_job_finished ? "" : "failed"));
+        fire_lifecycle_event(LifecycleEvent::SendJobFinished, finish_ctx);
+        m_lifecycle_finished = true;
     }
 
     if (canceled || eptr)
