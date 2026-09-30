@@ -4294,13 +4294,13 @@ void GCodeProcessor::process_tags(const std::string_view comment, bool producers
             return RemapAxis::PosX;
         };
         if (boost::starts_with(comment, " preslice_remap_x = ")) {
-            m_result.preslice_remap_x = parse_remap_axis(trim(std::string(comment.substr(25)))); return;
+            m_result.preslice_remap_x = parse_remap_axis(trim(std::string(comment.substr(20)))); return;
         }
         if (boost::starts_with(comment, " preslice_remap_y = ")) {
-            m_result.preslice_remap_y = parse_remap_axis(trim(std::string(comment.substr(25)))); return;
+            m_result.preslice_remap_y = parse_remap_axis(trim(std::string(comment.substr(20)))); return;
         }
         if (boost::starts_with(comment, " preslice_remap_z = ")) {
-            m_result.preslice_remap_z = parse_remap_axis(trim(std::string(comment.substr(25)))); return;
+            m_result.preslice_remap_z = parse_remap_axis(trim(std::string(comment.substr(20)))); return;
         }
     }
     // wipe start tag

@@ -23,6 +23,7 @@
 #include "test_utils.hpp"
 
 #include <algorithm>
+#include <limits>
 #include <fstream>
 #include <iterator>
 #include <memory>
@@ -687,4 +688,52 @@ TEST_CASE("Slicing errors are reported per object with the object's name", "[Pri
     }
     CHECK(message.rfind("floating cube: ", 0) == 0);
     CHECK(message.find("empty first layer") != std::string::npos);
+// A scarf joint starts one layer height below the layer and ramps up along the
+// wall. On a tilted belt that start is a step backwards along the belt axis, into
+// the previous layer's wall at the seam: 0.283 mm per 0.2 mm layer at 45 degrees.
+// With an aligned seam the nozzle rams the same spot on every layer (field report
+// from a BabyBelt Pro: the belt "jumped backwards" and knocked the part loose).
+// Belt printers therefore never get a scarf, whatever the process preset says.
+TEST_CASE("Belt printers never start a scarf seam below the layer", "[Print][belt][Seam]")
+{
+    DynamicPrintConfig config = DynamicPrintConfig::full_print_config();
+    config.set_deserialize_strict({
+        { "belt_printer",               1 },
+        { "belt_slice_rotation",        "x" },
+        { "belt_slice_rotation_angle",  45 },
+        { "belt_slice_rotation_global", 1 },
+        { "gcode_remap_x",              "rev_x" },
+        { "gcode_remap_y",              "pos_z" },
+        { "gcode_remap_z",              "pos_y" },
+        { "layer_height",               0.2 },
+        { "initial_layer_print_height", 0.2 },
+        { "skirt_loops",                0 },
+        { "top_shell_layers",           0 },
+        { "bottom_shell_layers",        1 },
+        { "wall_loops",                 2 },
+        { "seam_position",              "back" },
+        { "seam_slope_type",            "external" },
+        { "seam_slope_inner_walls",     1 },
+        { "seam_slope_start_height",    0 },
+        { "machine_start_gcode",        "T[initial_tool]\n" },
+        { "layer_change_gcode",         "G92 E0\n" },
+    });
+    const std::string gcode = slice({ cube(20) }, config);
+    REQUIRE(! gcode.empty());
+
+    // The belt axis is machine Z. Within a layer it only drifts by the frame
+    // coupling (well under 0.1 mm across a 20 mm cube); a scarf start is a full
+    // layer pitch (0.283 mm) backwards.
+    double last_z = std::numeric_limits<double>::lowest();
+    double worst_backstep = 0.;
+    GCodeReader parser;
+    parser.parse_buffer(gcode, [&](GCodeReader &, const GCodeReader::GCodeLine &line) {
+        if (! line.cmd_is("G1") || ! line.has_z())
+            return;
+        const double z = line.z();
+        if (last_z != std::numeric_limits<double>::lowest())
+            worst_backstep = std::max(worst_backstep, last_z - z);
+        last_z = z;
+    });
+    CHECK(worst_backstep < 0.2);
 }

@@ -15,7 +15,7 @@ namespace Slic3r {
 //
 // This is a seam for writer-generated movement only.  Start/end/custom G-code,
 // classic wipe-tower output and GCodeWriter::extrude_arc_to_xy() do NOT pass
-// through it; see doc in 09-orca-machinekinematics-split-plan.md section 6.
+// through it: they write machine coordinates directly.
 class MachineKinematics
 {
 public:

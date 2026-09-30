@@ -1063,7 +1063,7 @@ SCENARIO("Belt: start-gcode prepare-stage moves keep their real Z", "[GCode][bel
 
 // ---------------------------------------------------------------------------
 // Regression tests for the two latent bugs the MachineKinematics refactor
-// preserved deliberately (see 09b-latent-bug-fix-plan.md).
+// preserved deliberately and the follow-up commit fixed.
 // ---------------------------------------------------------------------------
 
 // Bug 1. _travel_to_z() emits full XYZ whenever the mapping must emit every

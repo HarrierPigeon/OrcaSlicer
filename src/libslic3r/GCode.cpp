@@ -7766,8 +7766,13 @@ std::string GCode::extrude_loop(const ExtrusionLoop&        loop_ref,
         loop.split_at(last_pos, false);
 
     const auto seam_scarf_type = m_config.seam_slope_type.value;
+    // Belt printers never get a scarf joint. The scarf starts one layer height
+    // below the layer, which on a tilted belt is a step backwards along the belt
+    // axis into the previous layer's wall at the seam (0.28 mm at 45 degrees per
+    // 0.2 mm layer); with an aligned seam that ram repeats at the same spot on
+    // every layer and knocks the part loose.
     bool enable_seam_slope = ((seam_scarf_type == SeamScarfType::External && !is_hole) || seam_scarf_type == SeamScarfType::All) &&
-        !m_config.spiral_mode &&
+        !m_config.spiral_mode && !m_config.belt_printer.value &&
         (loop.role() == erExternalPerimeter || (loop.role() == erPerimeter && m_config.seam_slope_inner_walls)) &&
         layer_id() > 0;
     const auto nozzle_diameter = EXTRUDER_CONFIG(nozzle_diameter);
