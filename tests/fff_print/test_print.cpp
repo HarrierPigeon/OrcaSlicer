@@ -688,6 +688,8 @@ TEST_CASE("Slicing errors are reported per object with the object's name", "[Pri
     }
     CHECK(message.rfind("floating cube: ", 0) == 0);
     CHECK(message.find("empty first layer") != std::string::npos);
+}
+
 // A scarf joint starts one layer height below the layer and ramps up along the
 // wall. On a tilted belt that start is a step backwards along the belt axis, into
 // the previous layer's wall at the seam: 0.283 mm per 0.2 mm layer at 45 degrees.
