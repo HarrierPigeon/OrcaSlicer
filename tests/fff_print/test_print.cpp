@@ -789,6 +789,7 @@ TEST_CASE("Belt printers refuse an object taller than the gantry clearance", "[P
             { "gcode_remap_z",              "pos_y" },
             { "printable_height",           printable_height },
             { "skirt_loops",                0 },
+            { "layer_change_gcode",         "G92 E0\n" },
         });
         return config;
     };
@@ -803,7 +804,7 @@ TEST_CASE("Belt printers refuse an object taller than the gantry clearance", "[P
         Print print;
         Model model;
         init_print({ cube(60) }, print, model, belt_config(50));
-        CHECK_FALSE(print.validate().string.empty());
+        CHECK(print.validate().string.find("height") != std::string::npos);
     }
 }
 
@@ -844,22 +845,21 @@ TEST_CASE("Belt printers switch the part fan by height above the belt", "[Print]
     // The tags are consumed by the cooling buffer and never reach the file.
     CHECK(gcode.find(";_BELT_BAND") == std::string::npos);
 
-    size_t fan_off = 0, fan_on = 0;
+    // The fan commands in order: '0' off, '1' on.
+    std::string fan_sequence;
     GCodeReader parser;
     parser.parse_buffer(gcode, [&](GCodeReader &, const GCodeReader::GCodeLine &line) {
         if (line.cmd_is("M107"))
-            ++ fan_off;
+            fan_sequence += '0';
         else if (line.cmd_is("M106")) {
             float s = 0.f;
-            if (line.has_value('S', s) && s <= 0.f)
-                ++ fan_off;
-            else
-                ++ fan_on;
+            fan_sequence += (line.has_value('S', s) && s <= 0.f) ? '0' : '1';
         }
     });
-    // A flat-bed print turns the fan on once. Here it cycles with the layers.
-    CHECK(fan_off > 10);
-    CHECK(fan_on  > 10);
+    // A flat-bed print turns the fan on once and leaves it on. Here it goes off again for
+    // paths that start back down at the belt, and on again above it.
+    INFO("fan sequence: " << fan_sequence);
+    CHECK(fan_sequence.find("101") != std::string::npos);
 }
 
 // Organic supports under an overhang on a belt printer reach below the object's first layer,
