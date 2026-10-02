@@ -1099,9 +1099,9 @@ void ConfigManipulation::toggle_print_fff_options(DynamicPrintConfig *config, in
             toggle_line(el, have_prime_tower && supports_wipe_tower_2 && !is_belt_printer);
 
     // Orca: both tower generators skip sparse layers, so this is not a wipe tower 2 exclusive.
-    toggle_line("wipe_tower_no_sparse_layers", have_prime_tower);
+    toggle_line("wipe_tower_no_sparse_layers", have_prime_tower && !is_belt_printer);
     // Dropping the sparse layers outright leaves nothing to combine, so the two are exclusive.
-    toggle_line("wipe_tower_sparse_layers_combination", have_prime_tower && !config->opt_bool("wipe_tower_no_sparse_layers"));
+    toggle_line("wipe_tower_sparse_layers_combination", have_prime_tower && !is_belt_printer && !config->opt_bool("wipe_tower_no_sparse_layers"));
 
     WipeTowerWallType wipe_tower_wall_type = config->opt_enum<WipeTowerWallType>("wipe_tower_wall_type");
     bool have_rib_wall = (wipe_tower_wall_type == WipeTowerWallType::wtwRib)&&have_prime_tower&&!is_belt_printer;
