@@ -1,3 +1,4 @@
+#include <limits>
 #include <catch2/catch_all.hpp>
 
 #include "libslic3r/Arrange.hpp"
@@ -256,6 +257,31 @@ TEST_CASE("Arrange aligns the pile to a custom center", "[Arrange]")
 
     for (const ArrangePolygon &ap : items)
         REQUIRE(ap.bed_idx == 0);
+    require_no_overlap(items);
+}
+
+// A belt printer starts its parts at the leading end of the belt (best_object_pos 0.5, 0.05).
+// Centring a pile on a point that close to the edge pushed everything longer than the room
+// around it off the bed: four 90 mm parts on a 95 x 500 mm belt ended with one across the
+// edge and one outside, with 290 mm of belt free behind them. The pile stops at the edge.
+TEST_CASE("Arrange keeps a pile aligned near an edge on the bed", "[Arrange]")
+{
+    const BoundingBox belt   = bed(95, 500);
+    ArrangePolygons   items  = squares(4, 90.);
+    ArrangeParams     params = quiet_params(scaled(2.));
+    params.align_center      = Vec2d(0.5, 0.05);
+
+    arrange(items, belt, params);
+
+    coord_t lowest = std::numeric_limits<coord_t>::max();
+    for (const ArrangePolygon &ap : items) {
+        REQUIRE(ap.bed_idx == 0);
+        const BoundingBox bb = ap.transformed_poly().contour.bounding_box();
+        CHECK(belt.contains(bb));
+        lowest = std::min(lowest, bb.min.y());
+    }
+    // Snapped to the edge it was aimed at, less the spacing margin, not re-centred.
+    CHECK(lowest < scaled(10.));
     require_no_overlap(items);
 }
 

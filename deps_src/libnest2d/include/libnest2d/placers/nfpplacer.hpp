@@ -1111,7 +1111,27 @@ private:
         default: ; // DONT_ALIGN
         }
 
-        auto d = cb - ci;       
+        auto d = cb - ci;
+
+        // Keep the pile on the bin. A target near an edge (a belt printer starts its parts
+        // at the leading end of the belt) would otherwise centre a pile that is larger than
+        // the room around that point on it and push part of the pile off the bed. The pile
+        // stops at the edge instead; the items' boxes carry their inflation, which is the
+        // margin left there. A pile that does not fit along an axis is centred on it.
+        {
+            auto on_bin = [](Coord lo, Coord hi, Coord bin_lo, Coord bin_hi, Coord shift) {
+                if (hi - lo >= bin_hi - bin_lo)
+                    return (bin_lo + bin_hi) / 2 - (lo + hi) / 2;
+                if (lo + shift < bin_lo)
+                    shift = bin_lo - lo;
+                if (hi + shift > bin_hi)
+                    shift = bin_hi - hi;
+                return shift;
+            };
+            setX(d, on_bin(getX(bb.minCorner()), getX(bb.maxCorner()), getX(bbin.minCorner()), getX(bbin.maxCorner()), getX(d)));
+            setY(d, on_bin(getY(bb.minCorner()), getY(bb.maxCorner()), getY(bbin.minCorner()), getY(bbin.maxCorner()), getY(d)));
+            cb = ci + d;
+        }
 
         // BBS make sure the item won't clash with excluded regions
         // do we have wipe tower after arranging?
