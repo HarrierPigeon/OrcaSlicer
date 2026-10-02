@@ -6305,8 +6305,10 @@ void TabPrinter::toggle_options()
         toggle_line("belt_slice_rotation", is_belt);
 
         // Remap, back-transform, and global mesh-transforms toggles are gated by belt
-        // mode here; finer mode-based visibility (Advanced vs Expert) is handled by
-        // each option's ConfigOptionMode in PrintConfig.cpp.
+        // mode here; finer mode-based visibility is handled by each option's
+        // ConfigOptionMode in PrintConfig.cpp. Both axis remaps are Develop-only: a
+        // printer profile sets them once for its kinematics, and a wrong value sends
+        // the gantry outside the machine.
         for (auto el : {"preslice_remap_x", "gcode_remap_x", "gcode_back_transform"})
             toggle_line(el, is_belt);
         toggle_line("belt_preslice_global", is_belt);

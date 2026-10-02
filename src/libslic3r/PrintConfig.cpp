@@ -374,8 +374,6 @@ CONFIG_OPTION_ENUM_DEFINE_STATIC_MAPS(RemapAxis)
 static t_config_enum_values s_keys_map_BeltSupportFloorMode {
     { "none",           int(BeltSupportFloorMode::None) },
     { "generator_only", int(BeltSupportFloorMode::GeneratorOnly) },
-    { "clip_only",      int(BeltSupportFloorMode::ClipOnly) },
-    { "both",           int(BeltSupportFloorMode::Both) },
 };
 CONFIG_OPTION_ENUM_DEFINE_STATIC_MAPS(BeltSupportFloorMode)
 
@@ -7419,19 +7417,19 @@ void PrintConfigDef::init_fff_params()
         "your belt printer's physical bed plane. For a printer whose bed is in the XZ plane, "
         "set Y to +Z and Z to +Y (or -Y) to swap the vertical and belt-travel axes. "
         "Default +X: no change.",
-        RemapAxis::PosX, comExpert);
+        RemapAxis::PosX, comDevelop);
     add_belt_remap("preslice_remap_y", "Y",
         "Before slicing, which model-space axis becomes the slicer's Y axis. "
         "The slicer treats Y as one of the two horizontal bed axes. If your physical "
         "belt surface runs along the Z axis, map Y to +Z here so the slicer slices "
         "along the correct plane. Default +Y: no change.",
-        RemapAxis::PosY, comExpert);
+        RemapAxis::PosY, comDevelop);
     add_belt_remap("preslice_remap_z", "Z",
         "Before slicing, which model-space axis becomes the slicer's Z axis (layer stacking direction). "
         "The slicer builds layers upward along this axis. If your printer's layer-stacking "
         "direction is the physical Y axis, map Z to +Y (or -Y for inverted direction). "
         "Rev mode mirrors relative to the build volume maximum. Default +Z: no change.",
-        RemapAxis::PosZ, comExpert);
+        RemapAxis::PosZ, comDevelop);
 
     def = this->add("preslice_remap_global", coBool);
     def->label = L("Global");
@@ -7440,12 +7438,12 @@ void PrintConfigDef::init_fff_params()
                       "Without this, the remap is applied locally around each object's center, so "
                       "objects at different positions don't get a position-dependent contribution. "
                       "Mirrors the 'Global' option on the belt slicing rotation, but for the remap.");
-    def->mode = comExpert;
+    def->mode = comDevelop;
     def->set_default_value(new ConfigOptionBool(false));
 
-    add_belt_remap("gcode_remap_x", "X", "Which slicing axis maps to machine X in G-code output. Applied AFTER slicing, during G-code generation.", RemapAxis::PosX, comExpert);
-    add_belt_remap("gcode_remap_y", "Y", "Which slicing axis maps to machine Y in G-code output. Applied AFTER slicing, during G-code generation.", RemapAxis::PosY, comExpert);
-    add_belt_remap("gcode_remap_z", "Z", "Which slicing axis maps to machine Z in G-code output. Applied AFTER slicing, during G-code generation.", RemapAxis::PosZ, comExpert);
+    add_belt_remap("gcode_remap_x", "X", "Which slicing axis maps to machine X in G-code output. Applied AFTER slicing, during G-code generation.", RemapAxis::PosX, comDevelop);
+    add_belt_remap("gcode_remap_y", "Y", "Which slicing axis maps to machine Y in G-code output. Applied AFTER slicing, during G-code generation.", RemapAxis::PosY, comDevelop);
+    add_belt_remap("gcode_remap_z", "Z", "Which slicing axis maps to machine Z in G-code output. Applied AFTER slicing, during G-code generation.", RemapAxis::PosZ, comDevelop);
 
     // The machine-frame G-code transform (shear + scale) is no longer configured
     // by per-axis keys: it is derived from the belt tilt (belt_slice_rotation axis
@@ -9492,6 +9490,9 @@ void PrintConfigDef::handle_legacy(t_config_option_key &opt_key, std::string &va
     //BBS: handle legacy options
     if (opt_key == "curr_bed_type" && value == "SuperTack Plate") {
         value = "Supertack Plate";
+    } else if (opt_key == "belt_support_floor_mode" && (value == "clip_only" || value == "both")) {
+        // Never implemented; both behaved like "none".
+        value = "none";
     } else if (opt_key == "enable_wipe_tower") {
         opt_key = "enable_prime_tower";
     } else if (opt_key == "wipe_tower_width") {

@@ -10,7 +10,6 @@ namespace Slic3r {
 
 class GCode;
 class Layer;
-class FirstLayerPlane;
 struct PerExtruderAdjustments;
 
 // A standalone G-code filter, to control cooling of the print.
@@ -37,13 +36,10 @@ private:
     // Returns the adjusted G-code.
     std::string apply_layer_cooldown(const std::string &gcode, size_t layer_id, float layer_time, std::vector<PerExtruderAdjustments> &per_extruder_adjustments);
 
-    // First-layer plane: per-line fan re-evaluation post-pass.  Walks the
-    // post-cooldown gcode, tracks XYZ position, and inserts M106 commands at
-    // band-crossing transitions in slicing-frame coordinates.  Only runs
-    // when m_first_layer_plane is active.
-    std::string apply_first_layer_plane_fan_eval(std::string &&gcode_in,
-                                                  size_t        layer_id,
-                                                  float         layer_time);
+    // Belt printers: turn the ";_BELT_BAND:<n>" tags GCode::_extrude() leaves in the
+    // layer's G-code into part-fan changes, so the fan follows a path's height above the
+    // belt rather than the slicing layer index, and strip the tags.
+    std::string apply_belt_band_fan(std::string &&gcode_in, float layer_time, unsigned int extruder_at_start);
 
     // Pure helper: compute the main fan speed for a given effective layer
     // index (layer-id units, mapped through the plane evaluator) and the
@@ -74,9 +70,10 @@ private:
     unsigned int                m_current_nozzle;
     //BBS: current fan speed
     int                         m_current_fan_speed;
-    // First-layer plane evaluator, borrowed from GCode.  Null = inactive
-    // (legacy per-layer fan control).
-    const FirstLayerPlane      *m_first_layer_plane = nullptr;
+    // Belt band pass state, kept across layers. The part fan as this pass last saw or set
+    // it (percent, -1 unknown), and the last value the layer-level cooling asked for.
+    int                         m_belt_band_fan       = -1;
+    int                         m_belt_band_layer_fan = -1;
 };
 
 }

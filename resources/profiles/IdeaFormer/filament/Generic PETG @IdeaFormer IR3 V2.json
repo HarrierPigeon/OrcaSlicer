@@ -104,9 +104,6 @@
 	"filament_deretraction_speed": [
 		"40"
 	],
-	"filament_z_hop": [
-		"0.4"
-	],
 	"filament_start_gcode": [
 		"; Generic PETG @IdeaFormer IR3 V2 — belt PETG, bed 80C"
 	]

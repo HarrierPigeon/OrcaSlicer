@@ -4,7 +4,6 @@
 #include "Print.hpp"
 #include "BeltTransform.hpp"
 
-#include <thread>
 #include "BoundingBox.hpp"
 #include "ClipperUtils.hpp"
 #include "Clipper2Utils.hpp"
@@ -460,15 +459,11 @@ std::vector<std::set<int>> PrintObject::detect_extruder_geometric_unprintables()
 // 3) Generates perimeters, gap fills and fill regions (fill regions of type stInternal).
 void PrintObject::make_perimeters()
 {
-    BOOST_LOG_TRIVIAL(trace) << "[BELTRACE] make_perimeters request tid=" << std::this_thread::get_id() << " obj=" << this;
     // prerequisites
     this->slice();
 
-    if (! this->set_started(posPerimeters)) {
-        BOOST_LOG_TRIVIAL(trace) << "[BELTRACE] make_perimeters SKIP tid=" << std::this_thread::get_id() << " obj=" << this << " (already started/done)";
+    if (! this->set_started(posPerimeters))
         return;
-    }
-    BOOST_LOG_TRIVIAL(trace) << "[BELTRACE] make_perimeters ENTER tid=" << std::this_thread::get_id() << " obj=" << this;
 
     m_print->set_status(15, L("Generating walls"));
     BOOST_LOG_TRIVIAL(info) << "Generating walls..." << log_memory_info();
@@ -566,7 +561,6 @@ void PrintObject::make_perimeters()
     m_print->throw_if_canceled();
     BOOST_LOG_TRIVIAL(debug) << "Generating perimeters in parallel - end";
 
-    BOOST_LOG_TRIVIAL(trace) << "[BELTRACE] make_perimeters EXIT tid=" << std::this_thread::get_id() << " obj=" << this;
     this->set_done(posPerimeters);
 }
 
@@ -955,9 +949,7 @@ void PrintObject::detect_overhangs_for_lift()
 
 void PrintObject::generate_support_material()
 {
-    BOOST_LOG_TRIVIAL(trace) << "[BELTRACE] generate_support_material request tid=" << std::this_thread::get_id() << " obj=" << this;
     if (this->set_started(posSupportMaterial)) {
-        BOOST_LOG_TRIVIAL(trace) << "[BELTRACE] generate_support_material ENTER tid=" << std::this_thread::get_id() << " obj=" << this;
         this->clear_support_layers();
 
         if(!has_support() && !m_print->get_no_check_flag()) {
@@ -1005,10 +997,7 @@ void PrintObject::generate_support_material()
         // posSupportMaterial, so this needs no extra invalidation edges.
         make_belt_brim(*this);
         m_print->throw_if_canceled();
-        BOOST_LOG_TRIVIAL(trace) << "[BELTRACE] generate_support_material EXIT tid=" << std::this_thread::get_id() << " obj=" << this;
         this->set_done(posSupportMaterial);
-    } else {
-        BOOST_LOG_TRIVIAL(trace) << "[BELTRACE] generate_support_material SKIP tid=" << std::this_thread::get_id() << " obj=" << this << " (already started/done)";
     }
 }
 
@@ -1209,6 +1198,10 @@ bool PrintObject::has_belt_brim() const
 {
     if (! m_print->has_tilted_belt())
         return false;
+    // The purge prism is sacrificial and sits at the plate's edge; its generator sets no_brim, and
+    // this keeps it brimless whatever its config says, so a brim on the parts never blocks purging.
+    if (m_config.belt_purge_tower_object.value)
+        return false;
     if (! this->belt_brim_instances_compatible())
         return false;
     if (m_config.brim_type == btNoBrim)
@@ -1256,7 +1249,9 @@ bool PrintObject::belt_brim_instances_compatible() const
     // matters for configurations that do not.
     if (m_instances.size() <= 1)
         return true;
-    const int    axis = m_slicing_params.belt_floor_from_axis;
+    // From the config, not m_slicing_params: this runs while those can be stale. A tilt
+    // about Y runs the belt along X, any other tilt along Y (see compute_belt_height_and_floor).
+    const int    axis = m_print->config().belt_slice_rotation.value == BeltRotationAxis::Y ? 0 : 1;
     const Point &ref  = m_instances.front().shift;
     for (const PrintInstance &inst : m_instances) {
         const coord_t along = axis == 0 ? inst.shift.x() - ref.x() : inst.shift.y() - ref.y();
@@ -4695,67 +4690,6 @@ void PrintObject::combine_infill()
             }
         }
     }
-}
-
-// Belt printer: clip an ExtrusionEntityCollection to a region defined by clip_expoly.
-// Handles ExtrusionPath, ExtrusionMultiPath, ExtrusionLoop, and nested ExtrusionEntityCollection.
-static void clip_support_fills(ExtrusionEntityCollection &fills, const ExPolygons &clip_region)
-{
-    ExtrusionEntitiesPtr new_entities;
-    for (ExtrusionEntity *entity : fills.entities) {
-        if (auto *path = dynamic_cast<ExtrusionPath *>(entity)) {
-            ExtrusionEntityCollection clipped;
-            path->intersect_expolygons(clip_region, &clipped);
-            if (!clipped.empty()) {
-                for (ExtrusionEntity *e : clipped.entities)
-                    new_entities.push_back(e->clone());
-            }
-            delete entity;
-        } else if (auto *multipath = dynamic_cast<ExtrusionMultiPath *>(entity)) {
-            ExtrusionPaths new_paths;
-            for (const ExtrusionPath &p : multipath->paths) {
-                ExtrusionEntityCollection clipped;
-                p.intersect_expolygons(clip_region, &clipped);
-                for (ExtrusionEntity *e : clipped.entities)
-                    if (auto *cp = dynamic_cast<ExtrusionPath *>(e))
-                        new_paths.push_back(std::move(*cp));
-            }
-            if (!new_paths.empty()) {
-                multipath->paths = std::move(new_paths);
-                new_entities.push_back(multipath);
-            } else {
-                delete entity;
-            }
-        } else if (auto *loop = dynamic_cast<ExtrusionLoop *>(entity)) {
-            ExtrusionPaths new_paths;
-            for (const ExtrusionPath &p : loop->paths) {
-                ExtrusionEntityCollection clipped;
-                p.intersect_expolygons(clip_region, &clipped);
-                for (ExtrusionEntity *e : clipped.entities)
-                    if (auto *cp = dynamic_cast<ExtrusionPath *>(e))
-                        new_paths.push_back(std::move(*cp));
-            }
-            if (!new_paths.empty()) {
-                // Loop is no longer a closed loop after clipping; emit as individual paths.
-                for (auto &p : new_paths)
-                    new_entities.push_back(new ExtrusionPath(std::move(p)));
-                delete entity;
-            } else {
-                delete entity;
-            }
-        } else if (auto *coll = dynamic_cast<ExtrusionEntityCollection *>(entity)) {
-            clip_support_fills(*coll, clip_region);
-            if (!coll->empty()) {
-                new_entities.push_back(coll);
-            } else {
-                delete entity;
-            }
-        } else {
-            // Unknown entity type — keep as-is.
-            new_entities.push_back(entity);
-        }
-    }
-    fills.entities = std::move(new_entities);
 }
 
 void PrintObject::_generate_support_material()

@@ -2,6 +2,7 @@
 #define slic3r_GCode_hpp_
 
 #include "libslic3r.h"
+#include <limits>
 #include "ExPolygon.hpp"
 #include "GCodeWriter.hpp"
 #include "GCode/BeltKinematics.hpp"
@@ -654,9 +655,21 @@ protected:
     };
 
     // Cache the per-filament island tour to avoid recomputing while the layer's island layout is
-    // unchanged. Key: filament_id. Value: {nodes the tour was computed from, resulting visits}.
-    std::map<unsigned int, std::pair<std::vector<IslandOrderNode>, std::vector<InstanceVisit>>>
-                                        m_ordering_cache;
+    // unchanged. Key: filament_id. Value: the nodes the tour was computed from, the per-instance
+    // island layout (count and whether the trailing catch-all island has anything to print), and
+    // the resulting visits.
+    // The layout is part of the key. Nodes only cover the chainable islands, so two
+    // layers with the same centroids but a different number of islands (thin walls, negative
+    // volumes come and go) matched the cache and the visit's catch-all index -- islands.size() - 1
+    // of the OLD layer -- ran past the new layer's islands (found by fuzzing: segfault in
+    // extrude_perimeters on multi-part objects).
+    struct IslandOrderCacheEntry
+    {
+        std::vector<IslandOrderNode>         nodes;
+        std::vector<std::pair<size_t, bool>> layout;
+        std::vector<InstanceVisit>           visits;
+    };
+    std::map<unsigned int, IslandOrderCacheEntry> m_ordering_cache;
 
     ExtrusionQualityEstimator m_extrusion_quality_estimator;
 
@@ -854,9 +867,6 @@ protected:
     // _extrude() needs for the first-layer-plane probe is published here instead.
     // Scoped by BeltBrimZGuard in process_belt_brim_layer(), never left set.
     std::optional<coordf_t> m_belt_brim_z;
-    // Counter standing in for Layer::id() on apron layers, which precede layer 0.
-    size_t m_belt_brim_layer_idx{0};
-
     // Belt brim only.  Brim and coincident apron bands are emitted before m_layer
     // is switched to their object, so belt_height_above_floor() would otherwise
     // read the previously visited object's belt description -- making a brim's
@@ -868,6 +878,10 @@ protected:
         BeltFloorObjectGuard(const PrintObject *&s, const PrintObject *o) : slot(s) { slot = o; }
         ~BeltFloorObjectGuard() { slot = nullptr; }
     };
+
+    // Last ";_BELT_BAND" tag written and the layer it was written on (see _extrude()).
+    int m_belt_band_tag{std::numeric_limits<int>::min()};
+    int m_belt_band_tag_layer{std::numeric_limits<int>::min()};
 
     std::set<unsigned int>                  m_initial_layer_extruders;
     std::vector<std::vector<unsigned int>>  m_sorted_layer_filaments;

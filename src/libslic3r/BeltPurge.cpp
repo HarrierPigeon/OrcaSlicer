@@ -128,10 +128,6 @@ void Print::_align_belt_purge_layers()
             delta += h;
         po->belt_shift_layer_grid(delta); // no-op for the reference object (delta ~ 0)
     }
-
-    BOOST_LOG_TRIVIAL(debug) << "[BELT-DEBUG] purge grid align: snapped " << m_objects.size()
-        << " objects onto ref grid offset=" << ref_offset
-        << " (ref=" << ref->model_object()->name << ")";
 }
 
 // Belt mode replacement for _make_wipe_tower(): plan filament-change purging
@@ -165,9 +161,18 @@ void Print::_plan_belt_purge()
     if (m_wipe_tower_data.tool_ordering.empty() || m_wipe_tower_data.tool_ordering.last_extruder() == unsigned(-1))
         throw Slic3r::SlicingError("The print is empty. The model is not printable with current print settings.");
 
-    if (!m_wipe_tower_data.tool_ordering.has_wipe_tower())
-        // No toolchanges anywhere, nothing to purge.
-        return;
+    // Is there any filament change at all? Not ToolOrdering::has_wipe_tower(): that reads the
+    // FIRST layer's flag, and on a belt the first layer may be a brim apron band, which carries
+    // neither object nor support and so never gets the flag even when the print changes filament.
+    {
+        bool         any_change = false;
+        unsigned int cur        = m_wipe_tower_data.tool_ordering.first_extruder();
+        for (const auto &lt : m_wipe_tower_data.tool_ordering.layer_tools())
+            for (const unsigned int e : lt.extruders)
+                if (e != cur) { any_change = true; cur = e; }
+        if (! any_change)
+            return;
+    }
 
     this->throw_if_canceled();
 
@@ -237,21 +242,11 @@ void Print::_plan_belt_purge()
                 }
     }
 
-    // Diagnostic: the prism only absorbs purge at toolchange layers whose
-    // print_z coincides with one of its own layers. Compare the prism's layer
-    // print_z range to the toolchange print_z range and count how many
-    // toolchange layers actually land on a prism layer. This distinguishes a
-    // range/grid-alignment failure (no coverage) from a capacity shortfall
-    // (covered but not enough cross-section).
+    // The prism only absorbs purge at toolchange layers whose print_z coincides
+    // with one of its own layers.
     PrintObject *prism_po = nullptr;
     for (PrintObject *po : m_objects)
         if (po->config().belt_purge_tower_object.value && !po->layers().empty()) { prism_po = po; break; }
-    const PrintObject *diag_prism = prism_po;
-    if (diag_prism != nullptr)
-        BOOST_LOG_TRIVIAL(warning) << "[BELT-DEBUG] purge prism layer range print_z=["
-            << diag_prism->layers().front()->print_z << ", " << diag_prism->layers().back()->print_z
-            << "] nlayers=" << diag_prism->layers().size();
-    int tc_layers = 0, tc_layers_covered = 0;
 
     float  total_leftover      = 0.f;
     float  worst_layer_leftover = 0.f;
@@ -260,26 +255,14 @@ void Print::_plan_belt_purge()
     unsigned int current_extruder_id = m_wipe_tower_data.tool_ordering.first_extruder();
     for (auto &layer_tools : m_wipe_tower_data.tool_ordering.layer_tools()) {
         float layer_leftover = 0.f;
-        bool  layer_has_tc   = false;
         for (const unsigned int extruder_id : layer_tools.extruders) {
             if (extruder_id == current_extruder_id)
                 continue;
-            if (!layer_has_tc) {
-                layer_has_tc = true;
-                ++tc_layers;
-                if (diag_prism != nullptr && diag_prism->get_layer_at_printz(layer_tools.print_z, EPSILON) != nullptr)
-                    ++tc_layers_covered;
-            }
             float volume_to_wipe = use_flush_matrix ?
                 wipe_volumes[current_extruder_id][extruder_id] * flush_multiplier :
                 (float) m_config.prime_volume;
             float leftover = layer_tools.wiping_extrusions().mark_wiping_extrusions(*this, current_extruder_id, extruder_id,
                                                                                     volume_to_wipe);
-            BOOST_LOG_TRIVIAL(trace) << "[BELT-DEBUG] purge toolchange print_z=" << layer_tools.print_z
-                << " filament " << current_extruder_id << "->" << extruder_id
-                << " requested=" << volume_to_wipe
-                << " absorbed=" << volume_to_wipe - leftover
-                << " leftover=" << leftover;
             layer_leftover += leftover;
             current_extruder_id = extruder_id;
         }
@@ -314,11 +297,6 @@ void Print::_plan_belt_purge()
         this->throw_if_canceled();
     }
 
-    BOOST_LOG_TRIVIAL(warning) << "[BELT-DEBUG] purge coverage: " << tc_layers_covered << "/" << tc_layers
-        << " toolchange layers land on a prism layer"
-        << (tc_layers > 0 && tc_layers_covered == 0 ? " (RANGE/GRID MISALIGNMENT — prism absorbs nothing)" :
-            tc_layers_covered < tc_layers ? " (partial coverage)" : " (full coverage)");
-
     if (total_leftover > 1.f) {
         this->active_step_add_warning(
             PrintStateBase::WarningLevel::CRITICAL,
@@ -327,8 +305,6 @@ void Print::_plan_belt_purge()
                                 "Increase the belt purge tower width, or reduce flushing volumes."),
                            int(std::ceil(total_leftover)), int(std::ceil(worst_layer_leftover)),
                            Slic3r::float_to_string_decimal_point(worst_layer_z, 2)));
-        BOOST_LOG_TRIVIAL(warning) << "[BELT-DEBUG] purge planning leftover total=" << total_leftover
-            << " worst_layer=" << worst_layer_leftover << " at print_z=" << worst_layer_z;
     }
 }
 
@@ -347,10 +323,6 @@ void PrintObject::belt_shift_layer_grid(double delta)
     for (SupportLayer *layer : m_support_layers)
         layer->print_z += delta;
     m_slicing_params.belt_floor_z_shift += delta;
-    BOOST_LOG_TRIVIAL(trace) << "[BELT-DEBUG] belt_shift_layer_grid"
-        << " obj=" << this->model_object()->name
-        << " delta=" << delta
-        << " first_layer.print_z=" << (m_layers.empty() ? 0. : m_layers.front()->print_z);
 }
 
 // Belt mode: drop layers strictly above z (used to cancel the purge prism early
@@ -373,9 +345,6 @@ size_t PrintObject::belt_truncate_layers_above(coordf_t z)
     m_layers.resize(keep);
     if (!m_layers.empty())
         m_layers.back()->upper_layer = nullptr;
-    BOOST_LOG_TRIVIAL(debug) << "[BELT-DEBUG] truncate purge prism above print_z=" << z
-        << " kept=" << keep << " removed=" << removed
-        << " new_top=" << (m_layers.empty() ? 0. : m_layers.back()->print_z);
     return removed;
 }
 

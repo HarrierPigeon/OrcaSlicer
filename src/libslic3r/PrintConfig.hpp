@@ -278,8 +278,6 @@ enum class BeltSupportFloorMode
 {
     None,           // No belt floor awareness
     GeneratorOnly,  // Only in tree support drop_nodes/contact_points
-    ClipOnly,       // Only post-processing clipping
-    Both,           // Both generator and clipping
 };
 
 enum class BeltSupportZOffsetMode

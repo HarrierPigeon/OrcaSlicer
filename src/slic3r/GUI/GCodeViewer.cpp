@@ -1482,8 +1482,6 @@ void GCodeViewer::load_as_gcode(const GCodeProcessorResult& gcode_result, const 
             // translation, which this min-corner step recovers.
             const Vec3d d = model_bb.min - tp_bb.min;
             belt_inv = Transform3d(Eigen::Translation3d(d)) * belt_inv;
-            BOOST_LOG_TRIVIAL(debug) << "[BELT-PREVIEW] anchor d=[" << d.x() << "," << d.y() << "," << d.z()
-                << "] (clip kept " << n_clip << "/" << n_filtered << " moves)";
         }
     }
     libvgcode::GCodeInputData data = libvgcode::convert(gcode_result, str_tool_colors, str_color_print_colors, m_viewer,

@@ -471,6 +471,36 @@ TEST_CASE("Belt purge planning requires its managed purge object", "[Print][Purg
     CHECK_FALSE(print.has_wipe_tower());
 }
 
+// The GUI creates the purge tower object; a project sliced without one (the CLI) must say
+// that its filament changes go unpurged.
+TEST_CASE("Belt purge tower enabled without a tower object warns", "[Print][PurgeTower][belt]")
+{
+    DynamicPrintConfig config = multifilament_config(2, {
+        { "belt_printer",            1 },
+        { "enable_belt_purge_tower", 1 },
+        { "layer_change_gcode",      "G92 E0\n" }
+    });
+    auto purge_warnings = [](Print &print) {
+        std::vector<StringObjectException> warnings;
+        print.validate(&warnings);
+        return std::count_if(warnings.begin(), warnings.end(), [](const StringObjectException &w) {
+            return w.opt_key == "enable_belt_purge_tower";
+        });
+    };
+
+    Model model;
+    Print print;
+    build_cubes(model, print, config, /*n=*/2, /*overlap=*/false);
+    model.objects[1]->config.set_key_value("extruder", new ConfigOptionInt(2));
+    print.apply(model, config);
+    REQUIRE(print.extruders().size() > 1);
+    CHECK(purge_warnings(print) == 1);
+
+    model.objects.front()->config.set_key_value("belt_purge_tower_object", new ConfigOptionBool(true));
+    print.apply(model, config);
+    CHECK(purge_warnings(print) == 0);
+}
+
 TEST_CASE("Belt purge rejects multiple managed purge objects", "[Print][PurgeTower][Regression]")
 {
     DynamicPrintConfig config = multifilament_config(2, {
@@ -741,4 +771,122 @@ TEST_CASE("Belt printers never start a scarf seam below the layer", "[Print][bel
         last_z = z;
     });
     CHECK(worst_backstep < 0.2);
+}
+
+// printable_height on a belt printer is the clearance under the gantry, so an object taller
+// than that is refused whatever the machine-frame transform does to the emitted coordinates.
+TEST_CASE("Belt printers refuse an object taller than the gantry clearance", "[Print][belt]")
+{
+    auto belt_config = [](double printable_height) {
+        DynamicPrintConfig config = DynamicPrintConfig::full_print_config();
+        config.set_deserialize_strict({
+            { "belt_printer",               1 },
+            { "belt_slice_rotation",        "x" },
+            { "belt_slice_rotation_angle",  45 },
+            { "belt_slice_rotation_global", 1 },
+            { "gcode_remap_x",              "rev_x" },
+            { "gcode_remap_y",              "pos_z" },
+            { "gcode_remap_z",              "pos_y" },
+            { "printable_height",           printable_height },
+            { "skirt_loops",                0 },
+        });
+        return config;
+    };
+
+    SECTION("a 20 mm cube fits under 50 mm of clearance") {
+        Print print;
+        Model model;
+        init_print({ cube(20) }, print, model, belt_config(50));
+        CHECK(print.validate().string.empty());
+    }
+    SECTION("a 60 mm cube does not") {
+        Print print;
+        Model model;
+        init_print({ cube(60) }, print, model, belt_config(50));
+        CHECK_FALSE(print.validate().string.empty());
+    }
+}
+
+// On a belt every tilted layer starts on the belt, so "first layer" cooling is a band along
+// the belt, not the first slicing layers: the part fan goes off for the paths that start
+// within a layer height of the belt and back on above it, on every layer. The G-code is in
+// machine coordinates, so the generator tags the band changes and the cooling buffer
+// applies them; before that the buffer compared machine-frame moves with a slicing-frame
+// plane and never switched the fan at all.
+TEST_CASE("Belt printers switch the part fan by height above the belt", "[Print][belt][Cooling]")
+{
+    DynamicPrintConfig config = DynamicPrintConfig::full_print_config();
+    config.set_deserialize_strict({
+        { "belt_printer",                 1 },
+        { "belt_slice_rotation",          "x" },
+        { "belt_slice_rotation_angle",    45 },
+        { "belt_slice_rotation_global",   1 },
+        { "gcode_remap_x",                "rev_x" },
+        { "gcode_remap_y",                "pos_z" },
+        { "gcode_remap_z",                "pos_y" },
+        { "layer_height",                 0.2 },
+        { "initial_layer_print_height",   0.2 },
+        { "skirt_loops",                  0 },
+        { "z_hop",                        0 },
+        { "close_fan_the_first_x_layers", 1 },
+        { "full_fan_speed_layer",         0 },
+        { "fan_min_speed",                100 },
+        { "fan_max_speed",                100 },
+        { "slow_down_layer_time",         1000 },
+        { "fan_cooling_layer_time",       1001 },
+        { "reduce_fan_stop_start_freq",   0 },
+        { "machine_start_gcode",          "T[initial_tool]\n" },
+        { "layer_change_gcode",           "G92 E0\n" },
+    });
+    const std::string gcode = slice({ cube(20) }, config);
+    REQUIRE(! gcode.empty());
+
+    // The tags are consumed by the cooling buffer and never reach the file.
+    CHECK(gcode.find(";_BELT_BAND") == std::string::npos);
+
+    size_t fan_off = 0, fan_on = 0;
+    GCodeReader parser;
+    parser.parse_buffer(gcode, [&](GCodeReader &, const GCodeReader::GCodeLine &line) {
+        if (line.cmd_is("M107"))
+            ++ fan_off;
+        else if (line.cmd_is("M106")) {
+            float s = 0.f;
+            if (line.has_value('S', s) && s <= 0.f)
+                ++ fan_off;
+            else
+                ++ fan_on;
+        }
+    });
+    // A flat-bed print turns the fan on once. Here it cycles with the layers.
+    CHECK(fan_off > 10);
+    CHECK(fan_on  > 10);
+}
+
+// Organic supports under an overhang on a belt printer reach below the object's first layer,
+// where the virtual belt raft layers sit at negative Z. The lowest of them used to get a
+// negative height and abort slicing with a negative flow error.
+TEST_CASE("Belt printers slice organic tree supports that reach the belt", "[Print][belt][Support]")
+{
+    DynamicPrintConfig config = DynamicPrintConfig::full_print_config();
+    config.set_deserialize_strict({
+        { "belt_printer",               1 },
+        { "belt_slice_rotation",        "x" },
+        { "belt_slice_rotation_angle",  45 },
+        { "belt_slice_rotation_global", 1 },
+        { "gcode_remap_x",              "rev_x" },
+        { "gcode_remap_y",              "pos_z" },
+        { "gcode_remap_z",              "pos_y" },
+        { "layer_height",               0.2 },
+        { "initial_layer_print_height", 0.2 },
+        { "skirt_loops",                0 },
+        { "z_hop",                      0 },
+        { "enable_support",             1 },
+        { "support_type",               "tree(auto)" },
+        { "support_style",              "organic" },
+        { "machine_start_gcode",        "T[initial_tool]\n" },
+        { "layer_change_gcode",         "G92 E0\n" },
+    });
+    std::string gcode;
+    REQUIRE_NOTHROW(gcode = slice({ TestMesh::overhang }, config));
+    CHECK(! gcode.empty());
 }

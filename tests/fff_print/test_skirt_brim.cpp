@@ -15,6 +15,7 @@
 #include <limits>
 #include <map>
 #include <set>
+#include <sstream>
 #include <string>
 
 #include "test_helpers.hpp" // get access to init_print, etc
@@ -919,12 +920,15 @@ TEST_CASE("Belt inner-only leading brim does not reject the prime tower or spira
         CHECK_FALSE(print.objects().front()->has_belt_brim());
         CHECK(print.validate().string.empty());
     }
-    SECTION("a real inner brim still rejects the prime tower") {
+    // enable_prime_tower stays on for any multi-filament project, but a belt printer never
+    // prints the classic tower, so the setting alone must not cost the print its brim.
+    SECTION("a real inner brim is accepted with the prime tower setting on") {
         Print print;
         Model model;
         init_inner_leading_with_prime_tower(print, model, 4);
         CHECK(print.objects().front()->has_belt_brim());
-        CHECK_FALSE(print.validate().string.empty());
+        CHECK(print.validate().string.empty());
+        CHECK_FALSE(gcode(print).empty());
     }
 }
 
@@ -1191,4 +1195,61 @@ TEST_CASE("Belt brim coexists with support material", "[SkirtBrim][belt]")
     const std::string gc = slice({ TestMesh::overhang }, config);
     REQUIRE(! gc.empty());
     CHECK(role_passes(gc, "brim") > 0);
+}
+
+// With a 0.3 mm first layer at 45 degrees the brim band on the belt is wider than one bead,
+// so its lines go on the nominal lattice instead of at a fixed fraction of the band. A
+// lattice line can then land where the belt is almost at the band's print_z; it must be
+// moved uphill to the same 0.75 fraction the single-line case uses, not laid scraping the
+// belt with its flow clamped to half a layer.
+TEST_CASE("Belt brim lattice lines keep their clearance above the belt", "[SkirtBrim][belt]")
+{
+    DynamicPrintConfig config = belt_brim_config();
+    config.set_deserialize_strict({
+        { "layer_height",               0.3 },
+        { "initial_layer_print_height", 0.3 },
+        { "brim_type",                  "outer_only" },
+        { "brim_width",                 4 },
+        { "brim_object_gap",            0 },
+    });
+    const std::string gcode = slice({ cube(20) }, config);
+
+    // Heights of the brim extrusions, from the ;HEIGHT: tags inside ;TYPE:Brim sections.
+    std::vector<double> brim_heights;
+    bool                in_brim = false;
+    std::istringstream  lines(gcode);
+    for (std::string line; std::getline(lines, line); ) {
+        if (boost::starts_with(line, ";TYPE:"))
+            in_brim = boost::starts_with(line, ";TYPE:Brim");
+        else if (in_brim && boost::starts_with(line, ";HEIGHT:"))
+            brim_heights.push_back(std::stod(line.substr(8)));
+    }
+    REQUIRE(! brim_heights.empty());
+    for (const double h : brim_heights) {
+        CHECK(h >= 0.75 * 0.3 - 1e-3);
+        CHECK(h <= 0.3 + 1e-3);
+    }
+}
+
+// The brim prints in the object's outer wall filament even when every extrusion of the object
+// is offered to purging (flush_into_objects): the tool ordering registers the brim filament
+// itself, so the writer always knows it.
+TEST_CASE("Belt brim slices when every object is a flush target", "[SkirtBrim][belt]")
+{
+    DynamicPrintConfig config = belt_brim_multifilament_config(2, {
+        { "brim_type",          "outer_only" },
+        { "brim_width",         4 },
+        { "brim_object_gap",    0 },
+        { "flush_into_objects", 1 },
+        { "flush_into_infill",  1 },
+    });
+    const std::vector<std::vector<Slic3r::ConfigBase::SetDeserializeItem>> overrides {
+        { { "extruder", 1 } }, { { "extruder", 2 } },
+    };
+    Print print;
+    Model model;
+    init_print({ cube(20), cube(20) }, print, model, config, &overrides);
+    REQUIRE(print.validate().string.empty());
+    const std::string out = gcode(print);
+    CHECK(out.find(";TYPE:Brim") != std::string::npos);
 }

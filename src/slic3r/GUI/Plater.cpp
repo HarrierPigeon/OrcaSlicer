@@ -16445,20 +16445,6 @@ void Plater::_calib_apply_belt_mode()
         inst->rotate(cancel_rotation);
         obj->invalidate_bounding_box();
         obj->ensure_on_bed();
-
-        {
-            const BoundingBoxf3 rb = obj->raw_bounding_box();
-            const Vec3d         io = inst->get_offset();
-            const Vec3d         ir = inst->get_rotation();
-            BOOST_LOG_TRIVIAL(debug) << "[BELT-CALIB] helper exit: obj=" << obj->name
-                << " inst_offset=(" << io.x() << "," << io.y() << "," << io.z() << ")"
-                << " inst_rot=(" << ir.x() << "," << ir.y() << "," << ir.z() << ")"
-                << " vol0_offset=(" << obj->volumes.front()->get_offset().x() << ","
-                << obj->volumes.front()->get_offset().y() << "," << obj->volumes.front()->get_offset().z() << ")"
-                << " raw_bbox=(" << rb.min.x() << "," << rb.min.y() << "," << rb.min.z()
-                << ")..(" << rb.max.x() << "," << rb.max.y() << "," << rb.max.z() << ")"
-                << " min_z=" << obj->min_z();
-        }
     }
 
     // Each object's support wedge extends upstream of it by roughly its own

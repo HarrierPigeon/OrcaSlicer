@@ -171,7 +171,6 @@ bool ensure_belt_purge_tower(Model &model, PartPlateList &partplate_list, Object
         if (prism_idxs.empty())
             return false;
         remove_prisms(prism_idxs);
-        BOOST_LOG_TRIVIAL(warning) << "[BELT-DEBUG] belt purge tower removed (conditions not met)";
         return true;
     }
 
@@ -295,21 +294,12 @@ bool ensure_belt_purge_tower(Model &model, PartPlateList &partplate_list, Object
     const double lat_origin   = plate_origin[belt_is_y ? 0 : 1];
     const double inset        = 1.;
     double       lat_center   = lat_max + 5. + 0.5 * width; // fallback: just past the parts
-    BoundingBoxf bed_ext_dbg;
     if (const auto *bed_opt = printer_config.option<ConfigOptionPoints>("printable_area");
         bed_opt != nullptr && !bed_opt->values.empty()) {
         const BoundingBoxf bed_ext     = get_extents(bed_opt->values);
-        bed_ext_dbg = bed_ext;
         const double       bed_lat_max = belt_is_y ? bed_ext.max.x() : bed_ext.max.y();
         lat_center = lat_origin + bed_lat_max - inset - 0.5 * width;
     }
-
-    BOOST_LOG_TRIVIAL(warning) << "[BELT-DEBUG] purge place"
-        << " plate_origin=(" << plate_origin.x() << "," << plate_origin.y() << ")"
-        << " parts_x=[" << x_min << "," << x_max << "] parts_y=[" << y_min << "," << y_max << "] z_max=" << z_max
-        << " bed_ext=[" << bed_ext_dbg.min.x() << "," << bed_ext_dbg.min.y()
-        << " -> " << bed_ext_dbg.max.x() << "," << bed_ext_dbg.max.y() << "]"
-        << " lat_center=" << lat_center << " belt=[" << belt_start << "," << belt_end << "]";
 
     const Vec3d  desired_center(belt_is_y ? lat_center : belt_center,
                                 belt_is_y ? belt_center : lat_center,
@@ -395,15 +385,6 @@ bool ensure_belt_purge_tower(Model &model, PartPlateList &partplate_list, Object
     // until the parts/config actually change.
     sig = new_sig;
 
-    BOOST_LOG_TRIVIAL(warning) << "[BELT-DEBUG] belt purge tower generated"
-        << " belt_is_y=" << belt_is_y
-        << " W=" << width << " L=" << length << " H=" << height
-        << " v_layer=" << v_layer << " max_flush=" << max_flush
-        << " filaments=" << filaments.size()
-        << " theta_deg=" << Geometry::rad2deg(theta)
-        << " desired_center=(" << desired_center.x() << "," << desired_center.y() << "," << desired_center.z() << ")"
-        << " achieved_center=(" << new_object->bounding_box_exact().center().x() << ","
-        << new_object->bounding_box_exact().center().y() << ")";
     return true;
 }
 

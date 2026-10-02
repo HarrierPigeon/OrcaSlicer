@@ -1913,8 +1913,6 @@ void TreeSupport::generate()
                 if (first_layer != nullptr) {
                     ExPolygons floating = diff_ex(first_layer->lslices_extrudable,
                                                   ctx.surface_polygon(first_layer->bottom_z() - first_layer->height));
-                    BOOST_LOG_TRIVIAL(debug) << "[BELT-CALIB] wedge seed: obj=" << m_object->model_object()->name
-                        << " bottom_z=" << first_layer->bottom_z() << " floating=" << floating.size();
                     if (!floating.empty()) {
                         source_areas = std::move(floating);
                         first_z      = first_layer->bottom_z();

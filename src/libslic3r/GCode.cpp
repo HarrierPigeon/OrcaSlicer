@@ -5427,7 +5427,9 @@ LayerResult GCode::process_belt_brim_layer(
             break;
         }
 
-    m_cur_layer_idx = m_belt_brim_layer_idx ++;
+    // Apron bands precede object layer 0 and have no layer id of their own; they take the
+    // filament and nozzle assignment in effect at the first object layer.
+    m_cur_layer_idx = 0;
 
     // Publish the band's Z for _extrude()'s first-layer-plane probe, and make sure
     // it cannot leak past this layer even if an extrusion throws.
@@ -6592,6 +6594,7 @@ LayerResult GCode::process_layer(
             std::vector<GCode::ObjectByExtruder> &objects_by_extruder = objects_by_extruder_it->second;
             std::vector<InstanceToPrint> &instances = filament_plan.first;
             std::vector<IslandOrderNode> nodes;
+            std::vector<std::pair<size_t, bool>> layout;   // Per instance, see IslandOrderCacheEntry
             std::vector<size_t>          node_instances;
             auto quantize_to_mm = [](const Point &pt) -> Point {
                 const coord_t grid = coord_t(scale_(1.));
@@ -6616,6 +6619,7 @@ LayerResult GCode::process_layer(
                     const size_t instance_idx = instances.size();
                     instances.emplace_back(object_by_extruder, layer_id, *print_object, instance_id,
                                            print_object->instances()[instance_id].model_instance->get_labeled_id());
+                    layout.emplace_back(islands.size(), ! islands.empty() && ! islands.back().by_region.empty());
                     const Point &shift = print_object->instances()[instance_id].shift;
                     const size_t first_node = nodes.size();
                     if (islands_chainable)
@@ -6635,8 +6639,9 @@ LayerResult GCode::process_layer(
 
             // Reuse the cached tour while this filament's island layout is unchanged.
             auto &cache_entry = m_ordering_cache[filament_id];
-            if (!(cache_entry.first == nodes)) {
-                cache_entry.first = nodes;
+            if (! (cache_entry.nodes == nodes && cache_entry.layout == layout)) {
+                cache_entry.nodes  = nodes;
+                cache_entry.layout = layout;
                 Points node_points;
                 node_points.reserve(nodes.size());
                 for (const IslandOrderNode &node : nodes)
@@ -6669,12 +6674,12 @@ LayerResult GCode::process_layer(
                         // A visit without explicit islands already prints everything.
                         continue;
                     std::vector<ObjectByExtruder::Island> &islands = instances[i].object_by_extruder.islands;
-                    if (!islands.back().by_region.empty())
+                    if (! islands.empty() && ! islands.back().by_region.empty())
                         last_visit.islands.emplace_back(islands.size() - 1);
                 }
-                cache_entry.second = std::move(visits);
+                cache_entry.visits = std::move(visits);
             }
-            filament_plan.second = cache_entry.second;
+            filament_plan.second = cache_entry.visits;
         }
     }
 
@@ -6997,7 +7002,13 @@ LayerResult GCode::process_layer(
                 // in this instance's frame after set_origin() above). Empty islands are skipped;
                 // the trailing catch-all island has no centroid to chain by and always goes last.
                 std::vector<ObjectByExtruder::Island> &islands = instance_to_print.object_by_extruder.islands;
-                std::vector<size_t> island_order = visit.islands;
+                std::vector<size_t> island_order;
+                island_order.reserve(visit.islands.size());
+                for (size_t idx : visit.islands)   // Never index past the islands (see IslandOrderCacheEntry)
+                    if (idx < islands.size())
+                        island_order.emplace_back(idx);
+                    else
+                        BOOST_LOG_TRIVIAL(error) << "island tour refers to island " << idx << " of " << islands.size() << ", skipped";
                 if (island_order.empty()) {
                     island_order.reserve(islands.size());
                     if (layer_to_print.object_layer != nullptr && islands.size() == layer_to_print.object_layer->lslices.size() + 1) {
@@ -8548,20 +8559,6 @@ std::string GCode::_extrude(const ExtrusionPath &path, std::string description, 
     auto _mm3_per_mm = path.mm3_per_mm * this->config().print_flow_ratio;
     _mm3_per_mm *= filament_flow_ratio;
 
-    // Belt printer: compensate for any volume change introduced by the mesh
-    // forward transform.  path.mm3_per_mm is derived from slicer-frame layer
-    // height × line width, but a slicer-frame slab of volume V maps under the
-    // back-transform to a machine-frame region of volume V / |det(T)|.  The
-    // mesh transform is now rotation ∘ pre-remap, both orthogonal, so |det(T)|
-    // is always 1 and this is currently a no-op; it is retained as a guard in
-    // case a non-orthogonal mesh transform is ever reintroduced.  (Machine-frame
-    // shear/scale acts on the g-code in BeltKinematics, not here.)
-    if (m_config.belt_printer.value) {
-        double det = std::abs(BeltTransformPipeline::build_forward_transform(m_config).linear().determinant());
-        if (det > EPSILON)
-            _mm3_per_mm /= det;
-    }
-
     if (path.role() == erTopSolidInfill) {
         _mm3_per_mm *= NOZZLE_CONFIG(top_solid_infill_flow_ratio);
     } else if (path.role() == erBottomSurface) {
@@ -8665,6 +8662,14 @@ std::string GCode::_extrude(const ExtrusionPath &path, std::string description, 
     // the speed fade tracks perpendicular distance from the plane on
     // belt printers; otherwise this falls back to the slicing layer id.
     const int _layer = this->effective_layer_index_for_point(path_point_mm);
+    // Belt printers: tell the cooling buffer which band above the belt this path starts in,
+    // once per layer and at every change (CoolingBuffer::apply_belt_band_fan consumes it).
+    if (m_enable_cooling_markers && m_config.belt_printer.value &&
+        (m_belt_band_tag_layer != m_layer_index || m_belt_band_tag != _layer)) {
+        gcode += ";_BELT_BAND:" + std::to_string(_layer) + "\n";
+        m_belt_band_tag       = _layer;
+        m_belt_band_tag_layer = m_layer_index;
+    }
     if (path_on_first_layer || object_layer_over_raft()) {
         //BBS: for solid infill of first layer, speed can be higher as long as
         //wall lines have be attached
@@ -9561,6 +9566,7 @@ std::string GCode::travel_to(const Point& point, ExtrusionRole role, std::string
     // multi-hop travel path inside the configuration space
     if (m_config.reduce_crossing_wall
         && !m_avoid_crossing_perimeters.disabled_once()
+        && m_layer != nullptr   // A brim apron layer has no Layer to avoid crossing
         && m_writer->is_current_position_clear())
         //BBS: don't generate detour travel paths when current position is unclea
     {
@@ -10425,6 +10431,10 @@ std::string GCode::set_object_info(Print *print) {
             for (PrintInstance& inst : object->instances()) {
                 inst.unique_id = unique_id++;
                 inst.id        = inst_id++;
+                // Outlines are in plate coordinates. On a belt printer that is the frame after
+                // the slicing rotation has been undone and before the G-code axis remap and
+                // machine-frame shear: where the object stands on the belt, which is what an
+                // object picker shows. Klipper cancels by name, so nothing depends on more.
                 auto bbox      = inst.get_bounding_box();
                 auto center    = print->translate_to_print_space(Vec2d(bbox.center().x(), bbox.center().y()));
                 auto inst_name = get_instance_name(object, inst);
