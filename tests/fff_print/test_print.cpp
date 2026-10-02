@@ -829,7 +829,9 @@ TEST_CASE("Belt printers switch the part fan by height above the belt", "[Print]
         { "initial_layer_print_height",   0.2 },
         { "skirt_loops",                  0 },
         { "z_hop",                        0 },
-        { "close_fan_the_first_x_layers", 1 },
+        // Three layers: the lowest wall of each tilted layer is centred about 0.3 mm above
+        // the belt (half a line width in from the contact edge), outside a one-layer band.
+        { "close_fan_the_first_x_layers", 3 },
         { "full_fan_speed_layer",         0 },
         { "fan_min_speed",                100 },
         { "fan_max_speed",                100 },
