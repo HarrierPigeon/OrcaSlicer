@@ -879,9 +879,8 @@ protected:
         ~BeltFloorObjectGuard() { slot = nullptr; }
     };
 
-    // Last ";_BELT_BAND" tag written and the layer it was written on (see _extrude()).
-    int m_belt_band_tag{std::numeric_limits<int>::min()};
-    int m_belt_band_tag_layer{std::numeric_limits<int>::min()};
+    // The last extrusion segment was inside the belt's first-layer fan band (see _extrude()).
+    bool m_belt_in_band{false};
 
     std::set<unsigned int>                  m_initial_layer_extruders;
     std::vector<std::vector<unsigned int>>  m_sorted_layer_filaments;

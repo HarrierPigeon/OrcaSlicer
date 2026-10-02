@@ -41,6 +41,7 @@ void BeltSliceStrategy::apply_preslice_transforms(Transform3d           &trafo,
 
     double min_z = std::numeric_limits<double>::max();
     for (const ModelVolume *mv : model_volumes) {
+        if (!mv->is_model_part()) continue;
         Transform3d vol_trafo = trafo * mv->get_matrix();
         const auto &its = mv->mesh().its;
         for (const stl_vertex &v : its.vertices) {

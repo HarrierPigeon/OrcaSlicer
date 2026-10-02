@@ -1816,10 +1816,14 @@ StringObjectException Print::validate(std::vector<StringObjectException> *warnin
             return { L("Draft shield is not compatible with belt printer mode.") };
 
         // Belt brim spans many layers and owns the layers below the object, which
-        // spiral vase cannot share. The prime tower setting is no obstacle: belt
-        // printers never print the classic tower, and the belt purge prism is an
-        // ordinary object that never takes a brim.
+        // neither the belt purge tower nor spiral vase can share (the purge plan moves
+        // objects onto a common layer grid after the brim bands are built). The prime
+        // tower setting alone is no obstacle: it stays on for any multi-filament
+        // project, and belt printers never print the classic tower.
         if (this->has_belt_brim()) {
+            if (this->has_belt_purge_tower())
+                return { L("Brim is not compatible with the belt purge tower. "
+                           "Disable one of them.") };
             if (m_config.spiral_mode.value)
                 return { L("Brim is not compatible with spiral vase mode on a belt printer. "
                            "Disable one of them.") };
@@ -1964,7 +1968,7 @@ StringObjectException Print::validate(std::vector<StringObjectException> *warnin
     // the tower was generated) changes filament with nowhere to purge.
     if (m_config.belt_printer.value && m_config.enable_belt_purge_tower.value
         && m_config.print_sequence != PrintSequence::ByObject
-        && ! m_config.spiral_mode.value && extruders.size() > 1 && ! this->has_belt_purge_tower()) {
+        && ! m_config.spiral_mode.value && this->object_extruders().size() > 1 && ! this->has_belt_purge_tower()) {
         StringObjectException warningtemp;
         warningtemp.string     = L("The belt purge tower is enabled but the project has no purge tower object; "
                                    "filament changes will not be purged. Open the project in the application "

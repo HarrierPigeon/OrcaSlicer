@@ -2839,9 +2839,9 @@ bool GCodeProcessor::check_multi_extruder_gcode_valid(const int                 
 
     // Belt-printer post-gcode shear/scale/post_remap is applied as the final
     // step of BeltKinematics::to_machine, so MoveVertex.position is
-    // in the printer's machine frame.  Undo it here so XY area and Z height
-    // checks operate in the build-volume frame that printable_area /
-    // printable_height are defined in.  For non-belt printers
+    // in the printer's machine frame.  Undo it here so the XY area check
+    // operates in the build-volume frame that printable_area is defined in
+    // (the height checks below are skipped on belt printers).  For non-belt printers
     // (is_active() == false) apply_inverse is identity and behaviour is
     // unchanged from before.
     const bool machine_frame_active = m_machine_frame_transform.is_active();
@@ -2922,11 +2922,12 @@ bool GCodeProcessor::check_multi_extruder_gcode_valid(const int                 
                     valid = false;
                 }
             }
-            // Belt printers: machine Z is belt travel, which grows without bound over a
-            // print, while printable_height is the clearance above the belt; the two are
-            // not comparable, so the over-height check is skipped, as the preview's
-            // ToolHeightOutside warning already is.
-            if ( !machine_frame_active && iter->second.max_print_z > plate_printable_height ) { //over height
+            // Belt printers: the Z recorded here grows with belt travel (machine Z with the
+            // frame transform, the slicing-frame Z without it), while printable_height is the
+            // clearance above the belt; the two are not comparable, so the over-height check
+            // is skipped, as the preview's ToolHeightOutside warning already is.
+            // Print::validate() checks the object's height against the clearance.
+            if ( !m_belt_printer && iter->second.max_print_z > plate_printable_height ) { //over height
                 m_result.gcode_check_result.error_code |= (1 << 3);
                 std::pair<int, int> filament_to_object_id;
                 filament_to_object_id.first  = iter->first;
@@ -2967,7 +2968,7 @@ bool GCodeProcessor::check_multi_extruder_gcode_valid(const int                 
                     }
 
                 // check printable height
-                if (!machine_frame_active && (extruder_id < printable_heights.size()) && (iter->second.max_print_z > printable_heights[extruder_id])) {
+                if (!m_belt_printer && (extruder_id < printable_heights.size()) && (iter->second.max_print_z > printable_heights[extruder_id])) {
                     m_result.gcode_check_result.error_code |= (1 << 1);
                     std::pair<int, int> filament_to_object_id;
                     filament_to_object_id.first  = iter->first;
@@ -3138,6 +3139,7 @@ void GCodeProcessor::apply_config(const PrintConfig& config)
     // bounds rather than machine-frame positions.
     m_machine_frame_transform.init_from_config(config);
     m_result.machine_frame_transform_active = m_machine_frame_transform.is_active();
+    m_belt_printer = config.belt_printer.value;
 
     auto filament_maps = config.option<ConfigOptionInts>("filament_map");
     if (filament_maps != nullptr) {

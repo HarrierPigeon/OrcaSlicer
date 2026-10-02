@@ -36,18 +36,6 @@ private:
     // Returns the adjusted G-code.
     std::string apply_layer_cooldown(const std::string &gcode, size_t layer_id, float layer_time, std::vector<PerExtruderAdjustments> &per_extruder_adjustments);
 
-    // Belt printers: turn the ";_BELT_BAND:<n>" tags GCode::_extrude() leaves in the
-    // layer's G-code into part-fan changes, so the fan follows a path's height above the
-    // belt rather than the slicing layer index, and strip the tags.
-    std::string apply_belt_band_fan(std::string &&gcode_in, float layer_time, unsigned int extruder_at_start);
-
-    // Pure helper: compute the main fan speed for a given effective layer
-    // index (layer-id units, mapped through the plane evaluator) and the
-    // current extruder.  Mirrors the inline logic in the change_extruder_set_fan
-    // lambda but is callable from per-line code.
-    int compute_main_fan_speed(int effective_layer_id, float layer_time,
-                               unsigned int extruder_id) const;
-
     // G-code snippet cached for the support layers preceding an object layer.
     std::string                 m_gcode;
     // Internal data.
@@ -70,10 +58,9 @@ private:
     unsigned int                m_current_nozzle;
     //BBS: current fan speed
     int                         m_current_fan_speed;
-    // Belt band pass state, kept across layers. The part fan as this pass last saw or set
-    // it (percent, -1 unknown), and the last value the layer-level cooling asked for.
-    int                         m_belt_band_fan       = -1;
-    int                         m_belt_band_layer_fan = -1;
+    // Belt printers: the extrusion being processed lies in the first-layer band above the
+    // belt (between a ";_BELT_BAND_START" and a ";_BELT_BAND_END"). Kept across layers.
+    bool                        m_belt_band_active = false;
 };
 
 }

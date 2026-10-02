@@ -27,11 +27,6 @@ public:
     }
 };
 
-// The part-cooling fan value a G-code line sets: the raw S (0..255) of an M106 that
-// addresses the part fan, 0 for a fan-off command, -1 for any other line (auxiliary
-// and chamber fans included).
-int16_t get_fan_speed(const std::string &line, GCodeFlavor flavor);
-
 class FanMover
 {
 private:

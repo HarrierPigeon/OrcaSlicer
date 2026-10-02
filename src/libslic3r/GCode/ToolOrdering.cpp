@@ -1068,8 +1068,8 @@ void ToolOrdering::fill_wipe_tower_partitions(const PrintConfig &config, coordf_
     // The `print_z < object_bottom_z` clause reads "below the object" as "raft
     // gap".  On a belt printer that is wrong: the brim apron legitimately prints
     // below the object's first layer, and treating those layers as raft would put a
-    // wipe tower at negative Z.  Belt brim and the prime tower are mutually
-    // exclusive (rejected in Print::validate()), so simply drop the clause there.
+    // wipe tower at negative Z.  A belt printer never prints the classic
+    // prime tower (Print::has_wipe_tower()), so simply drop the clause there.
     //
     // Gate on config.belt_printer, NOT on has_belt_brim: every layer below the
     // object bottom on a belt printer is legitimately a sub-object stream - brim

@@ -8662,25 +8662,20 @@ std::string GCode::_extrude(const ExtrusionPath &path, std::string description, 
     // the speed fade tracks perpendicular distance from the plane on
     // belt printers; otherwise this falls back to the slicing layer id.
     const int _layer = this->effective_layer_index_for_point(path_point_mm);
-    // Belt printers: tell the cooling buffer which band above the belt the next extrusion is
-    // in (CoolingBuffer::apply_belt_band_fan consumes the tag). A tilted layer runs from the
-    // belt to the top of the part, so this is decided per segment, not per path; a tag is
-    // written once per layer and at every change, capped where the fan stops depending on it.
-    const bool belt_band_tags = m_enable_cooling_markers && m_config.belt_printer.value;
-    const int  belt_band_cap  = belt_band_tags
-        ? std::max(m_config.close_fan_the_first_x_layers.get_at(m_writer->filament()->id()),
-                   m_config.full_fan_speed_layer.get_at(m_writer->filament()->id())) + 1 : 0;
-    auto tag_belt_band = [this, &gcode, belt_band_tags, belt_band_cap, z = path_point_mm.z()](coord_t x, coord_t y) {
+    // Belt printers: a tilted layer runs from the belt to the top of the part, so the
+    // "first layers" the fan stays off for are a band along the belt. Mark where the
+    // extrusion enters and leaves it, per segment, for the cooling buffer.
+    const bool belt_band_tags   = m_enable_cooling_markers && m_config.belt_printer.value;
+    const int  belt_band_layers = belt_band_tags ? m_config.close_fan_the_first_x_layers.get_at(m_writer->filament()->id()) : 0;
+    auto tag_belt_band = [this, &gcode, belt_band_tags, belt_band_layers, z = path_point_mm.z()](coord_t x, coord_t y) {
         if (! belt_band_tags)
             return;
-        const int band = std::min(this->effective_layer_index_for_point(Vec3d(unscale<double>(x), unscale<double>(y), z)), belt_band_cap);
-        if (m_belt_band_tag_layer != m_layer_index || m_belt_band_tag != band) {
-            gcode += ";_BELT_BAND:" + std::to_string(band) + "\n";
-            m_belt_band_tag       = band;
-            m_belt_band_tag_layer = m_layer_index;
+        const bool in_band = this->effective_layer_index_for_point(Vec3d(unscale<double>(x), unscale<double>(y), z)) < belt_band_layers;
+        if (in_band != m_belt_in_band) {
+            gcode += in_band ? ";_BELT_BAND_START\n" : ";_BELT_BAND_END\n";
+            m_belt_in_band = in_band;
         }
     };
-    tag_belt_band(path.first_point().x(), path.first_point().y());
     if (path_on_first_layer || object_layer_over_raft()) {
         //BBS: for solid infill of first layer, speed can be higher as long as
         //wall lines have be attached
@@ -9604,7 +9599,8 @@ std::string GCode::travel_to(const Point& point, ExtrusionRole role, std::string
         // When "Wipe while retracting" is enabled, then extruder moves to another position, and travel from this position can cross perimeters.
         // Because of it, it is necessary to call avoid crossing perimeters again with new starting point after calling retraction()
         // FIXME Lukas H.: Try to predict if this second calling of avoid crossing perimeters will be needed or not. It could save computations.
-        if (last_post_before_retract != this->last_pos() && m_config.reduce_crossing_wall) {
+        if (last_post_before_retract != this->last_pos() && m_config.reduce_crossing_wall
+            && m_layer != nullptr) {   // A brim apron layer has no Layer to avoid crossing
             // If in the previous call of m_avoid_crossing_perimeters.travel_to was use_external_mp_once set to true restore this value for next call.
             if (used_external_mp_once)
                 m_avoid_crossing_perimeters.use_external_mp_once();

@@ -253,7 +253,10 @@ static void belt_brim_band_paths(const BeltBrimContext      &bc,
     std::vector<coord_t> us;
     double uniform_clearance = 0.;   // 0 => derive per line from its own position
     double line_pitch        = bc.in_plane_pitch;
-    if (band_in_plane <= bc.in_plane_pitch + EPSILON) {
+    // One line also serves a band up to half a bead wider than the nominal pitch (a 0.3 mm
+    // first layer at 45 degrees): its flow is matched to the band, so the bead is that much
+    // wider. Two lattice lines in such a band would land almost on top of each other.
+    if (band_in_plane <= 1.5 * bc.in_plane_pitch + EPSILON) {
         // Steep belt, which is the normal case: the band is narrower than one bead, so
         // exactly one line fits.  Place it at a FIXED fraction of the band rather than
         // on a nominal-spacing lattice.  On a lattice each line lands at an arbitrary
@@ -307,8 +310,9 @@ static void belt_brim_band_paths(const BeltBrimContext      &bc,
             }
             clearance = std::min(clearance, height);
         }
-        // Two lattice lines moved to the same place are one line.
-        if (u == u_prev)
+        // A line moved uphill can land on, or almost on, its neighbour; two beads closer
+        // than half a pitch would be laid into the same cell.
+        if (u_prev != std::numeric_limits<coord_t>::min() && std::abs(u - u_prev) < bc.pitch_u / 2)
             continue;
         u_prev = u;
 

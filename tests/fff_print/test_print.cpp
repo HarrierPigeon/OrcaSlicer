@@ -23,6 +23,9 @@
 #include "test_utils.hpp"
 
 #include <algorithm>
+#include <boost/algorithm/string/predicate.hpp>
+#include <cstdlib>
+#include <sstream>
 #include <limits>
 #include <fstream>
 #include <iterator>
@@ -808,13 +811,11 @@ TEST_CASE("Belt printers refuse an object taller than the gantry clearance", "[P
     }
 }
 
-// On a belt every tilted layer starts on the belt, so "first layer" cooling is a band along
-// the belt, not the first slicing layers: the part fan goes off for the paths that start
-// within a layer height of the belt and back on above it, on every layer. The G-code is in
-// machine coordinates, so the generator tags the band changes and the cooling buffer
-// applies them; before that the buffer compared machine-frame moves with a slicing-frame
-// plane and never switched the fan at all.
-TEST_CASE("Belt printers switch the part fan by height above the belt", "[Print][belt][Cooling]")
+// On a belt every tilted layer starts on the belt, so "the first layers" the fan stays off
+// for are a band along the belt, not the first slicing layers. The generator marks where
+// each extrusion segment enters and leaves that band and the cooling buffer keeps the fan
+// off inside it, on every layer.
+TEST_CASE("Belt printers keep the part fan off within the band above the belt", "[Print][belt][Cooling]")
 {
     DynamicPrintConfig config = DynamicPrintConfig::full_print_config();
     config.set_deserialize_strict({
@@ -829,8 +830,8 @@ TEST_CASE("Belt printers switch the part fan by height above the belt", "[Print]
         { "initial_layer_print_height",   0.2 },
         { "skirt_loops",                  0 },
         { "z_hop",                        0 },
-        // Three layers: the lowest wall of each tilted layer is centred about 0.3 mm above
-        // the belt (half a line width in from the contact edge), outside a one-layer band.
+        // Three layers, 0.6 mm: the lowest wall of each tilted layer is centred about 0.3 mm
+        // above the belt (half a line width in from the contact edge).
         { "close_fan_the_first_x_layers", 3 },
         { "full_fan_speed_layer",         0 },
         { "fan_min_speed",                100 },
@@ -844,24 +845,50 @@ TEST_CASE("Belt printers switch the part fan by height above the belt", "[Print]
     const std::string gcode = slice({ cube(20) }, config);
     REQUIRE(! gcode.empty());
 
-    // The tags are consumed by the cooling buffer and never reach the file.
+    // The markers are consumed by the cooling buffer and never reach the file.
     CHECK(gcode.find(";_BELT_BAND") == std::string::npos);
 
-    // The fan commands in order: '0' off, '1' on.
-    std::string fan_sequence;
-    GCodeReader parser;
-    parser.parse_buffer(gcode, [&](GCodeReader &, const GCodeReader::GCodeLine &line) {
-        if (line.cmd_is("M107"))
-            fan_sequence += '0';
-        else if (line.cmd_is("M106")) {
-            float s = 0.f;
-            fan_sequence += (line.has_value('S', s) && s <= 0.f) ? '0' : '1';
+    // With this axis mapping machine Y is the height above the belt along the gantry. Walk
+    // the moves with the fan state: extrusions that stay within 0.45 mm of the belt are well
+    // inside the band and must print with the fan off; extrusions that stay 5 mm clear of it
+    // must print with it on. The first three slicing layers have the fan off altogether.
+    size_t in_band = 0, in_band_fan_on = 0, clear = 0, clear_fan_off = 0;
+    int    layer   = -1;
+    bool   fan_on  = false;
+    double y       = 0.;
+    std::istringstream lines(gcode);
+    for (std::string line; std::getline(lines, line); ) {
+        if (boost::starts_with(line, ";LAYER_CHANGE")) {
+            ++ layer;
+        } else if (boost::starts_with(line, "M107")) {
+            fan_on = false;
+        } else if (boost::starts_with(line, "M106")) {
+            const size_t s = line.find('S');
+            fan_on = s != std::string::npos && std::atof(line.c_str() + s + 1) > 0.;
+        } else if (boost::starts_with(line, "G1 ")) {
+            const size_t comment = line.find(';');
+            const std::string cmd = line.substr(0, comment);
+            const size_t ypos = cmd.find(" Y"), epos = cmd.find(" E");
+            if (ypos == std::string::npos)
+                continue;
+            const double y_new     = std::atof(cmd.c_str() + ypos + 2);
+            const bool   extruding = epos != std::string::npos && std::atof(cmd.c_str() + epos + 2) > 0.;
+            if (extruding && layer >= 3) {
+                if (std::max(y, y_new) < 0.45) {
+                    ++ in_band;
+                    in_band_fan_on += fan_on;
+                } else if (std::min(y, y_new) > 5.) {
+                    ++ clear;
+                    clear_fan_off += ! fan_on;
+                }
+            }
+            y = y_new;
         }
-    });
-    // A flat-bed print turns the fan on once and leaves it on. Here it goes off again for
-    // paths that start back down at the belt, and on again above it.
-    INFO("fan sequence: " << fan_sequence);
-    CHECK(fan_sequence.find("101") != std::string::npos);
+    }
+    CHECK(in_band > 20);
+    CHECK(in_band_fan_on == 0);
+    CHECK(clear > 20);
+    CHECK(clear_fan_off == 0);
 }
 
 // Organic supports under an overhang on a belt printer reach below the object's first layer,
