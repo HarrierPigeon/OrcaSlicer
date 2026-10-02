@@ -55,6 +55,10 @@
 			"sub_path": "process/0.08mm Extra Fine @MyKlipper.json"
 		},
 		{
+			"name": "0.12mm Fine @MyBeltPrinter",
+			"sub_path": "process/0.12mm Fine @MyBeltPrinter.json"
+		},
+		{
 			"name": "0.12mm Fine @MyKlipper",
 			"sub_path": "process/0.12mm Fine @MyKlipper.json"
 		},
@@ -65,10 +69,6 @@
 		{
 			"name": "0.16mm Optimal @MyKlipper",
 			"sub_path": "process/0.16mm Optimal @MyKlipper.json"
-		},
-		{
-			"name": "0.12mm Fine @MyBeltPrinter",
-			"sub_path": "process/0.12mm Fine @MyBeltPrinter.json"
 		},
 		{
 			"name": "0.20mm Standard @MyBeltPrinter",
@@ -283,6 +283,10 @@
 			"sub_path": "machine/fdm_toolchanger_common.json"
 		},
 		{
+			"name": "MyRepetier 0.4 nozzle",
+			"sub_path": "machine/MyRepetier 0.4 nozzle.json"
+		},
+		{
 			"name": "MyRRF 0.4 nozzle",
 			"sub_path": "machine/MyRRF 0.4 nozzle.json"
 		},
@@ -301,10 +305,6 @@
 		{
 			"name": "MyBeltPrinter 0.8 nozzle",
 			"sub_path": "machine/MyBeltPrinter 0.8 nozzle.json"
-		},
-		{
-			"name": "MyRepetier 0.4 nozzle",
-			"sub_path": "machine/MyRepetier 0.4 nozzle.json"
 		},
 		{
 			"name": "MyToolChanger 0.2 nozzle",

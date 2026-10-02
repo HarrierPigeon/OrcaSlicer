@@ -24,18 +24,38 @@
 		"1.24"
 	],
 	"filament_flow_ratio": [
+		"0.98",
+		"0.98",
+		"0.98",
+		"0.98",
+		"0.98",
 		"0.98"
 	],
 	"filament_cost": [
 		"20"
 	],
 	"filament_max_volumetric_speed": [
+		"12",
+		"12",
+		"12",
+		"12",
+		"12",
 		"12"
 	],
 	"nozzle_temperature": [
+		"215",
+		"215",
+		"215",
+		"215",
+		"215",
 		"215"
 	],
 	"nozzle_temperature_initial_layer": [
+		"220",
+		"220",
+		"220",
+		"220",
+		"220",
 		"220"
 	],
 	"nozzle_temperature_range_low": [
@@ -96,12 +116,27 @@
 		"1"
 	],
 	"filament_retraction_length": [
+		"1.5",
+		"1.5",
+		"1.5",
+		"1.5",
+		"1.5",
 		"1.5"
 	],
 	"filament_retraction_speed": [
+		"35",
+		"35",
+		"35",
+		"35",
+		"35",
 		"35"
 	],
 	"filament_deretraction_speed": [
+		"30",
+		"30",
+		"30",
+		"30",
+		"30",
 		"30"
 	],
 	"filament_start_gcode": [

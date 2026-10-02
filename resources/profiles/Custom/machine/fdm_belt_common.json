@@ -85,9 +85,6 @@
 	"gcode_remap_x": "rev_x",
 	"gcode_remap_y": "pos_z",
 	"gcode_remap_z": "pos_y",
-	"printer_extruder_id": [
-		"1"
-	],
 	"belt_printer": "1",
 	"belt_slice_rotation": "x",
 	"belt_slice_rotation_angle": "45",
