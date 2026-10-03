@@ -59,9 +59,19 @@
 		"220"
 	],
 	"nozzle_temperature_range_low": [
+		"190",
+		"190",
+		"190",
+		"190",
+		"190",
 		"190"
 	],
 	"nozzle_temperature_range_high": [
+		"240",
+		"240",
+		"240",
+		"240",
+		"240",
 		"240"
 	],
 	"temperature_vitrification": [
@@ -86,9 +96,19 @@
 		"75"
 	],
 	"fan_min_speed": [
+		"100",
+		"100",
+		"100",
+		"100",
+		"100",
 		"100"
 	],
 	"fan_max_speed": [
+		"100",
+		"100",
+		"100",
+		"100",
+		"100",
 		"100"
 	],
 	"overhang_fan_threshold": [
