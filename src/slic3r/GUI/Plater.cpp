@@ -14829,37 +14829,6 @@ void Plater::priv::set_bed_shape(const Pointfs       &shape,
     Vec2d shape_position = partplate_list.get_current_shape_position();
     bool new_shape = bed.set_shape(shape, printable_height, extruder_areas, extruder_heights, custom_model, force_as_custom, shape_position);
 
-    // Belt printer: configure build volume and bed rendering for belt mode.
-    {
-        const auto *belt_opt = config->option<ConfigOptionBool>("belt_printer");
-        bool is_belt = belt_opt && belt_opt->value;
-        if (is_belt) {
-            // The slicing rotation is the single source of truth for the belt tilt:
-            // its magnitude is the physical tilt angle and its axis is the tilt axis.
-            auto rot_axis = config->option<ConfigOptionEnum<BeltRotationAxis>>("belt_slice_rotation")->value;
-            double rot_angle = config->opt_float("belt_slice_rotation_angle");
-            double belt_angle = std::abs(rot_angle);              // physical tilt magnitude
-            int    tilt_axis  = (rot_axis == BeltRotationAxis::Y) ? 1 : 0;
-            bool infinite_y = config->opt_bool("belt_printer_infinite_y");
-            bed.build_volume().set_belt_printer(true, belt_angle, infinite_y);
-            bed.set_belt_printer(true, static_cast<float>(belt_angle), tilt_axis);
-            if (preview)
-                preview->get_canvas3d()->get_gcode_viewer().set_belt_printer(true, static_cast<float>(belt_angle));
-            // The belt "designed view" back-transform is rebuilt from the print config at
-            // G-code load time (GCodeViewer::compute_belt_back_transform), so no mesh-side
-            // inverse needs to be pushed to the viewer here.
-        } else {
-            // Reset the BuildVolume belt state too: Bed3D::set_shape early-returns when
-            // the bed params are unchanged, so a belt->normal switch (or toggling belt off
-            // on the same printer) would otherwise leave the BuildVolume with
-            // m_is_belt_printer=true and an inflated Y bbox, wrongly treating out-of-bounds
-            // objects as printable. Idempotent for a printer that was never belt.
-            bed.build_volume().set_belt_printer(false, 0., false);
-            bed.set_belt_printer(false, 0.f);
-            if (preview)
-                preview->get_canvas3d()->get_gcode_viewer().set_belt_printer(false, 0.f);
-        }
-    }
 
     float prev_height_lid, prev_height_rod;
     partplate_list.get_height_limits(prev_height_lid, prev_height_rod);

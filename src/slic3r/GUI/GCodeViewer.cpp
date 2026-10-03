@@ -1365,10 +1365,8 @@ void GCodeViewer::load_as_gcode(const GCodeProcessorResult& gcode_result, const 
     m_loaded_as_preview = false;
 
     // Belt printers: drive the designed/raw view UI (legend checkbox, hotkey B, canvas-toolbar
-    // menu item) from the loaded print here. Plater::set_bed_shape also calls set_belt_printer(),
-    // but only on bed-shape changes — not reliably on every slice/preview load — so the UI was
-    // staying hidden even though the (config-driven) designed view rendered. The tilt magnitude
-    // comes from the G-code header (gcode_result.belt_tilt_angle, abs of the slicing rotation).
+    // menu item) from the loaded print. The tilt magnitude comes from the G-code header
+    // (gcode_result.belt_tilt_angle, abs of the slicing rotation).
     m_belt_view_enabled = print.config().belt_printer.value;
     m_belt_angle_deg    = gcode_result.belt_tilt_angle;
 
