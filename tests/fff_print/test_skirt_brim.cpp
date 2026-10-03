@@ -946,9 +946,9 @@ TEST_CASE("Belt inner-only leading brim does not reject the prime tower or spira
         CHECK(print.validate().string.empty());
         CHECK_FALSE(gcode(print).empty());
     }
-    // An actual purge tower object is different: the purge plan moves objects onto a common
-    // layer grid after the brim bands are built, so the two are still refused together.
-    SECTION("a brim is refused next to a belt purge tower object") {
+    // A purge tower object is accepted too: the purge plan moves every object, apron
+    // bands included, onto one layer grid.
+    SECTION("a brim is accepted next to a belt purge tower object") {
         DynamicPrintConfig config = belt_brim_multifilament_config(2, {
             { "brim_type",               "outer_only" },
             { "brim_width",              4 },
@@ -961,12 +961,11 @@ TEST_CASE("Belt inner-only leading brim does not reject the prime tower or spira
         Print print;
         Model model;
         init_print({ cube(20), cube(20) }, print, model, config, &overrides);
-        CHECK(print.validate().string.empty());
-
         model.objects.back()->config.set_key_value("belt_purge_tower_object", new ConfigOptionBool(true));
         print.apply(model, config);
         REQUIRE(print.has_belt_purge_tower());
-        CHECK_FALSE(print.validate().string.empty());
+        CHECK(print.validate().string.empty());
+        CHECK_FALSE(gcode(print).empty());
     }
 }
 

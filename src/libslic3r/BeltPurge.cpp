@@ -322,6 +322,9 @@ void PrintObject::belt_shift_layer_grid(double delta)
         layer->print_z += delta;
     for (SupportLayer *layer : m_support_layers)
         layer->print_z += delta;
+    // The brim's apron bands below the first layer carry their own print_z.
+    for (BeltBrimBand &band : m_belt_brim_prologue)
+        band.print_z += delta;
     m_slicing_params.belt_floor_z_shift += delta;
 }
 

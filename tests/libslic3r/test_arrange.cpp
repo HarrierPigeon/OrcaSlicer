@@ -299,6 +299,50 @@ TEST_CASE("Arrange keeps a pile aligned near an edge on the bed", "[Arrange]")
     require_no_overlap(items);
 }
 
+// On a belt the parts print in belt order, so two colours that alternate along the
+// belt, or sit side by side, cost a filament change on every shared layer. Arrange
+// keeps each colour together: no part shares belt length with a part of another
+// colour, counting the tilted layers that run cot(angle) * height past its far edge,
+// whichever end of the belt prints first.
+TEST_CASE("Arrange groups the colours of a belt print along the belt", "[Arrange][belt]")
+{
+    const bool reversed = GENERATE(false, true);
+    CAPTURE(reversed);
+    const BoundingBox belt   = bed(95, 500);
+    ArrangePolygons   items  = squares(6, 30., 20.);
+    for (size_t i = 0; i < items.size(); ++i)
+        items[i].extrude_ids = { int(i % 3) + 1 };   // three colours, two parts each
+    ArrangeParams params     = quiet_params(scaled(2.));
+    params.align_center      = Vec2d(0.5, 0.05);
+    params.is_belt           = true;
+    params.belt_axis         = 1;
+    params.belt_reversed     = reversed;
+    params.belt_tilt_slope   = 1.f;   // 45 degrees
+
+    arrange(items, belt, params);
+    require_no_overlap(items);
+
+    // Belt position in print order, so the same check serves both directions.
+    const coord_t dir = reversed ? -1 : 1;
+    auto start = [&](const ArrangePolygon &ap) { const BoundingBox bb = ap.transformed_poly().contour.bounding_box(); return dir * (reversed ? bb.max.y() : bb.min.y()); };
+    auto end   = [&](const ArrangePolygon &ap) { const BoundingBox bb = ap.transformed_poly().contour.bounding_box(); return dir * (reversed ? bb.min.y() : bb.max.y()) + scaled(ap.height * params.belt_tilt_slope); };
+
+    for (const ArrangePolygon &ap : items) {
+        REQUIRE(ap.bed_idx == 0);
+        CHECK(belt.contains(ap.transformed_poly().contour.bounding_box()));
+    }
+    for (const ArrangePolygon &a : items)
+        for (const ArrangePolygon &b : items) {
+            if (a.extrude_ids == b.extrude_ids)
+                continue;
+            // The part printed later starts after the earlier one has finished.
+            const coord_t earlier_end = start(a) <= start(b) ? end(a) : end(b);
+            const coord_t later_start = std::max(start(a), start(b));
+            INFO("colour " << a.extrude_ids.front() << " vs " << b.extrude_ids.front());
+            CHECK(earlier_end <= later_start);
+        }
+}
+
 TEST_CASE("Sequential print floors the object distance by object height", "[Arrange]")
 {
     // The only place sequential-print clearance is enforced. The arrange menu offers

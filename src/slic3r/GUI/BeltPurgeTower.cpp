@@ -266,6 +266,11 @@ bool ensure_belt_purge_tower(Model &model, PartPlateList &partplate_list, Object
     const Vec3d plate_origin = plate->get_origin();
     new_sig.key[10] = q(plate_origin.x());
     new_sig.key[11] = q(plate_origin.y());
+    if (const auto *bed_opt = printer_config.option<ConfigOptionPoints>("printable_area"); bed_opt != nullptr && !bed_opt->values.empty()) {
+        const BoundingBoxf bed = get_extents(bed_opt->values);
+        new_sig.key[12] = q(bed.max.x());
+        new_sig.key[13] = q(bed.max.y());
+    }
     if (prism_idxs.size() == 1 && model.objects[size_t(prism_idxs.front())]->instances.size() == 1 && new_sig == sig)
         return false; // already up to date — do not touch the model
 
@@ -278,26 +283,35 @@ bool ensure_belt_purge_tower(Model &model, PartPlateList &partplate_list, Object
     // whole band needs belt_start <= y_min - H*cot (bar's own leading ramp) and
     // belt_end >= y_max + z_max*cot (parts' top features print further up the
     // belt). The trailing z_max*cot term dominates the bar's own ramp.
+    // The bed (printable_area) is plate-local but model instances live in the
+    // plate's world frame, so the plate origin is added to every bed coordinate.
+    const double inset = 1.;
+    BoundingBoxf bed_ext;
+    if (const auto *bed_opt = printer_config.option<ConfigOptionPoints>("printable_area");
+        bed_opt != nullptr && !bed_opt->values.empty())
+        bed_ext = get_extents(bed_opt->values);
+
+    // Along the belt the bar stops at the end of the plate: a longer bar cannot be
+    // printed, and the cross-sections it loses there are reported by the purge
+    // planner when the parts' last layers then purge more than the bar holds.
     const double margin            = 5.;
     const double ramp_compensation = height / sin_t;
     const double belt_origin  = plate_origin[belt_is_y ? 1 : 0];
-    const double belt_start   = std::max(belt_origin, belt_min - ramp_compensation);     // leading ramp, toward belt origin
-    const double belt_end     = belt_max + margin + ramp_compensation + z_max * cot_t;   // + parts' top-feature belt reach
+    double       belt_end     = belt_max + margin + ramp_compensation + z_max * cot_t;   // + parts' top-feature belt reach
+    if (bed_ext.defined)
+        belt_end = std::min(belt_end, belt_origin + (belt_is_y ? bed_ext.max.y() : bed_ext.max.x()) - inset);
+    const double belt_start   = std::max(belt_origin, std::min(belt_min - ramp_compensation, belt_end - 10.)); // leading ramp, toward belt origin
     const double length       = std::max(belt_end - belt_start, 10.);
+    belt_end                  = belt_start + length;
     const double belt_center  = 0.5 * (belt_start + belt_end);
 
     // Across-belt: flush against the bed's maximum edge, inset by half the bar
     // width so the bar's far edge sits on the boundary and the whole bar stays
-    // on the bed. The bed (printable_area) is plate-local but model instances
-    // live in the plate's world frame, so add the plate origin's lateral
-    // component. lat_min/lat_max come from instance_bounding_box (world frame).
+    // on the bed. lat_min/lat_max come from instance_bounding_box (world frame).
     const double lat_origin   = plate_origin[belt_is_y ? 0 : 1];
-    const double inset        = 1.;
     double       lat_center   = lat_max + 5. + 0.5 * width; // fallback: just past the parts
-    if (const auto *bed_opt = printer_config.option<ConfigOptionPoints>("printable_area");
-        bed_opt != nullptr && !bed_opt->values.empty()) {
-        const BoundingBoxf bed_ext     = get_extents(bed_opt->values);
-        const double       bed_lat_max = belt_is_y ? bed_ext.max.x() : bed_ext.max.y();
+    if (bed_ext.defined) {
+        const double bed_lat_max = belt_is_y ? bed_ext.max.x() : bed_ext.max.y();
         lat_center = lat_origin + bed_lat_max - inset - 0.5 * width;
     }
 
