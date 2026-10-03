@@ -670,6 +670,17 @@ void PartPlate::calc_height_limit() {
 		BOOST_LOG_TRIVIAL(error) << __FUNCTION__ << "Unable to create height limit top lines\n";
 }
 
+// The plate's icons and labels grow with its depth, but they sit in the gap to the
+// next plate, which grows with its width: on a long, narrow bed (a belt) they would
+// otherwise run across the neighbouring plate.
+float PartPlate::icon_scale_factor() const
+{
+    const BoundingBoxf bed_ext  = get_extents(m_shape);
+    const double       by_depth = bed_ext.size().y() / 200.;
+    const double       by_gap   = bed_ext.size().x() * LOGICAL_PART_PLATE_GAP / (PARTPLATE_ICON_SIZE + 2 * PARTPLATE_ICON_GAP_LEFT);
+    return float(std::min(by_depth, by_gap));
+}
+
 void PartPlate::calc_vertex_for_number(int index, bool one_number, GLModel &buffer)
 {
     buffer.reset();
@@ -686,7 +697,7 @@ void PartPlate::calc_vertex_for_number(int index, bool one_number, GLModel &buff
 #else //in the bottom
     auto bed_ext   = get_extents(m_shape);
     Vec2d p        = bed_ext[1];
-    float factor   = bed_ext.size()(1) / 200.0;
+    float factor   = icon_scale_factor();
     float size     = PARTPLATE_ICON_SIZE     * factor;
     float offset_y = PARTPLATE_TEXT_OFFSET_Y * factor;
     float offset_x = (one_number?PARTPLATE_TEXT_OFFSET_X1: PARTPLATE_TEXT_OFFSET_X2) * factor;
@@ -708,7 +719,7 @@ void PartPlate::calc_vertex_for_plate_name_edit_icon(GLTexture *texture, int ind
     ExPolygon poly;
     auto  bed_ext  = get_extents(m_shape);
     Vec2d p        = bed_ext[3];
-    float factor   = bed_ext.size()(1) / 200.0;
+    float factor   = icon_scale_factor();
     float icon_sz  = factor * PARTPLATE_EDIT_PLATE_NAME_ICON_SIZE;
     float width    = icon_sz;
     float height   = icon_sz;
@@ -741,7 +752,7 @@ void PartPlate::calc_vertex_for_icons(int index, PickingModel &model)
     ExPolygon poly;
     auto  bed_ext  = get_extents(m_shape);
     Vec2d p        = bed_ext[2];
-    auto  factor   = bed_ext.size()(1) / 200.0;
+    float factor   = icon_scale_factor();
     float size     = PARTPLATE_ICON_SIZE     * factor;
     float gap_left = PARTPLATE_ICON_GAP_LEFT * factor;
     float gap_y    = PARTPLATE_ICON_GAP_Y    * factor;
@@ -2584,7 +2595,7 @@ void PartPlate::generate_plate_name_texture()
     ExPolygon poly;
     auto  bed_ext  = get_extents(m_shape);
     Vec2d p        = bed_ext[3];
-    float factor   = bed_ext.size()(1) / 200.0;
+    float factor   = icon_scale_factor();
     float icon_sz  = factor * PARTPLATE_EDIT_PLATE_NAME_ICON_SIZE;
     float width    = icon_sz * m_name_texture.get_width() / m_name_texture.get_height(); // icon size * text_bb_ratio
     float height   = icon_sz; // scale with icon size to preserve ratio while system scaling
