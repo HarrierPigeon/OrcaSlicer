@@ -1661,8 +1661,18 @@ void GCodeViewer::load_as_gcode(const GCodeProcessorResult& gcode_result, const 
     m_paths_bounding_box = BoundingBoxf3(libvgcode::convert(bbox[0]).cast<double>(), libvgcode::convert(bbox[1]).cast<double>());
     m_max_bounding_box = m_paths_bounding_box;
 
-    if (wxGetApp().is_editor())
-        m_contained_in_bed = wxGetApp().plater()->build_volume().all_paths_inside(gcode_result, m_paths_bounding_box);
+    if (wxGetApp().is_editor()) {
+        if (is_belt) {
+            // The moves are machine-frame coordinates (Z is belt travel), so the per-move
+            // test inside all_paths_inside() can never pass on a belt. Judge the
+            // back-transformed box instead, with room for the designed view's min-corner
+            // anchor, which is only accurate to a fraction of a millimetre.
+            BoundingBoxf3 bed = wxGetApp().plater()->build_volume().bounding_volume();
+            bed.offset(1.);
+            m_contained_in_bed = !m_paths_bounding_box.defined || (bed.contains(m_paths_bounding_box.min) && bed.contains(m_paths_bounding_box.max));
+        } else
+            m_contained_in_bed = wxGetApp().plater()->build_volume().all_paths_inside(gcode_result, m_paths_bounding_box);
+    }
 
     m_extruders_count = gcode_result.filaments_count;
 
