@@ -89,6 +89,7 @@
 #include <algorithm>
 #include <cmath>
 #include <chrono>
+#include <Eigen/Geometry>
 #include "libslic3r/AppConfig.hpp"
 #include "libslic3r/BoundingBox.hpp"
 #include "libslic3r/CutUtils.hpp"

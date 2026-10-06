@@ -1,4 +1,5 @@
 #include "MachineKinematics.hpp"
+#include "../Point.hpp"
 
 namespace Slic3r {
 

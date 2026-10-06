@@ -4,6 +4,7 @@
 #include "MachineKinematics.hpp"
 #include "BeltBackTransform.hpp"
 #include "MachineFrameTransform.hpp"
+#include "../Point.hpp"
 
 namespace Slic3r {
 

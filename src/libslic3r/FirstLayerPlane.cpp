@@ -1,5 +1,9 @@
 #include "FirstLayerPlane.hpp"
 #include "BeltTransform.hpp"
+#include "BoundingBox.hpp"
+#include "Point.hpp"
+#include "PrintConfig.hpp"
+#include "libslic3r.h"
 
 #include <algorithm>
 #include <climits>

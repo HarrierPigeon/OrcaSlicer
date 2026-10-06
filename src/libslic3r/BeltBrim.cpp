@@ -8,8 +8,22 @@
 #include "Print.hpp"
 #include "ShortestPath.hpp"
 #include "Support/BeltFloorContext.hpp"
+#include "BoundingBox.hpp"
+#include "ExPolygon.hpp"
+#include "ExtrusionEntity.hpp"
+#include "ExtrusionEntityCollection.hpp"
+#include "Point.hpp"
+#include "Polyline.hpp"
+#include "PrintConfig.hpp"
+#include "libslic3r.h"
 
 #include <algorithm>
+#include <cmath>
+#include <cstddef>
+#include <cstdint>
+#include <cstdlib>
+#include <utility>
+#include <vector>
 
 namespace Slic3r {
 

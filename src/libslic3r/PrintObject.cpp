@@ -83,6 +83,7 @@
 #include "Fill/Lightning/Generator.hpp"
 #include "SurfaceCollection.hpp"
 #include "TriangleMesh.hpp"
+#include "BeltBrim.hpp"
 
 namespace Slic3r { enum class EnforcerBlockerType : int8_t; }
 

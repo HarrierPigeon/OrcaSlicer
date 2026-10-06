@@ -7,6 +7,8 @@
 #include "libslic3r/ExtrusionEntity.hpp"
 #include "SupportLayer.hpp"
 #include "SupportParameters.hpp"
+#include "../Point.hpp"
+#include "../libslic3r.h"
 #include <utility>
 #include <algorithm>
 #include <vector>

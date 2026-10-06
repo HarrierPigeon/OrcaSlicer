@@ -48,8 +48,10 @@
 #include <cfloat>
 #include <vector>
 #include <utility>
+#include <cmath>
 #include "BoundingBox.hpp"
 #include "Polyline.hpp"
+#include "BeltBrim.hpp"
 
 namespace Slic3r { class ExtrusionEntityCollection; }
 

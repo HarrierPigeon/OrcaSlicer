@@ -5,6 +5,9 @@
 #include "../Polygon.hpp"
 #include "../Slicing.hpp"
 #include "../PrintConfig.hpp"
+#include <cstddef>
+#include <functional>
+#include <vector>
 
 namespace Slic3r {
 

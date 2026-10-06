@@ -38,7 +38,10 @@
 #include "libslic3r/LifecycleEvents.hpp"
 #include <optional>
 #include "libslic3r/Geometry.hpp"
+#include "libslic3r/BoundingBox.hpp"
+#include "libslic3r/Config.hpp"
 #include <cmath>
+#include <string>
 
 #define SAVE_ARRANGE_POLY 0
 

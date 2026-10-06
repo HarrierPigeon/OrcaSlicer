@@ -1,7 +1,16 @@
 #include "BeltTransform.hpp"
 #include "Model.hpp"
+#include "BoundingBox.hpp"
+#include "Config.hpp"
+#include "Geometry.hpp"
+#include "Point.hpp"
+#include "PrintConfig.hpp"
+#include "libslic3r.h"
 
 #include <limits>
+#include <algorithm>
+#include <cmath>
+#include <cstdlib>
 
 namespace Slic3r {
 

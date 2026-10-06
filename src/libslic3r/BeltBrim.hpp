@@ -5,6 +5,7 @@
 #include "ExtrusionEntityCollection.hpp"
 #include "Point.hpp"
 #include "Polyline.hpp"
+#include "libslic3r.h"
 
 #include <cmath>
 #include <vector>

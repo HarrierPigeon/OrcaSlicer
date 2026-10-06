@@ -6,6 +6,7 @@
 #include <string>
 #include <vector>
 #include <utility>
+#include <memory>
 #define calib_pressure_advance_dd
 
 #include "GCodeWriter.hpp"

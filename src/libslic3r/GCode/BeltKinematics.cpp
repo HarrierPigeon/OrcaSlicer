@@ -2,6 +2,8 @@
 #include "../BeltTransform.hpp"
 #include "../PrintConfig.hpp"
 #include "../GCodeWriter.hpp"
+#include "../Point.hpp"
+#include <memory>
 
 namespace Slic3r {
 

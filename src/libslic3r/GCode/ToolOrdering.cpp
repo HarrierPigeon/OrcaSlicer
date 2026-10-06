@@ -18,6 +18,7 @@
 #include "Utils.hpp"
 #include "format.hpp"
 #include "I18N.hpp"
+#include "../BeltBrim.hpp"
 
 #include <boost/log/trivial.hpp>
 #include <vector>

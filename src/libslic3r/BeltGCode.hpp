@@ -1,6 +1,8 @@
 #pragma once
 
 #include "GCode.hpp"
+#include "Point.hpp"
+#include "Print.hpp"
 
 namespace Slic3r {
 

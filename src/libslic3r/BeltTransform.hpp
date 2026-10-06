@@ -5,6 +5,7 @@
 #include "BoundingBox.hpp"
 #include "PrintConfig.hpp"
 #include "Geometry.hpp"
+#include "Config.hpp"
 
 #include <cmath>
 

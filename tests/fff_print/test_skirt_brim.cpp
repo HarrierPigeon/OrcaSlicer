@@ -30,6 +30,9 @@
 #include <map>
 #include <set>
 #include <sstream>
+#include <boost/algorithm/string/predicate.hpp>
+#include <initializer_list>
+#include <utility>
 
 #include "test_helpers.hpp" // get access to init_print, etc
 #include "libslic3r/BoundingBox.hpp"
@@ -38,6 +41,10 @@
 #include "libslic3r/ExtrusionEntityCollection.hpp"
 #include "libslic3r/ObjectID.hpp"
 #include "libslic3r/Print.hpp"
+#include "libslic3r/BeltBrim.hpp"
+#include "libslic3r/Config.hpp"
+#include "libslic3r/ExtrusionEntity.hpp"
+#include "libslic3r/TriangleMesh.hpp"
 
 using namespace Slic3r::Test;
 using namespace Slic3r;

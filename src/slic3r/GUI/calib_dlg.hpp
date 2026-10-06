@@ -17,6 +17,7 @@
 #include <wx/checklst.h>
 #include <wx/event.h>
 #include <wx/radiobox.h>
+#include <wx/sizer.h>
 #include "libslic3r/calib.hpp"
 
 namespace Slic3r { namespace GUI {

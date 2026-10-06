@@ -106,6 +106,7 @@
 #include "Format/STEP.hpp"
 #include "PlaceholderParser.hpp"
 #include "SurfaceCollection.hpp"
+#include "BeltBrim.hpp"
 
 namespace fs = boost::filesystem;
 

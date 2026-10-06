@@ -27,12 +27,19 @@
 #include "format.hpp"
 #include "LocalesUtils.hpp"
 #include "libslic3r.h"
+#include "BeltBrim.hpp"
+#include "PrintBase.hpp"
 
 #include <algorithm>
 #include <cmath>
 #include <limits>
 
 #include <boost/log/trivial.hpp>
+#include <cassert>
+#include <cstddef>
+#include <functional>
+#include <utility>
+#include <vector>
 
 namespace Slic3r {
 

@@ -3,6 +3,10 @@
 #include "GCode/BeltKinematics.hpp"
 #include "BeltTransform.hpp"
 #include "Print.hpp"
+#include "Point.hpp"
+#include "PrintConfig.hpp"
+#include "libslic3r.h"
+#include <cstdlib>
 
 namespace Slic3r {
 

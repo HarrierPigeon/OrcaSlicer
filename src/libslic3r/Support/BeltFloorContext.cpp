@@ -1,7 +1,15 @@
 #include "BeltFloorContext.hpp"
+#include "../Point.hpp"
+#include "../Polygon.hpp"
+#include "../PrintConfig.hpp"
+#include "../Slicing.hpp"
+#include "../libslic3r.h"
 
 #include <cmath>
 #include <limits>
+#include <cstddef>
+#include <functional>
+#include <vector>
 
 namespace Slic3r {
 

@@ -1,5 +1,7 @@
 #include "BeltBackTransform.hpp"
 #include "../BeltTransform.hpp"
+#include "../Point.hpp"
+#include "../PrintConfig.hpp"
 
 namespace Slic3r {
 

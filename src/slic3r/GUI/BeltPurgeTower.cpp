@@ -13,6 +13,9 @@
 #include "libslic3r/TriangleMesh.hpp"
 #include "libslic3r/Geometry.hpp"
 #include "libslic3r/BoundingBox.hpp"
+#include "libslic3r/Config.hpp"
+#include "libslic3r/Point.hpp"
+#include "libslic3r/libslic3r.h"
 
 #include <algorithm>
 #include <cmath>
@@ -21,6 +24,10 @@
 #include <vector>
 
 #include <boost/log/trivial.hpp>
+#include <cstddef>
+#include <math.h>
+#include <string>
+#include <utility>
 
 namespace Slic3r {
 namespace GUI {

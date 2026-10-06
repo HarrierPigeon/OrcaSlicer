@@ -39,6 +39,8 @@
 
 #if BOOST_VERSION >= 107800
 #include <boost/timer/timer.hpp>
+#include <algorithm>
+#include <cmath>
 #else
 #include <boost/timer.hpp>
 #endif

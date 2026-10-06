@@ -1,5 +1,8 @@
 #include "MachineFrameTransform.hpp"
 #include "../Geometry.hpp"
+#include "../Point.hpp"
+#include "../PrintConfig.hpp"
+#include "../libslic3r.h"
 
 #include <cmath>
 

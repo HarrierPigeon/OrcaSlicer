@@ -1,9 +1,21 @@
 #include <catch2/catch_all.hpp>
+#include <algorithm>
+#include <catch2/catch_test_macros.hpp>
+#include <catch2/generators/catch_generators.hpp>
+#include <catch2/matchers/catch_matchers.hpp>
+#include <catch2/matchers/catch_matchers_floating_point.hpp>
+#include <cmath>
+#include <cstddef>
+#include <cstdlib>
+#include <utility>
+#include <vector>
 
 #include "libslic3r/BeltBrim.hpp"
 #include "libslic3r/BoundingBox.hpp"
 #include "libslic3r/ClipperUtils.hpp"
 #include "libslic3r/ExPolygon.hpp"
+#include "libslic3r/Polygon.hpp"
+#include "libslic3r/libslic3r.h"
 
 using namespace Slic3r;
 

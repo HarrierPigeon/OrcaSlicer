@@ -30,6 +30,7 @@
 #include "slic3r/GUI/Jobs/UpgradeNetworkJob.hpp"
 #include "slic3r/GUI/HttpServer.hpp"
 #include "../Utils/PrintHost.hpp"
+#include "libslic3r/Point.hpp"
 
 #include <vector>
 #include <utility>

@@ -1,7 +1,11 @@
 #include "BeltSliceStrategy.hpp"
 #include "Model.hpp"
+#include "BeltTransform.hpp"
+#include "Point.hpp"
+#include "PrintConfig.hpp"
 
 #include <limits>
+#include <algorithm>
 
 namespace Slic3r {
 

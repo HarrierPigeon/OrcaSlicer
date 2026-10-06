@@ -33,6 +33,7 @@
 #include <sstream>
 #include <stdexcept>
 #include <math.h>
+#include <memory>
 
 #ifdef __APPLE__
     #include <boost/spirit/include/karma.hpp>

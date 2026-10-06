@@ -17,6 +17,7 @@
 #include "slic3r/GUI/GUI.hpp"
 #include "libslic3r/libslic3r.h"
 #include "slic3r/GUI/Field.hpp"
+#include "libslic3r/BeltBrim.hpp"
 #include <cstdlib>
 #include <set>
 #include <map>

@@ -23,9 +23,11 @@
 #include "libslic3r/GCode/SeamPlacer.hpp"
 #include "libslic3r/GCodeReader.hpp"
 #include "libslic3r/TriangleMesh.hpp"
+#include "libslic3r/ExPolygon.hpp"
 #include <cstddef>
 #include <string>
 #include <string_view>
+#include <cstdlib>
 
 using namespace Slic3r;
 
