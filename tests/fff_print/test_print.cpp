@@ -1395,7 +1395,7 @@ TEST_CASE("Belt supports reach the belt under a leading overhang", "[Print][belt
         REQUIRE(lowest != nullptr);
         double floor_under_lowest = std::numeric_limits<double>::max();
         for (const ExtrusionEntity *entity : lowest->support_fills.flatten().entities)
-            for (const Polyline &pl : entity->as_polylines())
+            for (const Slic3r::Polyline &pl : entity->as_polylines())
                 for (const Point &pt : pl.points)
                     floor_under_lowest = std::min(floor_under_lowest, floor.floor_print_z(pt));
         // The object's lowest geometry.  The slicing frame starts at the lowest
