@@ -3927,18 +3927,13 @@ TreeSupportData::TreeSupportData(const PrintObject &object, coordf_t xy_distance
             poly.simplify(scale_(m_radius_sample_resolution), &outline);
         }
 
-        // Belt floor: add belt surface polygon to layer outlines so the
-        // collision system treats the belt as a physical surface.
-        {
-            BeltFloorContext ctx;
-            double local_print_z = layer->print_z - object.belt_global_z_offset();
-            if (ctx.init_local(object.slicing_parameters(), object.print()->config(),
-                               object.belt_global_z_offset())) {
-                Polygons belt_surface = ctx.surface_polygon(local_print_z);
-                for (auto &p : belt_surface)
-                    outline.emplace_back(ExPolygon(p));
-            }
-        }
+        // The belt surface is deliberately NOT part of the outlines.  The outlines
+        // feed the collision and avoidance maps, and a node descending onto an
+        // obstacle is pushed out of it: with the belt as an obstacle the nodes slid
+        // down the tilted surface, ahead of the part, instead of landing on it.  The
+        // belt is where a branch ENDS: drop_nodes() stops a node once its whole
+        // circle is in the belt (belt_node_landed()) and draw_circles() clips every
+        // layer's circles to the belt plane, so the branch tapers to a tip on it.
 
         if (layer_nr == 0)
             m_layer_outlines_below.push_back(outline);
