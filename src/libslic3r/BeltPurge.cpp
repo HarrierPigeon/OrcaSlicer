@@ -255,6 +255,31 @@ void Print::_plan_belt_purge()
     for (PrintObject *po : m_objects)
         if (po->config().belt_purge_tower_object.value && !po->layers().empty()) { prism_po = po; break; }
 
+    // The prism layer directly beneath the first purge keeps its fills (the plastic
+    // saving below skips it), so the first purge is laid onto a full layer instead of
+    // bridging the hollow walls of the layers before it.  It is printed with whatever
+    // filament is loaded on that layer, like the prism's walls (ensure_perimeters_
+    // infills_order() overrides the prism's extrusions), so it costs no tool change.
+    // The first purge is the first filament change, as the marking loop below sees
+    // them, at a height where the prism has a layer to take it.
+    const Layer *solid_base = nullptr;
+    if (prism_po != nullptr) {
+        unsigned int cur_ext = m_wipe_tower_data.tool_ordering.first_extruder();
+        for (const auto &lt : m_wipe_tower_data.tool_ordering.layer_tools()) {
+            for (const unsigned int e : lt.extruders) {
+                if (e == cur_ext)
+                    continue;
+                cur_ext = e;
+                if (const Layer *first_purge = prism_po->get_layer_at_printz(lt.print_z, EPSILON)) {
+                    solid_base = first_purge->lower_layer;
+                    break;
+                }
+            }
+            if (solid_base != nullptr)
+                break;
+        }
+    }
+
     float  total_leftover      = 0.f;
     float  worst_layer_leftover = 0.f;
     double worst_layer_z       = 0.;
@@ -275,7 +300,7 @@ void Print::_plan_belt_purge()
         }
 
         // Plastic saving: drop the prism's fills that no toolchange on this layer
-        // claimed. At this point the prism's OVERRIDDEN fills are exactly the
+        // claimed (except on the solid base beneath the first purge). At this point the prism's OVERRIDDEN fills are exactly the
         // purge; the rest would print as solid infill in the prism's own filament
         // for nothing -- which is the whole prism on a layer with no toolchange
         // (141 of 692 layers on MCTEST5 before the truncation fix). Perimeters are
@@ -287,10 +312,12 @@ void Print::_plan_belt_purge()
         // later tool ordering needed what this one had not claimed -- that is why
         // it was removed rather than kept.
         if (prism_po != nullptr) {
-            const auto &we = layer_tools.wiping_extrusions();
-            prism_po->belt_drop_unclaimed_fills(
-                prism_po->get_layer_at_printz(layer_tools.print_z, EPSILON),
-                [&we, prism_po](const ExtrusionEntity *e) { return we.is_entity_overridden(e, prism_po, 0); });
+            Layer *prism_layer = prism_po->get_layer_at_printz(layer_tools.print_z, EPSILON);
+            if (prism_layer != solid_base) {
+                const auto &we = layer_tools.wiping_extrusions();
+                prism_po->belt_drop_unclaimed_fills(
+                    prism_layer, [&we, prism_po](const ExtrusionEntity *e) { return we.is_entity_overridden(e, prism_po, 0); });
+            }
         }
 
         layer_tools.wiping_extrusions().ensure_perimeters_infills_order(*this);

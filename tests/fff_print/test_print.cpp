@@ -37,6 +37,7 @@
 #include <limits>
 #include <cmath>
 #include <map>
+#include <cctype>
 #include "libslic3r/Polygon.hpp"
 #include "libslic3r/Model.hpp"
 #include "libslic3r/GCodeReader.hpp"
@@ -1171,6 +1172,127 @@ TEST_CASE("A support-only change on a belt purge print matches a fresh slice", "
     // Support only: posSlice stays valid, posSupportMaterial reruns.
     print.apply(model, make_config(true));
     CHECK(gcode_body(gcode(print)) == fresh);
+}
+
+// The purge prism prints only its walls on layers without a filament change: the
+// planner drops every fill no purge claimed.  The layer directly beneath the first
+// purge keeps its fills, so the first purge is laid onto a full layer instead of
+// bridging the hollow walls before it, and it is printed with the filament that is
+// already loaded, so it costs no tool change.
+TEST_CASE("Belt purge tower is solid beneath the first purge", "[Print][belt][PurgeTower]")
+{
+    DynamicPrintConfig config = multifilament_config(2, {
+        { "belt_printer",               1 },
+        { "belt_slice_rotation",        "x" },
+        { "belt_slice_rotation_angle",  45 },
+        { "gcode_remap_x",              "rev_x" },
+        { "gcode_remap_y",              "pos_z" },
+        { "gcode_remap_z",              "pos_y" },
+        { "layer_height",               0.2 },
+        { "initial_layer_print_height", 0.2 },
+        { "skirt_loops",                0 },
+        { "z_hop",                      0 },
+        { "enable_belt_purge_tower",    1 },
+        { "gcode_label_objects",        1 },
+        { "machine_start_gcode",        "T[initial_tool]\n" },
+        { "layer_change_gcode",         "G92 E0\n" },
+    });
+    // A part near the start of the belt and one on the other filament further along
+    // it, so the first filament change comes partway into the print and the prism has
+    // hollow layers before it.  The prism is on filament 1.  With the first part on
+    // filament 2, the filament loaded beneath the first purge is not the prism's own,
+    // so the solid layer has to be printed in filament 2: printed in its own filament
+    // it would add a tool change of its own, which moves the first change found below
+    // onto the solid layer and fails the checks.
+    const int first_part_filament = GENERATE(1, 2);
+    CAPTURE(first_part_filament);
+    const std::vector<std::vector<Slic3r::ConfigBase::SetDeserializeItem>> overrides {
+        { { "extruder", first_part_filament } }, { { "extruder", 3 - first_part_filament } }, { { "extruder", 1 } },
+    };
+    Print print;
+    Model model;
+    init_print(std::vector<TriangleMesh>{ cube(20), cube(20), make_cube(10., 160., 10.) }, print, model, config, &overrides);
+    model.objects[0]->instances.front()->set_offset(Vec3d(50., 40., 0.));
+    model.objects[1]->instances.front()->set_offset(Vec3d(50., 120., 0.));
+    // The prism, set up the way the GUI generator sets it up (BeltPurgeTower.cpp).
+    ModelObject *prism = model.objects[2];
+    prism->name = "Belt Purge Tower";
+    prism->instances.front()->set_offset(Vec3d(130., 100., 0.));
+    prism->config.set_key_value("belt_purge_tower_object", new ConfigOptionBool(true));
+    prism->config.set_key_value("flush_into_objects", new ConfigOptionBool(true));
+    prism->config.set_key_value("wall_loops", new ConfigOptionInt(1));
+    prism->config.set_key_value("top_shell_layers", new ConfigOptionInt(0));
+    prism->config.set_key_value("bottom_shell_layers", new ConfigOptionInt(0));
+    prism->config.set_key_value("sparse_infill_density", new ConfigOptionPercent(100));
+    prism->config.set_key_value("sparse_infill_pattern", new ConfigOptionEnum<InfillPattern>(ipRectilinear));
+    prism->config.set_key_value("brim_type", new ConfigOptionEnum<BrimType>(btNoBrim));
+    print.apply(model, config);
+    REQUIRE(print.has_belt_purge_tower());
+    const std::string gc = gcode(print);
+    REQUIRE(! gc.empty());
+
+    // The layer of the first filament change in the G-code (a switch away from a tool
+    // that has extruded, not the selection before the first extrusion), and the prism's
+    // infill printed per layer.
+    int    current_tool = -1, extruding_tool = -1;
+    double cur_z = 0., first_change_z = -1.;
+    bool   in_prism = false, in_infill = false;
+    std::map<long, int> prism_infill_moves;   // by print_z in microns
+    GCodeReader reader;
+    reader.apply_config(config);
+    reader.parse_buffer(gc, [&](GCodeReader &self, const GCodeReader::GCodeLine &line) {
+        const std::string &raw = line.raw();
+        if (raw.rfind(";Z:", 0) == 0) {
+            cur_z = std::atof(raw.c_str() + 3);
+        } else if (raw.rfind("; printing object Belt Purge Tower", 0) == 0) {
+            in_prism = true;
+        } else if (raw.rfind("; stop printing object", 0) == 0) {
+            in_prism = false;
+        } else if (raw.rfind(";TYPE:", 0) == 0) {
+            in_infill = raw.find("infill") != std::string::npos;
+        } else if (raw.size() >= 2 && raw[0] == 'T' && std::isdigit(static_cast<unsigned char>(raw[1]))) {
+            const int tool = std::atoi(raw.c_str() + 1);
+            if (extruding_tool >= 0 && tool != extruding_tool && first_change_z < 0.)
+                first_change_z = cur_z;
+            current_tool = tool;
+        } else if (line.extruding(self) && line.dist_XY(self) > EPSILON) {
+            extruding_tool = current_tool;
+            if (in_prism && in_infill)
+                ++ prism_infill_moves[std::lround(cur_z * 1000.)];
+        }
+    });
+    INFO("first filament change at z " << first_change_z);
+    REQUIRE(first_change_z > 0.);
+
+    const PrintObject *prism_object = nullptr;
+    for (const PrintObject *object : print.objects())
+        if (object->config().belt_purge_tower_object.value)
+            prism_object = object;
+    REQUIRE(prism_object != nullptr);
+    const Layer *first_purge = prism_object->get_layer_at_printz(first_change_z, EPSILON);
+    REQUIRE(first_purge != nullptr);
+    const Layer *solid_base = first_purge->lower_layer;
+    REQUIRE(solid_base != nullptr);
+    auto fill_count = [](const Layer &layer) {
+        size_t n = 0;
+        for (const LayerRegion *region : layer.regions())
+            n += region->fills.entities.size();
+        return n;
+    };
+    // The layer beneath the first purge keeps its fills and they are printed...
+    INFO("solid base z " << solid_base->print_z << ", fills " << fill_count(*solid_base));
+    CHECK(fill_count(*solid_base) > 0);
+    CHECK(prism_infill_moves[std::lround(solid_base->print_z * 1000.)] > 0);
+    // ...while the prism layers before it are still hollow (walls only).
+    size_t hollow = 0, below = 0;
+    for (const Layer *layer = solid_base->lower_layer; layer != nullptr; layer = layer->lower_layer) {
+        ++ below;
+        if (fill_count(*layer) == 0 && prism_infill_moves[std::lround(layer->print_z * 1000.)] == 0)
+            ++ hollow;
+    }
+    INFO("prism layers below the solid base " << below << ", hollow " << hollow);
+    CHECK(below > 10);
+    CHECK(hollow == below);
 }
 
 TEST_CASE("Organic tree supports place a support blocker at its own height above a raft", "[Print][Support][Regression]")
