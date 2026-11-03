@@ -3305,6 +3305,11 @@ void TabPrint::build()
         optgroup->append_single_option_line("enable_support", "support_settings_support");
         optgroup->append_single_option_line("support_type", "support_settings_support#type");
         optgroup->append_single_option_line("support_style", "support_settings_support#style");
+        // Support direction (lean), see libslic3r/Support/SupportDirection.hpp.
+        optgroup->append_single_option_line("support_direction", "support_settings_support#direction");
+        optgroup->append_single_option_line("support_direction_tilt", "support_settings_support#direction");
+        optgroup->append_single_option_line("support_direction_azimuth", "support_settings_support#direction");
+        optgroup->append_single_option_line("support_direction_max_lean", "support_settings_support#direction");
         optgroup->append_single_option_line("support_threshold_angle", "support_settings_support#threshold-angle");
         optgroup->append_single_option_line("support_threshold_overlap", "support_settings_support#threshold-overlap");
         optgroup->append_single_option_line("raft_first_layer_density", "support_settings_support#initial-layer-density");

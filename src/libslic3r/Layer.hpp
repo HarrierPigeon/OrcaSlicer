@@ -178,6 +178,10 @@ public:
     // BBS
     ExPolygons              loverhangs;
     BoundingBox             loverhangs_bbox;
+    // Shift every piece of geometry this layer holds (slices, regions, extrusions) by `shift` in
+    // place. Exactly invertible with -shift. Used to shear the object into the frame support is
+    // generated in, see Support/SupportDirection.hpp.
+    virtual void            translate(const Point &shift);
     size_t                  region_count() const { return m_regions.size(); }
     const LayerRegion*      get_region(int idx) const { return m_regions[idx]; }
     LayerRegion*            get_region(int idx) { return m_regions[idx]; }
@@ -322,6 +326,9 @@ public:
     size_t                      interface_id() const { return m_interface_id; }
 
     void simplify_support_extrusion_path() { this->simplify_support_entity_collection(&support_fills); }
+
+    // See Layer::translate(); also moves the support areas and extrusions.
+    void translate(const Point &shift) override;
 
 protected:
     friend class PrintObject;

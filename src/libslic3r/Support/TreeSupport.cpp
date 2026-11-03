@@ -700,11 +700,15 @@ TreeSupport::TreeSupport(PrintObject& object, const SlicingParameters &slicing_p
 }
 
 
+// The classic tree generator reads the object layers at their global print_z, which is
+// also the print_z the support lean sheared them at (Support/SupportDirection.hpp), so
+// the contexts below see the floor through that shear with no frame offset.
 double TreeSupport::belt_floor_print_z(const Point &pos_slicing) const
 {
     BeltFloorContext ctx;
     if (!ctx.init(m_slicing_params, *m_print_config))
         return -std::numeric_limits<double>::infinity();
+    ctx.set_lean(m_object->support_lean().slope, 0.);
     return ctx.floor_print_z(pos_slicing);
 }
 
@@ -713,7 +717,10 @@ bool TreeSupport::belt_node_landed(const Point &pos_slicing, double radius, doub
     BeltFloorContext ctx;
     if (!ctx.init(m_slicing_params, *m_print_config))
         return false;
-    return print_z <= ctx.floor_print_z(pos_slicing) - std::abs(ctx.shear_factor()) * std::max(0., radius);
+    ctx.set_lean(m_object->support_lean().slope, 0.);
+    // The floor's slope over the radius is taken in the frame the node lives in: with a
+    // lean that is the sheared frame, where the floor is flatter than the raw shear.
+    return print_z <= ctx.floor_print_z(pos_slicing) - std::abs(ctx.effective_shear_factor()) * std::max(0., radius);
 }
 
 bool TreeSupport::belt_polygon_landed(const ExPolygon &poly, double print_z) const
@@ -721,6 +728,7 @@ bool TreeSupport::belt_polygon_landed(const ExPolygon &poly, double print_z) con
     BeltFloorContext ctx;
     if (!ctx.init(m_slicing_params, *m_print_config))
         return false;
+    ctx.set_lean(m_object->support_lean().slope, 0.);
     double min_floor = std::numeric_limits<double>::max();
     for (const Point &pt : poly.contour.points)
         min_floor = std::min(min_floor, ctx.floor_print_z(pt));
@@ -761,10 +769,16 @@ void TreeSupport::detect_overhangs(bool check_support_necessity/* = false*/)
     double thresh_angle = config.support_threshold_angle.value > EPSILON ? config.support_threshold_angle.value + 1 : 30;
     thresh_angle = std::min(thresh_angle, 89.); // should be smaller than 90
     const double threshold_rad = Geometry::deg2rad(thresh_angle);
-    // Build plate tilt: compute per-layer XY shift for tilted gravity direction
+    // Build plate tilt: compute per-layer XY shift for tilted gravity direction.
+    // While a support lean is active (Support/SupportDirection.hpp) the layers are already
+    // held in a frame sheared along the support direction -- on a belt that is the gravity
+    // direction these per-layer shifts stand in for -- so both the tilt shift and the belt
+    // shift below are skipped to not count the tilt twice. The belt-surface union further
+    // down stays: it reads the (lean-aware) floor, not a per-layer shift.
     const PrintConfig& print_cfg = m_object->print()->config();
+    const bool   lean_active = m_object->support_lean().active();
     const Vec2d  tilt_slope = build_plate_tilt_slope(print_cfg);
-    const bool   has_tilt   = tilt_slope.cwiseAbs().maxCoeff() > EPSILON;
+    const bool   has_tilt   = tilt_slope.cwiseAbs().maxCoeff() > EPSILON && ! lean_active;
 
     // Belt printers: the object is pre-rotated by the belt angle before slicing, so a wall
     // that is vertical in the world advances by one layer height per layer in the sliced
@@ -774,6 +788,8 @@ void TreeSupport::detect_overhangs(bool check_support_necessity/* = false*/)
     // carries a magnitude but no direction. Non-belt tilted beds keep the existing behaviour.
     BeltFloorContext ovh_belt_ctx;
     const bool belt_ovh_active = ovh_belt_ctx.init(m_slicing_params, print_cfg);
+    ovh_belt_ctx.set_lean(m_object->support_lean().slope, 0.);
+    const bool   belt_ovh_shift = belt_ovh_active && ! lean_active;
     const double belt_shear    = ovh_belt_ctx.shear_factor();
     const int    belt_axis     = ovh_belt_ctx.from_axis();
     // FIXME this is a fudge constant!
@@ -930,11 +946,11 @@ void TreeSupport::detect_overhangs(bool check_support_necessity/* = false*/)
                 // conditioned on the nearest point of the *union* of the cross-section,
                 // let one contacting island silence a separate floating one.
                 ExPolygons shifted_lower;
-                if (belt_ovh_active || has_tilt) {
+                if (belt_ovh_shift || has_tilt) {
                     shifted_lower = lower_polys; // copy
                     const double lh = lower_layer->height;
                     Point tilt_shift(0, 0);
-                    if (belt_ovh_active) {
+                    if (belt_ovh_shift) {
                         // Advance the lower layer along the belt by exactly the amount a
                         // world-vertical wall moves per layer, so such a wall stops reading
                         // as an overhang. Sign comes from the shear, not from a tilt angle.
@@ -945,7 +961,7 @@ void TreeSupport::detect_overhangs(bool check_support_necessity/* = false*/)
                     }
                     translate(shifted_lower, tilt_shift);
                 }
-                ExPolygons effective_lower = (belt_ovh_active || has_tilt) ? shifted_lower : lower_polys;
+                ExPolygons effective_lower = (belt_ovh_shift || has_tilt) ? shifted_lower : lower_polys;
 
                 // Belt printers: material resting on the belt is held up by the belt, not by
                 // the layer below it, so the belt surface counts as support from underneath.
@@ -1658,6 +1674,7 @@ void TreeSupport::generate_toolpaths()
     // the belt floor is active; false on non-belt printers so behavior is unchanged.
     BeltFloorContext belt_ctx;
     const bool belt_floor_active = belt_ctx.init(m_slicing_params, *m_print_config);
+    belt_ctx.set_lean(m_object->support_lean().slope, 0.);
 
     // generate tree support tool paths
     tbb::parallel_for(
@@ -2183,6 +2200,7 @@ void TreeSupport::draw_circles()
     // so behavior there is unchanged.
     BeltFloorContext belt_ctx;
     const bool belt_floor_active = belt_ctx.init(m_slicing_params, *m_print_config);
+    belt_ctx.set_lean(m_object->support_lean().slope, 0.);
 
     if (m_object->support_layer_count() <= m_raft_layers)
         return;
@@ -2376,11 +2394,22 @@ void TreeSupport::draw_circles()
 
                 //m_object->print()->set_status(65, (boost::format( _u8L("Support: generate polygons at layer %d")) % layer_nr).str());
 
+                // Support lean: the machine border is one polygon for all heights, but while a
+                // lean is active the layers are held in a sheared frame, where the border at
+                // this height sits at shift_at(print_z) (Support/SupportDirection.hpp).
+                const ExPolygon *machine_border = &m_machine_border;
+                ExPolygon        machine_border_sheared;
+                if (m_object->support_lean().active()) {
+                    machine_border_sheared = m_machine_border;
+                    machine_border_sheared.translate(m_object->support_lean().shift_at(ts_layer->print_z));
+                    machine_border = &machine_border_sheared;
+                }
+
                 // join roof segments
                 roof_areas     = diff_clipped(closing_ex(roof_areas, line_width_scaled), get_collision(false));
-                roof_areas     = intersection_ex(roof_areas, m_machine_border);
+                roof_areas     = intersection_ex(roof_areas, *machine_border);
                 roof_base_areas = diff_clipped(closing_ex(roof_base_areas, line_width_scaled), get_collision(false));
-                roof_base_areas = intersection_ex(roof_base_areas, m_machine_border);
+                roof_base_areas = intersection_ex(roof_base_areas, *machine_border);
                 if (!roof_base_areas.empty() && !roof_areas.empty())
                     roof_base_areas = diff_ex(roof_base_areas,
                         ClipperUtils::clip_clipper_polygons_with_subject_bbox(roof_areas, get_extents(roof_base_areas)));
@@ -2391,12 +2420,12 @@ void TreeSupport::draw_circles()
 
                 // roof_1st_layer and roof_areas may intersect, so need to subtract roof_areas from roof_1st_layer
                 roof_1st_layer = diff_ex(roof_1st_layer, ClipperUtils::clip_clipper_polygons_with_subject_bbox(roof_areas,get_extents(roof_1st_layer)));
-                roof_1st_layer = intersection_ex(roof_1st_layer, m_machine_border);
+                roof_1st_layer = intersection_ex(roof_1st_layer, *machine_border);
 
                 ExPolygons roofs; append(roofs, roof_1st_layer); append(roofs, roof_areas);append(roofs, roof_gap_areas);
                 const BoundingBox base_bbox = get_extents(base_areas);
                 base_areas = diff_ex(union_overlapping_ex(std::move(base_areas)), ClipperUtils::clip_clipper_polygons_with_subject_bbox(roofs, base_bbox));
-                base_areas = intersection_ex(base_areas, m_machine_border);
+                base_areas = intersection_ex(base_areas, *machine_border);
 
                 // Belt floor: clip tree support polygons by the belt surface plane.
                 // Non-organic tree support layers inherit their print_z from the
@@ -2412,6 +2441,7 @@ void TreeSupport::draw_circles()
                 {
                     BeltFloorContext ctx;
                     if (ctx.init(m_slicing_params, *m_print_config)) {
+                        ctx.set_lean(m_object->support_lean().slope, 0.);
                         Polygons belt_surface = ctx.surface_polygon(ts_layer->print_z);
                         base_areas     = diff_ex(base_areas,     belt_surface);
                         roof_areas     = diff_ex(roof_areas,     belt_surface);

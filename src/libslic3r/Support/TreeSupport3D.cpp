@@ -244,9 +244,19 @@ static std::vector<std::pair<TreeSupportSettings, std::vector<size_t>>> group_me
     const bool               support_threshold_auto = support_threshold == 0;
     // +1 makes the threshold inclusive
     double                   tan_threshold          = support_threshold_auto ? 0. : tan(M_PI * double(support_threshold + 1) / 180.);
-    // Build plate tilt: compute per-layer XY shift for tilted gravity direction
+    // Build plate tilt: compute per-layer XY shift for tilted gravity direction.
+    // Skipped while a support lean is active (Support/SupportDirection.hpp): the layers are
+    // then already held in a frame sheared along the support direction, which on a belt is
+    // the gravity direction this shift stands in for, and shifting too would count it twice.
     const Vec2d              tilt_slope             = build_plate_tilt_slope(print_config);
-    const bool               has_tilt               = tilt_slope.cwiseAbs().maxCoeff() > EPSILON;
+    const bool               has_tilt               = tilt_slope.cwiseAbs().maxCoeff() > EPSILON && ! print_object.support_lean().active();
+    // Belt printers, while the support leans: the belt surface counts as support from underneath
+    // (the union classic tree support makes), else the belt-contact face -- flatter than the belt
+    // angle in the sheared frame -- reads as an overhang on every layer. Object layers carry
+    // global print_z here, the frame the lean was applied in, so no z offset.
+    BeltFloorContext         belt_ovh_ctx;
+    const bool               belt_lean_union        = print_object.support_lean().active() && belt_ovh_ctx.init(print_object.slicing_parameters(), print_config);
+    belt_ovh_ctx.set_lean(print_object.support_lean().slope, 0.);
     //FIXME this is a fudge constant!
     auto                     enforcer_overhang_offset = scaled<double>(config.tree_support_tip_diameter.value);
     const coordf_t radius_sample_resolution = g_config_tree_support_collision_resolution;
@@ -268,7 +278,7 @@ static std::vector<std::pair<TreeSupportSettings, std::vector<size_t>>> group_me
     size_t num_overhang_layers = support_auto ? num_object_layers : std::min(num_object_layers, std::max(size_t(support_enforce_layers), enforcers_layers.size()));
     tbb::parallel_for(tbb::blocked_range<LayerIndex>(1, num_overhang_layers),
         [&print_object, &config, &print_config, &enforcers_layers, &blockers_layers,
-         support_auto, support_enforce_layers, support_threshold_auto, tan_threshold, enforcer_overhang_offset, num_raft_layers, radius_sample_resolution, has_tilt, tilt_slope, &throw_on_cancel, &out]
+         support_auto, support_enforce_layers, support_threshold_auto, tan_threshold, enforcer_overhang_offset, num_raft_layers, radius_sample_resolution, has_tilt, tilt_slope, &belt_ovh_ctx, belt_lean_union, &throw_on_cancel, &out]
         (const tbb::blocked_range<LayerIndex> &range) {
         for (LayerIndex layer_id = range.begin(); layer_id < range.end(); ++ layer_id) {
             const Layer   &current_layer  = *print_object.get_layer(layer_id);
@@ -294,9 +304,24 @@ static std::vector<std::pair<TreeSupportSettings, std::vector<size_t>>> group_me
                     lower_layer_offset = scaled<float>(lower_layer.height / tan_threshold);
                 // Apply build plate tilt: shift lower layer polygons to simulate tilted gravity
                 Polygons lower_layer_offseted;
-                if (has_tilt) {
+                if (has_tilt || belt_lean_union) {
                     Polygons lower_src = to_polygons(lower_layer.lslices_extrudable);
-                    translate(lower_src, Point::new_scale(tilt_slope * lower_layer.height));
+                    if (has_tilt)
+                        translate(lower_src, Point::new_scale(tilt_slope * lower_layer.height));
+                    if (belt_lean_union) {
+                        // Bottom of the layer, clipped to the layer: see the declaration above.
+                        Polygons belt_surface = belt_ovh_ctx.surface_polygon(current_layer.print_z - current_layer.height);
+                        if (! belt_surface.empty()) {
+                            BoundingBox clip_bb = get_extents(current_layer.lslices_extrudable);
+                            clip_bb.merge(get_extents(lower_src));
+                            clip_bb.offset(scale_(10.));
+                            belt_surface = intersection(belt_surface, Polygons{ clip_bb.polygon() });
+                            if (! belt_surface.empty()) {
+                                append(lower_src, belt_surface);
+                                lower_src = union_(lower_src);
+                            }
+                        }
+                    }
                     lower_layer_offseted = offset(lower_src, lower_layer_offset);
                 } else {
                     lower_layer_offseted = offset(lower_layer.lslices_extrudable, lower_layer_offset);
@@ -3722,6 +3747,8 @@ static void generate_support_areas(Print &print, TreeSupport* tree_support, cons
             const auto &pcfg = print_object.print()->config();
             BeltFloorContext ctx;
             ctx.init_local(sp, pcfg, print_object.belt_global_z_offset());
+            // Local print_z here, global print_z when the support lean sheared the layers.
+            ctx.set_lean(print_object.support_lean().slope, print_object.belt_global_z_offset());
             if (ctx.is_active()) {
                 tbb::parallel_for_each(layers_sorted.begin(), layers_sorted.end(), [&](SupportGeneratorLayer *layer) {
                     if (!layer || layer->polygons.empty())

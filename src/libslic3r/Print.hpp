@@ -15,6 +15,7 @@
 #include "Fill/AdaptiveInfillField.hpp"
 
 #include "BoundingBox.hpp"
+#include "Support/SupportDirection.hpp"
 #include "ExtrusionEntityCollection.hpp"
 #include "Flow.hpp"
 #include "Point.hpp"
@@ -380,6 +381,10 @@ public:
     // trafo_centered() with the belt pre-slice transforms applied: the frame the layers were sliced in (Layer::slice_z).
     // Equal to trafo_centered() unless a belt rotation or pre-slice remap is active.
     Transform3d                  trafo_sliced() const;
+    // The support lean in effect WHILE this object's support is being generated (the layers are
+    // sheared for that duration, see Support/SupportDirection.hpp). Inactive at any other time, so
+    // readers outside support generation always see plain slice-frame geometry.
+    const SupportLean&           support_lean() const   { return m_support_lean; }
     const PrintInstances&        instances() const      { return m_instances; }
     // Orca: Bounding box of each connected body, indexed by Layer::lslices_separated_component_ids.
     const std::vector<BoundingBox>& separated_body_bboxes() const { return m_separated_body_bboxes; }
@@ -560,6 +565,7 @@ public:
   private:
     // to be called from Print only.
     friend class Print;
+    friend class ScopedSupportShear;
 
 	PrintObject(Print* print, ModelObject* model_object, const Transform3d& trafo, PrintInstances&& instances);
 	~PrintObject();
@@ -737,6 +743,8 @@ private:
     // posSlice is invalidated.
     double                                  m_belt_floor_z_shift_cached { 0.0 };
     bool                                    m_belt_floor_z_shift_cache_valid { false };
+    // See support_lean(). Set and cleared by ScopedSupportShear only.
+    SupportLean                             m_support_lean;
 public:
     double belt_global_z_offset() const { return m_belt_global_z_offset; }
 private:

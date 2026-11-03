@@ -393,6 +393,14 @@ inline bool is_auto(SupportType stype)
     return std::set<SupportType>{stNormalAuto, stTreeAuto}.count(stype) != 0;
 };
 
+// The direction support columns grow along, independent of the layer normal (see
+// Support/SupportDirection.hpp). sdLayers: along the layer normal (stock behaviour). sdVertical:
+// the bed's +Z, whatever rotation the object is sliced at (on a belt printer: perpendicular to the
+// belt). sdCustom: the bed-frame direction given by support_direction_tilt / _azimuth.
+enum SupportDirection {
+    sdLayers, sdVertical, sdCustom
+};
+
 enum SeamPosition {
     spNearest, spAligned, spAlignedBack, spRear, spRandom
 };
@@ -813,6 +821,7 @@ CONFIG_OPTION_ENUM_DECLARE_STATIC_MAPS(SupportMaterialStyle)
 CONFIG_OPTION_ENUM_DECLARE_STATIC_MAPS(SupportMaterialInterfacePattern)
 // BBS
 CONFIG_OPTION_ENUM_DECLARE_STATIC_MAPS(SupportType)
+CONFIG_OPTION_ENUM_DECLARE_STATIC_MAPS(SupportDirection)
 CONFIG_OPTION_ENUM_DECLARE_STATIC_MAPS(SeamPosition)
 CONFIG_OPTION_ENUM_DECLARE_STATIC_MAPS(SeamScarfType)
 CONFIG_OPTION_ENUM_DECLARE_STATIC_MAPS(SLADisplayOrientation)
@@ -1317,6 +1326,11 @@ PRINT_CONFIG_CLASS_DEFINE(
     ((ConfigOptionBool,                enable_support))
     // Automatic supports (generated based on support_threshold_angle).
     ((ConfigOptionEnum<SupportType>,   support_type))
+    // See SupportDirection. Tilt/azimuth are bed-frame degrees, read only for sdCustom.
+    ((ConfigOptionEnum<SupportDirection>, support_direction))
+    ((ConfigOptionFloat,               support_direction_tilt))
+    ((ConfigOptionFloat,               support_direction_azimuth))
+    ((ConfigOptionFloat,               support_direction_max_lean))
     // Direction of the support pattern (in XY plane).`
     ((ConfigOptionFloat,               support_angle))
     ((ConfigOptionBool,                support_on_build_plate_only))

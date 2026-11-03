@@ -485,6 +485,13 @@ static t_config_enum_values s_keys_map_SupportType{
 };
 CONFIG_OPTION_ENUM_DEFINE_STATIC_MAPS(SupportType)
 
+static t_config_enum_values s_keys_map_SupportDirection{
+    { "layers",   sdLayers },
+    { "vertical", sdVertical },
+    { "custom",   sdCustom }
+};
+CONFIG_OPTION_ENUM_DEFINE_STATIC_MAPS(SupportDirection)
+
 static t_config_enum_values s_keys_map_SeamPosition {
     { "nearest",        spNearest },
     { "aligned",        spAligned },
@@ -7336,6 +7343,65 @@ void PrintConfigDef::init_fff_params()
     def->enum_labels.push_back(L("Tree (manual)"));
     def->mode = comSimple;
     def->set_default_value(new ConfigOptionEnum<SupportType>(stNormalAuto));
+
+    // Support direction, see SupportDirection in PrintConfig.hpp and Support/SupportDirection.hpp.
+    def = this->add("support_direction", coEnum);
+    // TRN Label of the setting that picks the direction support columns grow along.
+    def->label = L("Direction");
+    def->category = L("Support");
+    def->tooltip = L("The direction support grows along. \"Follow layers\" stacks support straight along the "
+                     "layer normal, as it always has. \"Vertical\" leans it towards the bed, i.e. along the bed's "
+                     "normal whatever rotation the object is sliced at: on a belt printer the support then grows "
+                     "perpendicular to the belt instead of along the tilted gantry. \"Custom\" leans it along the "
+                     "tilt and azimuth below. Support is generated as if the object were sheared so that direction "
+                     "is vertical, so overhangs are judged against it too. The lean away from the layer normal is "
+                     "limited by \"Max lean\".");
+    def->enum_keys_map = &ConfigOptionEnum<SupportDirection>::get_enum_values();
+    def->enum_values.push_back("layers");
+    def->enum_values.push_back("vertical");
+    def->enum_values.push_back("custom");
+    def->enum_labels.push_back(L("Follow layers"));
+    def->enum_labels.push_back(L("Vertical"));
+    def->enum_labels.push_back(L("Custom"));
+    def->mode = comAdvanced;
+    def->set_default_value(new ConfigOptionEnum<SupportDirection>(sdLayers));
+
+    def = this->add("support_direction_tilt", coFloat);
+    def->label = L("Direction tilt");
+    def->category = L("Support");
+    def->tooltip = L("Custom support direction: how far the direction tilts away from the bed's normal, in degrees. "
+                     "0 is vertical. Only used when Direction is \"Custom\".");
+    def->sidetext = u8"\u00B0";
+    def->min = 0;
+    def->max = 85;
+    def->mode = comAdvanced;
+    def->set_default_value(new ConfigOptionFloat(0));
+
+    def = this->add("support_direction_azimuth", coFloat);
+    def->label = L("Direction azimuth");
+    def->category = L("Support");
+    def->tooltip = L("Custom support direction: the compass heading in the bed's XY plane that a support column leans "
+                     "towards as it rises, in degrees. 0 is +X, 90 is +Y, counter-clockwise seen from above. Only used "
+                     "when Direction is \"Custom\".");
+    def->sidetext = u8"\u00B0";
+    def->min = -180;
+    def->max = 180;
+    def->mode = comAdvanced;
+    def->set_default_value(new ConfigOptionFloat(0));
+
+    def = this->add("support_direction_max_lean", coFloat);
+    def->label = L("Max lean");
+    def->category = L("Support");
+    def->tooltip = L("How far, in degrees, the support may lean away from the layer normal. A direction that would "
+                     "lean further keeps its heading and is pulled back to this angle. A leaning column overhangs "
+                     "itself by the lean angle, so values above 45 need tuning and test prints for the material and "
+                     "support settings in use, and slicing warns about them. On a belt printer a \"Vertical\" "
+                     "direction leans by the belt angle, which is why the default allows more than 45.");
+    def->sidetext = u8"\u00B0";
+    def->min = 0;
+    def->max = 85;
+    def->mode = comAdvanced;
+    def->set_default_value(new ConfigOptionFloat(60));
 
     def = this->add("support_object_xy_distance", coFloat);
     def->label = L("Support/object XY distance");

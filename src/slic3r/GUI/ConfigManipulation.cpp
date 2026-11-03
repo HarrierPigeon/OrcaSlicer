@@ -1068,6 +1068,17 @@ void ConfigManipulation::toggle_print_fff_options(DynamicPrintConfig *config, in
         "support_type", "support_on_build_plate_only", "support_critical_regions_only", "support_interface_not_for_body",
         "support_object_xy_distance", "support_object_first_layer_gap", "independent_support_layer_height"})
         toggle_field(el, have_support_material, -1, support_reason);
+    // Support direction: the tilt/azimuth angles only mean anything in "custom" mode and the
+    // lean limit only when the support does not simply follow the layers. Available on every
+    // printer; on a belt "vertical" resolves to the belt normal.
+    const SupportDirection support_direction = config->opt_enum<SupportDirection>("support_direction");
+    toggle_field("support_direction", have_support_material, -1, support_reason);
+    for (auto el : { "support_direction_tilt", "support_direction_azimuth" }) {
+        toggle_line(el, support_direction == sdCustom);
+        toggle_field(el, have_support_material, -1, support_reason);
+    }
+    toggle_line("support_direction_max_lean", support_direction != sdLayers);
+    toggle_field("support_direction_max_lean", have_support_material, -1, support_reason);
     toggle_field("support_threshold_angle", have_support_material && is_auto(support_type), -1,
                  !have_support_material ? support_reason : _L("Select an automatic support type to edit the threshold angle."));
     toggle_field("support_threshold_overlap", config->opt_int("support_threshold_angle") == 0 && have_support_material && is_auto(support_type), -1,

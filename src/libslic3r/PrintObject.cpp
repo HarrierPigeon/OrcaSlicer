@@ -23,6 +23,7 @@
 #include "SLA/IndexedMesh.hpp"
 #include "Support/SupportMaterial.hpp"
 #include "Support/SupportCommon.hpp"
+#include "Support/SupportDirection.hpp"
 #include "Support/SupportSpotsGenerator.hpp"
 #include "Support/TreeSupport.hpp"
 #include "Surface.hpp"
@@ -1020,7 +1021,23 @@ void PrintObject::generate_support_material(bool with_belt_brim)
         if ((this->has_support() && m_layers.size() > 1) || (this->has_raft() && !m_layers.empty())) {
             m_print->set_status(50, L("Generating support"));
 
-            this->_generate_support_material();
+            {
+                // Lean the support along the configured direction by generating it in a sheared
+                // frame. A no-op for the default "follow layers"; the scope puts the layers back
+                // before anything else reads them. See Support/SupportDirection.hpp.
+                ScopedSupportShear shear(*this);
+                if (shear.active() && shear.clamped())
+                    this->active_step_add_warning(PrintStateBase::WarningLevel::NON_CRITICAL,
+                        // TRN %1% is the object name, %2% the configured "Max lean" angle (the degree sign follows it).
+                        Slic3r::format(L("The support direction of object %1% is tilted more than %2%° away from its layers; the lean was limited to that angle (\"Max lean\")."),
+                                       this->model_object()->name, int(std::lround(m_config.support_direction_max_lean.value))));
+                if (shear.active() && shear.lean_deg() > SupportLean::safe_lean_deg() + EPSILON)
+                    this->active_step_add_warning(PrintStateBase::WarningLevel::NON_CRITICAL,
+                        // TRN %1% is the object name, %2% the lean angle in effect and %3% the angle beyond which support overhangs itself (the degree sign follows each).
+                        Slic3r::format(L("The support of object %1% leans %2%° away from its layers. Beyond %3%° the support overhangs itself; tune and test-print this before relying on it."),
+                                       this->model_object()->name, int(std::lround(shear.lean_deg())), int(std::lround(SupportLean::safe_lean_deg()))));
+                this->_generate_support_material();
+            }
             m_print->throw_if_canceled();
         }
         // Orca: the tree support collision/avoidance caches and support nodes are only used while this step runs
@@ -1629,6 +1646,10 @@ bool PrintObject::invalidate_state_by_config_options(
             || opt_key == "support_expansion"
             || opt_key == "independent_support_layer_height" // Orca
             || opt_key == "support_threshold_angle"
+            || opt_key == "support_direction"
+            || opt_key == "support_direction_tilt"
+            || opt_key == "support_direction_azimuth"
+            || opt_key == "support_direction_max_lean"
             || opt_key == "support_threshold_overlap"
             || opt_key == "support_ironing"
             || opt_key == "support_ironing_pattern"
@@ -5548,6 +5569,12 @@ void PrintObject::project_and_append_custom_facets(
                 }
             }
         }
+    // While support is generated in a sheared frame (Support/SupportDirection.hpp) the painted
+    // enforcers and blockers must follow the layers they are matched against. out is indexed 1:1
+    // with layers(). Same rule as slice_support_volumes().
+    if (! seam && m_support_lean.active())
+        for (size_t i = 0; i < out.size() && i < m_layers.size(); ++ i)
+            Slic3r::translate(out[i], m_support_lean.shift_at(m_layers[i]->print_z));
 }
 
 const Layer* PrintObject::get_layer_at_printz(coordf_t print_z) const {

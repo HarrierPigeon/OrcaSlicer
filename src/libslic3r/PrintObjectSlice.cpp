@@ -39,6 +39,7 @@
 #include "TriangleMeshSlicer.hpp"
 #include "TriangleMesh.hpp"
 #include "Slicing.hpp"
+#include "Support/SupportDirection.hpp"
 #include "Surface.hpp"
 #include "Utils.hpp"
 #include "libslic3r/Feature/Interlocking/InterlockingGenerator.hpp"
@@ -1796,6 +1797,11 @@ std::vector<Polygons> PrintObject::slice_support_volumes(const ModelVolumeType m
                         *to_merge[i] = union_(*to_merge[i]);
             });
         }
+        // While support is generated in a sheared frame (Support/SupportDirection.hpp) the painted
+        // volumes must follow the layers they are matched against. zs is indexed 1:1 with layers().
+        if (m_support_lean.active())
+            for (size_t i = 0; i < slices.size() && i < m_layers.size(); ++ i)
+                Slic3r::translate(slices[i], m_support_lean.shift_at(m_layers[i]->print_z));
     }
     return slices;
 }
