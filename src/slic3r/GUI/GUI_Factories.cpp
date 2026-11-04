@@ -120,7 +120,7 @@ std::map<std::string, std::vector<SimpleSettingData>>  SettingsFactory::OBJECT_C
                     {"support_interface_top_layers", "",26},{"support_interface_bottom_layers", "",27},{"support_interface_spacing", "",28},{"support_bottom_interface_spacing", "",29},
                     {"support_object_xy_distance", "",30}, {"bridge_no_support", "",31},{"max_bridge_length", "",32},{"support_critical_regions_only", "",33},{"support_remove_small_overhang","",34},
                     {"support_object_first_layer_gap","",35},
-                    {"support_direction", "",36}, {"support_direction_tilt", "",37}, {"support_direction_azimuth", "",38}, {"support_direction_max_lean", "",39}
+                    {"support_direction", "",36}, {"support_direction_tilt_x", "",37}, {"support_direction_tilt_y", "",38}, {"support_direction_max_lean", "",39}
                     }},
     { L("Speed"), {{"support_speed", "",12}, {"support_interface_speed", "",13}
                   }}

@@ -8,7 +8,7 @@ Support page, advanced) lets the column lean along a direction fixed in the prin
 |------------|-----------------------------------------------------------------------------------------------------------|
 | `layers`   | the layer normal (default, stock behaviour)                                                               |
 | `vertical` | the bed normal, +Z of the frame the object is placed in                                                   |
-| `custom`   | `support_direction_tilt` degrees away from the bed normal, leaning as it rises towards the heading `support_direction_azimuth` in the bed XY plane (0 = +X, 90 = +Y) |
+| `custom`   | the bed-frame direction given by `support_direction_tilt_x/y` (`Geometry::tilt_up_direction`), in the convention of the `build_plate_tilt_x/y` printer options: up = normalize(tan(tilt_y), tan(tilt_x), 1), so 0/0 is vertical and the same tilts as the build plate grow the support against the plate's gravity |
 
 `support_direction_max_lean` limits the lean in effect, whatever asked for it.
 
@@ -55,7 +55,8 @@ the 3D scene draws it as an arrow above each selected instance whose object lean
 - **Overhangs are judged against the support direction, not the layer normal.** In the sheared
   frame a face's inclination is its inclination relative to `u`. That is what makes `vertical`
   mean "support what would fall" on a belt.
-- **The lean is limited by `support_direction_max_lean`** (60° by default). A leaning column
+- **The lean is limited by `support_direction_max_lean`** (45° by default, which admits a 45° belt
+  exactly; a steeper belt needs a higher limit). A leaning column
   overhangs itself by exactly the lean angle, so past `SupportLean::safe_lean_deg()` (45°) it
   needs tuning and test prints, and generation warns. A direction beyond the limit keeps its
   azimuth and is pulled back to the limit, with a warning; a direction pointing straight down has

@@ -1647,8 +1647,8 @@ bool PrintObject::invalidate_state_by_config_options(
             || opt_key == "independent_support_layer_height" // Orca
             || opt_key == "support_threshold_angle"
             || opt_key == "support_direction"
-            || opt_key == "support_direction_tilt"
-            || opt_key == "support_direction_azimuth"
+            || opt_key == "support_direction_tilt_x"
+            || opt_key == "support_direction_tilt_y"
             || opt_key == "support_direction_max_lean"
             || opt_key == "support_threshold_overlap"
             || opt_key == "support_ironing"
@@ -5558,6 +5558,13 @@ void PrintObject::project_and_append_custom_facets(
                     std::vector<Polygons> projected;
                     // Support blockers or enforcers. Project downward facing painted areas upwards to their respective slicing plane.
                     slice_mesh_slabs(custom_facets, zs_from_layers(this->layers()), object_trafo * mv->get_matrix(), nullptr, &projected, vertical_points, [](){});
+                    // While support is generated in a sheared frame (Support/SupportDirection.hpp) the
+                    // painted areas must follow the layers they are matched against, same rule as
+                    // slice_support_volumes(). Only these new projections: `out` may already hold the
+                    // enforcer/blocker volumes, which slice_support_volumes() has shifted.
+                    if (m_support_lean.active())
+                        for (size_t i = 0; i < projected.size() && i < m_layers.size(); ++ i)
+                            Slic3r::translate(projected[i], m_support_lean.shift_at(m_layers[i]->print_z));
                     // Merge these projections with the output, layer by layer.
                     assert(! projected.empty());
                     assert(out.empty() || out.size() == projected.size());
@@ -5569,12 +5576,6 @@ void PrintObject::project_and_append_custom_facets(
                 }
             }
         }
-    // While support is generated in a sheared frame (Support/SupportDirection.hpp) the painted
-    // enforcers and blockers must follow the layers they are matched against. out is indexed 1:1
-    // with layers(). Same rule as slice_support_volumes().
-    if (! seam && m_support_lean.active())
-        for (size_t i = 0; i < out.size() && i < m_layers.size(); ++ i)
-            Slic3r::translate(out[i], m_support_lean.shift_at(m_layers[i]->print_z));
 }
 
 const Layer* PrintObject::get_layer_at_printz(coordf_t print_z) const {

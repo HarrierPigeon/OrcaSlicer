@@ -28,13 +28,8 @@ Vec3d support_direction_bed_frame(const PrintObjectConfig &cfg)
     switch (cfg.support_direction.value) {
     case sdVertical:
         return Vec3d::UnitZ();
-    case sdCustom: {
-        // Tilt away from the bed normal, towards the azimuth heading in the bed's XY plane
-        // (0 = +X, 90 = +Y, counter-clockwise seen from above): the column top drifts that way.
-        const double t = Geometry::deg2rad(cfg.support_direction_tilt.value);
-        const double a = Geometry::deg2rad(cfg.support_direction_azimuth.value);
-        return Vec3d(std::sin(t) * std::cos(a), std::sin(t) * std::sin(a), std::cos(t));
-    }
+    case sdCustom:
+        return Geometry::tilt_up_direction(cfg.support_direction_tilt_x.value, cfg.support_direction_tilt_y.value);
     case sdLayers:
     default:
         return Vec3d::Zero();

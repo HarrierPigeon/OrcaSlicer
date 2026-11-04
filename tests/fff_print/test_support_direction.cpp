@@ -13,6 +13,7 @@
 #include "libslic3r/ExtrusionEntity.hpp"
 #include "libslic3r/Geometry.hpp"
 #include "libslic3r/Layer.hpp"
+#include "libslic3r/Model.hpp"
 #include "libslic3r/Point.hpp"
 #include "libslic3r/Polygon.hpp"
 #include "libslic3r/Print.hpp"
@@ -21,9 +22,11 @@
 #include "libslic3r/Support/BeltFloorContext.hpp"
 #include "libslic3r/Support/SupportDirection.hpp"
 #include "libslic3r/TriangleMesh.hpp"
+#include "libslic3r/TriangleSelector.hpp"
 
 #include "test_helpers.hpp"
 
+#include <algorithm>
 #include <cmath>
 #include <cstddef>
 #include <initializer_list>
@@ -147,19 +150,23 @@ TEST_CASE("Support follows the layers by default", "[SupportDirection]")
 
 TEST_CASE("A custom support direction leans the column by the configured angle", "[SupportDirection]")
 {
-    // A 30 degree tilt towards azimuth 0 (+X). The object is not rotated, so the direction is the
-    // same in the slice frame and the column drifts by +tan(30) mm per mm of height along +X.
+    // Tilt Y = 30 tips the support axis 30 degrees about Y, towards +X (the build-plate tilt
+    // convention). The object itself is not rotated, so the axis is the same in the slice frame,
+    // and the column drifts by tan(30) mm per mm of height along +X.
+    const double tilt_y = 30.;
     Slic3r::Print print;
     Slic3r::Test::init_and_process_print({ cantilever() }, print, direction_config({
-        { "support_direction",         "custom" },
-        { "support_direction_tilt",    30. },
-        { "support_direction_azimuth", 0. },
+        { "support_direction",   "custom" },
+        { "support_direction_tilt_x", 0. },
+        { "support_direction_tilt_y", tilt_y },
     }));
     const PrintObject &object = only_object(print);
     REQUIRE(! object.support_layers().empty());
     CHECK(! object.support_lean().active());   // the shear is scoped to generation and is gone now
 
-    const double expected = std::tan(Geometry::deg2rad(30.));
+    const Vec3d  axis     = Geometry::tilt_up_direction(0., tilt_y);
+    const double expected = axis.x() / axis.z();
+    CHECK_THAT(expected, WithinAbs(std::tan(Geometry::deg2rad(30.)), 1e-6));
     CHECK_THAT(lean_of(column_outer_edge(object)), WithinAbs(expected, 0.05));
 
     SECTION("and the leaning support is emitted as support G-code") {
@@ -173,9 +180,9 @@ TEST_CASE("A custom direction equal to the layer normal changes nothing", "[Supp
     Slic3r::Print plain, custom;
     Slic3r::Test::init_and_process_print({ cantilever() }, plain,  direction_config({}));
     Slic3r::Test::init_and_process_print({ cantilever() }, custom, direction_config({
-        { "support_direction",         "custom" },
-        { "support_direction_tilt",    0. },
-        { "support_direction_azimuth", 0. },
+        { "support_direction",   "custom" },
+        { "support_direction_tilt_x", 0. },
+        { "support_direction_tilt_y", 0. },
     }));
     const auto edge_plain  = column_outer_edge(only_object(plain));
     const auto edge_custom = column_outer_edge(only_object(custom));
@@ -188,13 +195,13 @@ TEST_CASE("A custom direction equal to the layer normal changes nothing", "[Supp
 
 TEST_CASE("The support lean is limited by the configured maximum", "[SupportDirection]")
 {
-    // An 80 degree tilt asks for more than the limit; the column gets the limit instead.
+    // Tilt Y = 80 asks for an 80 degree lean; the column gets the maximum instead, 45 by default.
     const double max_lean = GENERATE(45., 60.);
     Slic3r::Print print;
     Slic3r::Test::init_and_process_print({ cantilever() }, print, direction_config({
         { "support_direction",          "custom" },
-        { "support_direction_tilt",     80. },
-        { "support_direction_azimuth",  0. },
+        { "support_direction_tilt_x",        0. },
+        { "support_direction_tilt_y",        80. },
         { "support_direction_max_lean", max_lean },
     }));
     const PrintObject &object = only_object(print);
@@ -223,11 +230,11 @@ TEST_CASE("Every support generator leaves the object layers exactly as sliced af
         { "support_style", style },
     }));
     Slic3r::Test::init_and_process_print({ cantilever() }, leaning, direction_config({
-        { "support_type",              type },
-        { "support_style",             style },
-        { "support_direction",         "custom" },
-        { "support_direction_tilt",    30. },
-        { "support_direction_azimuth", 0. },
+        { "support_type",        type },
+        { "support_style",       style },
+        { "support_direction",   "custom" },
+        { "support_direction_tilt_x", 0. },
+        { "support_direction_tilt_y", 30. },
     }));
     const PrintObject &a = only_object(plain);
     const PrintObject &b = only_object(leaning);
@@ -257,7 +264,7 @@ TEST_CASE("Vertical support on a belt grows perpendicular to the belt and lands 
     // and the bed normal is the belt normal in the slice frame. BeltFloorContext places the belt
     // at z = shear * y + const (floor_print_z), whose upward normal is (0, -shear, 1): the lean
     // that makes a column perpendicular to the belt is therefore (0, -shear) mm per mm of height,
-    // 45 degrees from the layer normal -- under the default 60 degree limit.
+    // 45 degrees from the layer normal -- exactly the default 45 degree limit, which admits it.
     Slic3r::Print print;
     Slic3r::Test::init_and_process_print({ cantilever() }, print, belt_direction_config({
         { "support_direction", "vertical" },
@@ -328,4 +335,33 @@ TEST_CASE("A bed-vertical wall on a belt is not an overhang for vertical support
     const size_t n = support_layers_with_islands(only_object(layers));
     INFO("layer-following support puts islands on " << n << " support layers of a bed-vertical post on a belt");
     CHECK_NOFAIL(n == 0);
+}
+
+TEST_CASE("A leaning run shifts an enforcer volume once", "[SupportDirection]")
+{
+    // The generators hand project_and_append_custom_facets() the enforcer volumes that
+    // slice_support_volumes() has already shifted into the sheared frame. With nothing painted it
+    // must leave them alone; shifting them again put the enforcer z * slope off at every layer.
+    Slic3r::Print print;
+    Slic3r::Model model;
+    const DynamicPrintConfig config = direction_config({
+        { "support_direction",   "custom" },
+        { "support_direction_tilt_x", 0. },
+        { "support_direction_tilt_y", 30. },
+    });
+    Slic3r::Test::init_print({ cantilever() }, print, model, config);
+    TriangleMesh block = make_cube(4., 4., 4.);
+    block.translate(20.f, 2.f, 8.f);
+    model.objects.front()->add_volume(std::move(block), ModelVolumeType::SUPPORT_ENFORCER);
+    print.apply(model, print.full_print_config());
+    print.process();
+
+    PrintObject &object = *print.get_object(0);
+    ScopedSupportShear shear(object);
+    REQUIRE(shear.active());
+    std::vector<Polygons> enforcers = object.slice_support_enforcers();
+    REQUIRE(std::any_of(enforcers.begin(), enforcers.end(), [](const Polygons &p) { return ! p.empty(); }));
+    const std::vector<Polygons> sliced = enforcers;
+    object.project_and_append_custom_facets(false, EnforcerBlockerType::ENFORCER, enforcers);
+    CHECK(enforcers == sliced);
 }

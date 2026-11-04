@@ -10538,9 +10538,7 @@ Vec3d build_plate_tilt_up_direction()
     const auto               *opt_y  = cfg.option<ConfigOptionFloat>("build_plate_tilt_y");
     const double              tilt_x = opt_x != nullptr ? opt_x->value : 0.;
     const double              tilt_y = opt_y != nullptr ? opt_y->value : 0.;
-    if (tilt_x == 0. && tilt_y == 0.)
-        return Vec3d::UnitZ();
-    return Vec3d(std::tan(Geometry::deg2rad(tilt_y)), std::tan(Geometry::deg2rad(tilt_x)), 1.).normalized();
+    return Geometry::tilt_up_direction(tilt_x, tilt_y);
 }
 
 } // GUI

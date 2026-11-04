@@ -7350,58 +7350,60 @@ void PrintConfigDef::init_fff_params()
     def->label = L("Direction");
     def->category = L("Support");
     def->tooltip = L("The direction support grows along. \"Follow layers\" stacks support straight along the "
-                     "layer normal, as it always has. \"Vertical\" leans it towards the bed, i.e. along the bed's "
-                     "normal whatever rotation the object is sliced at: on a belt printer the support then grows "
-                     "perpendicular to the belt instead of along the tilted gantry. \"Custom\" leans it along the "
-                     "tilt and azimuth below. Support is generated as if the object were sheared so that direction "
-                     "is vertical, so overhangs are judged against it too. The lean away from the layer normal is "
-                     "limited by \"Max lean\".");
+                     "layer normal, as it always has. \"World vertical\" and \"Custom\" lean it towards a direction "
+                     "fixed in the printer's frame, whatever rotation the object is sliced at: on a belt printer "
+                     "\"World vertical\" grows the support perpendicular to the belt instead of along the tilted "
+                     "gantry. Support is generated as if the object were sheared so that direction is vertical, so "
+                     "overhangs are judged against it too. The lean away from the layer normal is limited by "
+                     "\"Max lean\".");
     def->enum_keys_map = &ConfigOptionEnum<SupportDirection>::get_enum_values();
     def->enum_values.push_back("layers");
     def->enum_values.push_back("vertical");
     def->enum_values.push_back("custom");
     def->enum_labels.push_back(L("Follow layers"));
-    def->enum_labels.push_back(L("Vertical"));
+    def->enum_labels.push_back(L("World vertical"));
     def->enum_labels.push_back(L("Custom"));
     def->mode = comAdvanced;
     def->set_default_value(new ConfigOptionEnum<SupportDirection>(sdLayers));
 
-    def = this->add("support_direction_tilt", coFloat);
-    def->label = L("Direction tilt");
+    def = this->add("support_direction_tilt_x", coFloat);
+    def->label = L("Direction tilt X");
     def->category = L("Support");
-    def->tooltip = L("Custom support direction: how far the direction tilts away from the bed's normal, in degrees. "
-                     "0 is vertical. Only used when Direction is \"Custom\".");
+    def->tooltip = L("Custom support direction: tilt of the support axis about the X axis, in degrees, in the same "
+                     "convention as \"Build plate tilt X\". A positive value leans the support towards +Y. "
+                     "0 with tilt Y = 0 is world vertical. Set both tilts to the build plate tilt to grow the "
+                     "support against gravity on a tilted plate.");
     def->sidetext = u8"\u00B0";
-    def->min = 0;
-    def->max = 85;
+    def->min = -89;
+    def->max = 89;
     def->mode = comAdvanced;
     def->set_default_value(new ConfigOptionFloat(0));
 
-    def = this->add("support_direction_azimuth", coFloat);
-    def->label = L("Direction azimuth");
+    def = this->add("support_direction_tilt_y", coFloat);
+    def->label = L("Direction tilt Y");
     def->category = L("Support");
-    def->tooltip = L("Custom support direction: the compass heading in the bed's XY plane that a support column leans "
-                     "towards as it rises, in degrees. 0 is +X, 90 is +Y, counter-clockwise seen from above. Only used "
-                     "when Direction is \"Custom\".");
+    def->tooltip = L("Custom support direction: tilt of the support axis about the Y axis, in degrees, in the same "
+                     "convention as \"Build plate tilt Y\". A positive value leans the support towards +X.");
     def->sidetext = u8"\u00B0";
-    def->min = -180;
-    def->max = 180;
+    def->min = -89;
+    def->max = 89;
     def->mode = comAdvanced;
     def->set_default_value(new ConfigOptionFloat(0));
 
     def = this->add("support_direction_max_lean", coFloat);
     def->label = L("Max lean");
     def->category = L("Support");
-    def->tooltip = L("How far, in degrees, the support may lean away from the layer normal. A direction that would "
-                     "lean further keeps its heading and is pulled back to this angle. A leaning column overhangs "
-                     "itself by the lean angle, so values above 45 need tuning and test prints for the material and "
-                     "support settings in use, and slicing warns about them. On a belt printer a \"Vertical\" "
-                     "direction leans by the belt angle, which is why the default allows more than 45.");
+    def->tooltip = L("How far, in degrees, the support may lean away from the layer normal. A direction that "
+                     "would lean further keeps its heading and is pulled back to this angle. A leaning column "
+                     "overhangs itself by the lean angle, so values above 45 are experimental: they need tuning "
+                     "and test prints for the material and support settings in use, and slicing warns about them. "
+                     "On a belt printer \"World vertical\" leans by the belt angle, so a belt steeper than this "
+                     "needs a higher limit.");
     def->sidetext = u8"\u00B0";
     def->min = 0;
     def->max = 85;
     def->mode = comAdvanced;
-    def->set_default_value(new ConfigOptionFloat(60));
+    def->set_default_value(new ConfigOptionFloat(45));
 
     def = this->add("support_object_xy_distance", coFloat);
     def->label = L("Support/object XY distance");
