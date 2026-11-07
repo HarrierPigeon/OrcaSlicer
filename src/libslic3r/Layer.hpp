@@ -1,6 +1,7 @@
 #ifndef slic3r_Layer_hpp_
 #define slic3r_Layer_hpp_
 
+#include "Point.hpp"
 #include "Polyline.hpp"
 #include "Polygon.hpp"
 #include "Line.hpp"
@@ -320,7 +321,7 @@ public:
 
 
     // Is there any valid extrusion assigned to this LayerRegion?
-    virtual bool                has_extrusions() const { return ! support_fills.empty(); }
+    bool                        has_extrusions() const override { return ! support_fills.empty(); }
 
     // Zero based index of an interface layer, used for alternating direction of interface / contact layers.
     size_t                      interface_id() const { return m_interface_id; }

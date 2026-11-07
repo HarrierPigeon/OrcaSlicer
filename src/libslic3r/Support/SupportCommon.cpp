@@ -25,6 +25,7 @@
 #include <unordered_map>
 
 #include "SupportCommon.hpp"
+#include "SupportDirection.hpp"
 #include "libslic3r/PrintConfig.hpp"
 #include "libslic3r/Polygon.hpp"
 #include "libslic3r/Slicing.hpp"
@@ -104,7 +105,8 @@ std::vector<unsigned int> support_exclusion_filaments(
 std::vector<Polygons> support_exclusion_areas_for_layers(
     const PrintObject &object,
     const std::vector<std::pair<coordf_t, coordf_t>> &layer_z_ranges,
-    const bool interface_material)
+    const bool interface_material,
+    const double z_offset_to_global)
 {
     std::vector<Polygons> result(layer_z_ranges.size());
     if (layer_z_ranges.empty() || object.print() == nullptr)
@@ -134,6 +136,9 @@ std::vector<Polygons> support_exclusion_areas_for_layers(
             print, filaments, regions_by_extruder.size(), layer_id);
         result[idx] = to_polygons(active_bed_exclusion_footprints_for_object(
             object, regions_by_extruder, physical_extruders, z_min, z_max, coord_t(SCALED_EPSILON)));
+        // Into the sheared frame the support is generated in while it leans.
+        if (object.support_lean().active())
+            translate(result[idx], object.support_lean().shift_at(z_max + z_offset_to_global));
     }
     return result;
 }
@@ -167,8 +172,9 @@ void trim_support_layers_by_exclusion_volumes(
             }
         }
 
+        // Every generator hands over its layers in the object-local frame.
         const std::vector<Polygons> excluded =
-            support_exclusion_areas_for_layers(object, z_ranges, interface_material);
+            support_exclusion_areas_for_layers(object, z_ranges, interface_material, object.belt_global_z_offset());
         for (size_t idx = 0; idx < selected.size(); ++idx) {
             SupportGeneratorLayer &layer = *selected[idx];
             trim_polygons(layer.polygons, excluded[idx]);
@@ -2194,8 +2200,7 @@ sub clip_with_shape {
 
 Vec2d build_plate_tilt_slope(const PrintConfig &print_config)
 {
-    auto slope = [](double tilt_deg) { return std::tan(Geometry::deg2rad(std::clamp(tilt_deg, -89., 89.))); };
-    return { slope(print_config.build_plate_tilt_y.value), slope(print_config.build_plate_tilt_x.value) };
+    return { Geometry::tilt_slope(print_config.build_plate_tilt_y.value), Geometry::tilt_slope(print_config.build_plate_tilt_x.value) };
 }
 
 } // namespace Slic3r

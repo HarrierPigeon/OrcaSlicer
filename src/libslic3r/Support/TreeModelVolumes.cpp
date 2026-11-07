@@ -11,6 +11,7 @@
 #include "libslic3r/ExPolygon.hpp"
 #include "TreeSupportCommon.hpp"
 #include "BeltFloorContext.hpp"
+#include "SupportDirection.hpp"
 
 #include "../BuildVolume.hpp"
 #include "../ClipperUtils.hpp"
@@ -154,9 +155,7 @@ TreeModelVolumes::TreeModelVolumes(
             const auto &pcfg2 = print_object.print()->config();
             BeltFloorContext ctx;
             ctx.init_local(slicing_params, pcfg2, print_object.belt_global_z_offset());
-            // The support lean sheared the layers at their global print_z while this pipeline
-            // queries the floor at local print_z: hand it the offset between the two.
-            ctx.set_lean(print_object.support_lean().slope, print_object.belt_global_z_offset());
+            ctx.set_lean(print_object.support_lean(), print_object.belt_global_z_offset());
             if (ctx.is_active()) {
                 m_belt_floor = ctx.compute_per_layer_floors(num_layers, [&](size_t layer_idx) -> double {
                     // Object layers: local print_z (subtract global offset).

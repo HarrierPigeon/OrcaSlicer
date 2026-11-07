@@ -1691,9 +1691,8 @@ private:
     void _render_plane() const;
     void _render_selection();
     void _render_sequential_clearance();
-    // Support direction arrows: one per selected instance whose object sets support_direction to
-    // "vertical" or "custom", pointing along the resolved bed-frame direction from above the
-    // instance. Visualization only; support_lean() resolves the same direction for slicing.
+    // Support direction arrows: one above each selected instance whose object leans its support,
+    // pointing along the configured bed-frame direction (before the "Max lean" limit).
     void _render_support_direction_arrows(const Transform3d& view_matrix, const Transform3d& projection_matrix);
 #if ENABLE_RENDER_SELECTION_CENTER
     void _render_selection_center() { m_selection.render_center(m_gizmos.is_dragging()); }

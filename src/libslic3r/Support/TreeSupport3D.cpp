@@ -32,6 +32,7 @@
 #include "libslic3r/Support/SupportParameters.hpp"
 #include "libslic3r/Support/SupportLayer.hpp"
 #include "SupportCommon.hpp"
+#include "SupportDirection.hpp"
 #include "libslic3r/Surface.hpp"
 #include "TriangleMeshSlicer.hpp"
 #include "TreeSupport.hpp"
@@ -244,19 +245,15 @@ static std::vector<std::pair<TreeSupportSettings, std::vector<size_t>>> group_me
     const bool               support_threshold_auto = support_threshold == 0;
     // +1 makes the threshold inclusive
     double                   tan_threshold          = support_threshold_auto ? 0. : tan(M_PI * double(support_threshold + 1) / 180.);
-    // Build plate tilt: compute per-layer XY shift for tilted gravity direction.
-    // Skipped while a support lean is active (Support/SupportDirection.hpp): the layers are
-    // then already held in a frame sheared along the support direction, which on a belt is
-    // the gravity direction this shift stands in for, and shifting too would count it twice.
+    // Build plate tilt: compute per-layer XY shift for tilted gravity direction. While the support
+    // leans, overhangs are judged against the support direction instead (Support/SupportDirection.hpp).
     const Vec2d              tilt_slope             = build_plate_tilt_slope(print_config);
     const bool               has_tilt               = tilt_slope.cwiseAbs().maxCoeff() > EPSILON && ! print_object.support_lean().active();
-    // Belt printers, while the support leans: the belt surface counts as support from underneath
-    // (the union classic tree support makes), else the belt-contact face -- flatter than the belt
-    // angle in the sheared frame -- reads as an overhang on every layer. Object layers carry
-    // global print_z here, the frame the lean was applied in, so no z offset.
+    // Belt printers, while the support leans: the belt surface counts as support from underneath, as
+    // it does for classic tree support. Object layers carry global print_z here.
     BeltFloorContext         belt_ovh_ctx;
     const bool               belt_lean_union        = print_object.support_lean().active() && belt_ovh_ctx.init(print_object.slicing_parameters(), print_config);
-    belt_ovh_ctx.set_lean(print_object.support_lean().slope, 0.);
+    belt_ovh_ctx.set_lean(print_object.support_lean(), 0.);
     //FIXME this is a fudge constant!
     auto                     enforcer_overhang_offset = scaled<double>(config.tree_support_tip_diameter.value);
     const coordf_t radius_sample_resolution = g_config_tree_support_collision_resolution;
@@ -3560,13 +3557,13 @@ static void generate_support_areas(Print &print, TreeSupport* tree_support, cons
         // Planning against both masks prevents a locally valid layer from
         // forcing a branch through another possible nozzle's exclusion volume.
         std::vector<Polygons> exclusion_areas =
-            support_exclusion_areas_for_layers(print_object, tree_layer_z_ranges, false);
+            support_exclusion_areas_for_layers(print_object, tree_layer_z_ranges, false, 0.);
         const bool tree_uses_interface_material = !config.raft_layers.empty() ||
             print_object.config().support_interface_top_layers.value > 0 ||
             number_of_support_interface_bottom_layers(print_object.config()) > 0;
         if (tree_uses_interface_material) {
             const std::vector<Polygons> interface_exclusion_areas =
-                support_exclusion_areas_for_layers(print_object, tree_layer_z_ranges, true);
+                support_exclusion_areas_for_layers(print_object, tree_layer_z_ranges, true, 0.);
             for (size_t layer_idx = 0; layer_idx < exclusion_areas.size(); ++layer_idx) {
                 append(exclusion_areas[layer_idx], interface_exclusion_areas[layer_idx]);
                 exclusion_areas[layer_idx] = union_(exclusion_areas[layer_idx]);
@@ -3732,8 +3729,14 @@ static void generate_support_areas(Print &print, TreeSupport* tree_support, cons
         SupportGeneratorLayersPtr layers_sorted = generate_support_layers(print_object, raft_layers, bottom_contacts, top_contacts, intermediate_layers, interface_layers, base_interface_layers);
 
         // BBS: This is a hack to avoid the support being generated outside the bed area. See #4769.
+        // The organic pipeline works in the object-local frame: add the belt offset to see the bed
+        // through the support lean's shear.
         tbb::parallel_for_each(layers_sorted.begin(), layers_sorted.end(), [&](SupportGeneratorLayer *layer) {
-            if (layer) layer->polygons = intersection(layer->polygons, volumes.m_bed_area);
+            if (layer) {
+                Polygon bed_area = volumes.m_bed_area;
+                bed_area.translate(print_object.support_lean().shift_at(layer->print_z + print_object.belt_global_z_offset()));
+                layer->polygons = intersection(layer->polygons, bed_area);
+            }
         });
 
         // Belt floor: clip ALL organic support layers (including intermediate/base
@@ -3747,8 +3750,7 @@ static void generate_support_areas(Print &print, TreeSupport* tree_support, cons
             const auto &pcfg = print_object.print()->config();
             BeltFloorContext ctx;
             ctx.init_local(sp, pcfg, print_object.belt_global_z_offset());
-            // Local print_z here, global print_z when the support lean sheared the layers.
-            ctx.set_lean(print_object.support_lean().slope, print_object.belt_global_z_offset());
+            ctx.set_lean(print_object.support_lean(), print_object.belt_global_z_offset());
             if (ctx.is_active()) {
                 tbb::parallel_for_each(layers_sorted.begin(), layers_sorted.end(), [&](SupportGeneratorLayer *layer) {
                     if (!layer || layer->polygons.empty())
@@ -4007,11 +4009,19 @@ void organic_draw_branches(
     }
 
     const SlicingParameters &slicing_params = print_object.slicing_parameters();
+    // The bed outline seen through the support lean's shear at a layer. The pipeline works in the
+    // object-local frame; the belt offset maps it onto the global one.
+    auto bed_area_at = [&](LayerIndex layer_idx) -> Polygons {
+        Polygons bed_area{ volumes.m_bed_area };
+        if (print_object.support_lean().active())
+            translate(bed_area, print_object.support_lean().shift_at(layer_z(slicing_params, config, layer_idx) + print_object.belt_global_z_offset()));
+        return bed_area;
+    };
     MeshSlicingParams mesh_slicing_params;
     mesh_slicing_params.mode = MeshSlicingParams::SlicingMode::Positive;
 
     tbb::parallel_for(tbb::blocked_range<size_t>(0, trees.size(), 1),
-        [&trees, &volumes, &config, &slicing_params, &move_bounds, &mesh_slicing_params, &interface_placer, &throw_on_cancel](const tbb::blocked_range<size_t> &range) {
+        [&trees, &volumes, &config, &slicing_params, &move_bounds, &mesh_slicing_params, &interface_placer, &bed_area_at, &throw_on_cancel](const tbb::blocked_range<size_t> &range) {
             indexed_triangle_set    partial_mesh;
             std::vector<float>      slice_z;
             std::vector<Polygons>   bottom_contacts;
@@ -4047,7 +4057,7 @@ void organic_draw_branches(
                     for (LayerIndex i = 0; i < LayerIndex(slices.size()); ++i) {
                         // ORCA: safety offset when trimming collision/bed to improve robustness.
                         slices[i] = diff_clipped(slices[i], volumes.getCollision(0, layer_begin + i, true), ApplySafetyOffset::Yes); // FIXME parent_uses_min || draw_area.element->state.use_min_xy_dist);
-                        slices[i] = intersection(slices[i], volumes.m_bed_area, ApplySafetyOffset::Yes);
+                        slices[i] = intersection(slices[i], bed_area_at(layer_begin + i), ApplySafetyOffset::Yes);
                         // Belt floor: clip branch slices against the belt surface plane.
                         LayerIndex belt_idx = layer_begin + i;
                         if (belt_idx < LayerIndex(volumes.m_belt_floor.size()) && !volumes.m_belt_floor[belt_idx].empty())
@@ -4182,7 +4192,7 @@ void organic_draw_branches(
 
                                     // ORCA: non-zero bottom Z should not be clipped by placeable areas.
                                     if (config.support_rests_on_model && config.z_distance_bottom_layers > 0 && layer_begin > 0)
-                                        contacts = intersection_clipped(bottom_extra_slices[contact_idx].polygons, Polygons{volumes.m_bed_area}, ApplySafetyOffset::Yes);
+                                        contacts = intersection_clipped(bottom_extra_slices[contact_idx].polygons, bed_area_at(layer_begin - LayerIndex(bottom_extra_slices.size())), ApplySafetyOffset::Yes);
                                     else {
                                         Polygons placeable = volumes.getPlaceableAreas(0, layer_begin, [] {});
                                         contacts = intersection_clipped(bottom_extra_slices[contact_idx].polygons, placeable, ApplySafetyOffset::Yes);

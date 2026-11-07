@@ -394,7 +394,7 @@ inline bool is_auto(SupportType stype)
 };
 
 // The direction support columns grow along, independent of the layer normal (see
-// Support/SupportDirection.hpp). sdLayers: along the layer normal (stock behaviour). sdVertical:
+// Support/SupportDirection.hpp). sdLayers: along the layer normal (default). sdVertical:
 // the bed's +Z, whatever rotation the object is sliced at (on a belt printer: perpendicular to the
 // belt). sdCustom: the bed-frame direction given by support_direction_tilt_x / _y.
 enum SupportDirection {

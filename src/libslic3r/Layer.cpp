@@ -29,6 +29,7 @@
 #include <numeric>
 #include "Config.hpp"
 #include "Line.hpp"
+#include "Polyline.hpp"
 #include "MultiMaterialSegmentation.hpp"
 #include "ObjectID.hpp"
 
@@ -90,10 +91,7 @@ void Layer::translate(const Point &shift)
 {
     if (shift == Point(0, 0))
         return;
-    // Not translated, on purpose: slice_z / print_z / height (a shear preserves z),
-    // sharp_tails_height (scalars) and lslices_separated_component_ids (indices into
-    // PrintObject::separated_body_bboxes(), which are object-level and not sheared; they are
-    // only read by infill, never by support generation).
+    // Heights and lslices_separated_component_ids (indices, not geometry) stay; everything else moves.
     Slic3r::translate(this->lslices, shift);
     Slic3r::translate(this->lslices_extrudable, shift);
     for (BoundingBox &bb : this->lslices_bboxes)

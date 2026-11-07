@@ -7349,12 +7349,11 @@ void PrintConfigDef::init_fff_params()
     // TRN Label of the setting that picks the direction support columns grow along.
     def->label = L("Direction");
     def->category = L("Support");
-    def->tooltip = L("The direction support grows along. \"Follow layers\" stacks support straight along the "
-                     "layer normal, as it always has. \"World vertical\" and \"Custom\" lean it towards a direction "
-                     "fixed in the printer's frame, whatever rotation the object is sliced at: on a belt printer "
-                     "\"World vertical\" grows the support perpendicular to the belt instead of along the tilted "
-                     "gantry. Support is generated as if the object were sheared so that direction is vertical, so "
-                     "overhangs are judged against it too. The lean away from the layer normal is limited by "
+    def->tooltip = L("The direction support columns grow along. \"Follow layers\" stacks support along the layer "
+                     "normal. \"World vertical\" and \"Custom\" lean it towards a direction fixed in the bed's frame, "
+                     "whatever rotation the object is sliced at: on a belt printer \"World vertical\" grows the "
+                     "support perpendicular to the belt instead of along the tilted gantry. Overhangs are then "
+                     "judged against that direction too. The lean away from the layer normal is limited by "
                      "\"Max lean\".");
     def->enum_keys_map = &ConfigOptionEnum<SupportDirection>::get_enum_values();
     def->enum_values.push_back("layers");
@@ -7369,10 +7368,10 @@ void PrintConfigDef::init_fff_params()
     def = this->add("support_direction_tilt_x", coFloat);
     def->label = L("Direction tilt X");
     def->category = L("Support");
-    def->tooltip = L("Custom support direction: tilt of the support axis about the X axis, in degrees, in the same "
-                     "convention as \"Build plate tilt X\". A positive value leans the support towards +Y. "
-                     "0 with tilt Y = 0 is world vertical. Set both tilts to the build plate tilt to grow the "
-                     "support against gravity on a tilted plate.");
+    def->tooltip = L("Custom support direction: tilt of the support direction about the X axis, in degrees, in the "
+                     "same convention as \"Build plate tilt X\". A positive value leans the support towards +Y. "
+                     "0 with tilt Y = 0 is world vertical. On a printer with a tilted build plate that is not a belt "
+                     "printer, the same tilts as the plate grow the support against gravity.");
     def->sidetext = u8"\u00B0";
     def->min = -89;
     def->max = 89;
@@ -7382,8 +7381,8 @@ void PrintConfigDef::init_fff_params()
     def = this->add("support_direction_tilt_y", coFloat);
     def->label = L("Direction tilt Y");
     def->category = L("Support");
-    def->tooltip = L("Custom support direction: tilt of the support axis about the Y axis, in degrees, in the same "
-                     "convention as \"Build plate tilt Y\". A positive value leans the support towards +X.");
+    def->tooltip = L("Custom support direction: tilt of the support direction about the Y axis, in degrees, in the "
+                     "same convention as \"Build plate tilt Y\". A positive value leans the support towards +X.");
     def->sidetext = u8"\u00B0";
     def->min = -89;
     def->max = 89;
@@ -7395,10 +7394,9 @@ void PrintConfigDef::init_fff_params()
     def->category = L("Support");
     def->tooltip = L("How far, in degrees, the support may lean away from the layer normal. A direction that "
                      "would lean further keeps its heading and is pulled back to this angle. A leaning column "
-                     "overhangs itself by the lean angle, so values above 45 are experimental: they need tuning "
-                     "and test prints for the material and support settings in use, and slicing warns about them. "
-                     "On a belt printer \"World vertical\" leans by the belt angle, so a belt steeper than this "
-                     "needs a higher limit.");
+                     "overhangs itself by the lean angle, so a lean above 45° needs tuning and test prints for the "
+                     "material and support settings in use, and slicing warns about it. On a belt printer "
+                     "\"World vertical\" leans by the belt angle, so a belt steeper than this needs a higher limit.");
     def->sidetext = u8"\u00B0";
     def->min = 0;
     def->max = 85;

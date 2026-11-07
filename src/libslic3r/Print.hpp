@@ -385,6 +385,9 @@ public:
     // sheared for that duration, see Support/SupportDirection.hpp). Inactive at any other time, so
     // readers outside support generation always see plain slice-frame geometry.
     const SupportLean&           support_lean() const   { return m_support_lean; }
+    // The translation ScopedSupportShear applied to object layer layer_idx; zero while no lean is active.
+    Point                        support_lean_shift(size_t layer_idx) const
+        { return layer_idx < m_support_lean_shifts.size() ? m_support_lean_shifts[layer_idx] : Point(0, 0); }
     const PrintInstances&        instances() const      { return m_instances; }
     // Orca: Bounding box of each connected body, indexed by Layer::lslices_separated_component_ids.
     const std::vector<BoundingBox>& separated_body_bboxes() const { return m_separated_body_bboxes; }
@@ -745,6 +748,7 @@ private:
     bool                                    m_belt_floor_z_shift_cache_valid { false };
     // See support_lean(). Set and cleared by ScopedSupportShear only.
     SupportLean                             m_support_lean;
+    std::vector<Point>                      m_support_lean_shifts;
 public:
     double belt_global_z_offset() const { return m_belt_global_z_offset; }
 private:

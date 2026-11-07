@@ -787,8 +787,8 @@ TEST_CASE("Support exclusion masks follow explicit and current-filament roles", 
         CHECK(support_exclusion_filaments(fixture.object(), false) == std::vector<unsigned int>{0});
         CHECK(support_exclusion_filaments(fixture.object(), true) == std::vector<unsigned int>{1});
 
-        const auto base_masks = support_exclusion_areas_for_layers(fixture.object(), {{0.0, 1.0}}, false);
-        const auto interface_masks = support_exclusion_areas_for_layers(fixture.object(), {{0.0, 1.0}}, true);
+        const auto base_masks = support_exclusion_areas_for_layers(fixture.object(), {{0.0, 1.0}}, false, 0.);
+        const auto interface_masks = support_exclusion_areas_for_layers(fixture.object(), {{0.0, 1.0}}, true, 0.);
         REQUIRE(base_masks.size() == 1);
         REQUIRE(interface_masks.size() == 1);
         // PrintObject support geometry is centred around the object's local
@@ -805,7 +805,7 @@ TEST_CASE("Support exclusion masks follow explicit and current-filament roles", 
         std::sort(filaments.begin(), filaments.end());
         CHECK(filaments == std::vector<unsigned int>{0, 1});
 
-        const auto masks = support_exclusion_areas_for_layers(fixture.object(), {{0.0, 1.0}, {11.0, 12.0}}, false);
+        const auto masks = support_exclusion_areas_for_layers(fixture.object(), {{0.0, 1.0}, {11.0, 12.0}}, false, 0.);
         REQUIRE(masks.size() == 2);
         CHECK(polygons_cover(masks[0], -4.0, -4.0));
         CHECK(polygons_cover(masks[0], 14.0, -4.0));

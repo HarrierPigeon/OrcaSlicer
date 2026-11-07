@@ -5,6 +5,7 @@
 #include "../Slicing.hpp"
 #include "../libslic3r.h"
 
+#include <algorithm>
 #include <cmath>
 #include <limits>
 #include <cstddef>
@@ -41,18 +42,15 @@ bool BeltFloorContext::init_local(const SlicingParameters &sp, const PrintConfig
     return true;
 }
 
-void BeltFloorContext::set_lean(const Vec2d &slope_unscaled_per_mm, double z_offset_to_global)
+void BeltFloorContext::set_lean(const SupportLean &lean, double z_offset_to_global)
 {
-    m_lean_slope_u = m_from_axis == 0 ? slope_unscaled_per_mm.x() : slope_unscaled_per_mm.y();
-    m_lean_zoff    = z_offset_to_global;
+    m_lean_slope_u = m_from_axis == 0 ? lean.slope.x() : lean.slope.y();
+    m_lean_zoff    = z_offset_to_global - lean.z_origin;
 }
 
 double BeltFloorContext::lean_denominator() const
 {
-    const double d = 1.0 - m_shear_factor * m_lean_slope_u;
-    if (std::abs(d) >= 1e-6)
-        return d;
-    return d < 0. ? -1e-6 : 1e-6;
+    return std::max(1.0 - m_shear_factor * m_lean_slope_u, 1e-6);
 }
 
 Polygons BeltFloorContext::surface_polygon(coordf_t print_z) const
@@ -70,11 +68,7 @@ double BeltFloorContext::floor_print_z(const Point &pos_slicing) const
     if (!m_active)
         return -std::numeric_limits<double>::infinity();
     double pos = unscale<double>(m_from_axis == 0 ? pos_slicing.x() : pos_slicing.y());
-    // Sheared frame: pos is u' = u - (z + zoff) * slope_u, so the floor equation
-    // z = shear * u + off + z_shift becomes
-    //   z = shear * (u' + (z + zoff) * slope_u) + off + z_shift
-    // and solving for z gives the expression below. Without a lean slope_u = 0 and
-    // this is the plain z = shear * u + off + z_shift.
+    // z = shear * u + off + z_shift, with u = pos + (z + zoff) * slope_u in a sheared frame.
     return (m_shear_factor * (pos + m_lean_zoff * m_lean_slope_u) + m_floor_offset + m_z_shift) / this->lean_denominator();
 }
 
@@ -97,20 +91,18 @@ Polygons BeltFloorContext::half_plane(coordf_t print_z, bool belt_surface) const
 
     const double cutoff = this->cutoff_u(print_z);
     const coord_t cutoff_scaled = scale_(cutoff);
-    const coord_t large_bound   = scale_(1e3);
+    // Far enough out to enclose any geometry, and the cutoff itself once a lean has moved it.
+    const coord_t large_bound   = scale_(std::max(1e3, 2. * std::abs(cutoff)));
 
     // The belt surface is on one side of the cutoff line; the valid region
-    // is on the other side.  Which side depends on the sign of the floor's
-    // slope in the frame the polygon is built in (effective_shear_factor():
-    // the raw shear without a lean, and the same sign as long as the lean
-    // points up and away from the belt).
+    // is on the other side.  Which side depends on the sign of the floor's slope.
     //
     // belt_surface=true  → the belt side (where support should NOT exist)
     // belt_surface=false → the valid side (where support IS allowed)
     //
     // For slope > 0: belt surface is from_axis >= cutoff
     // For slope < 0: belt surface is from_axis <= cutoff
-    bool high_side = (this->effective_shear_factor() > 0) == belt_surface;
+    bool high_side = (m_shear_factor > 0) == belt_surface;
 
     Polygon poly;
     if (m_from_axis == 0) {

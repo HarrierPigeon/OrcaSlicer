@@ -45,6 +45,7 @@
 #include "slic3r/GUI/GLToolbar.hpp"
 #include <math.h>
 #include <Eigen/Core>
+#include <Eigen/Geometry>
 #include <iterator>
 #include <wx/app.h>
 #include <cstdlib>
@@ -170,8 +171,8 @@
 #include "libslic3r/MultiMaterialSegmentation.hpp"
 #include "libslic3r/SLA/Pad.hpp"
 #include "libslic3r/TextConfiguration.hpp"
-#include "libslic3r/TriangleMesh.hpp"
 #include "libslic3r/Support/SupportDirection.hpp"
+#include "libslic3r/TriangleMesh.hpp"
 #include "slic3r/GUI/3DBed.hpp"
 #include "slic3r/GUI/FrameProfiler.hpp"
 #include "slic3r/GUI/GLSelectionRectangle.hpp"
@@ -10761,12 +10762,19 @@ void GLCanvas3D::_render_selection()
 
 void GLCanvas3D::_render_support_direction_arrows(const Transform3d& view_matrix, const Transform3d& projection_matrix)
 {
-    if (m_model == nullptr || m_selection.is_empty())
+    if (m_model == nullptr || m_selection.is_empty() || m_gizmos.is_dragging())
         return;
     const PresetBundle* preset_bundle = wxGetApp().preset_bundle;
     if (preset_bundle == nullptr)
         return;
-    const DynamicPrintConfig& print_cfg = preset_bundle->prints.get_edited_preset().config;
+    const DynamicPrintConfig& print_cfg   = preset_bundle->prints.get_edited_preset().config;
+    const auto*               belt_opt    = preset_bundle->printers.get_edited_preset().config.option<ConfigOptionBool>("belt_printer");
+    const bool                belt        = belt_opt != nullptr && belt_opt->value;
+    // The object's own override wins over the process preset, as the slicer resolves it.
+    auto option = [&print_cfg](const ModelObject& obj, const char* key) -> const ConfigOption* {
+        const ConfigOption* opt = obj.config.option(key);
+        return opt != nullptr ? opt : print_cfg.option(key);
+    };
 
     // Collect (instance world box, bed-frame direction) first so nothing is set up for an empty pass.
     std::vector<std::pair<BoundingBoxf3, Vec3d>> arrows;
@@ -10776,18 +10784,31 @@ void GLCanvas3D::_render_support_direction_arrows(const Transform3d& view_matrix
         const ModelObject* obj = m_model->objects[obj_idx];
         if (obj == nullptr)
             continue;
-        // The object's own overrides win over the process preset, exactly as the slicer resolves them.
+        const auto* direction = dynamic_cast<const ConfigOptionEnum<SupportDirection>*>(option(*obj, "support_direction"));
+        if (direction == nullptr || direction->value == sdLayers)
+            continue;
+        const auto* support = dynamic_cast<const ConfigOptionBool*>(option(*obj, "enable_support"));
+        if (support == nullptr || !support->value)
+            continue;
         PrintObjectConfig cfg;
-        cfg.apply(print_cfg, true);
-        cfg.apply(obj->config.get(), true);
-        if (!cfg.enable_support.value)
-            continue;
+        cfg.support_direction.value = direction->value;
+        for (auto [key, field] : { std::make_pair("support_direction_tilt_x", &cfg.support_direction_tilt_x),
+                                   std::make_pair("support_direction_tilt_y", &cfg.support_direction_tilt_y) })
+            if (const auto* opt = dynamic_cast<const ConfigOptionFloat*>(option(*obj, key)))
+                field->value = opt->value;
         const Vec3d dir = support_direction_bed_frame(cfg);
-        if (dir.squaredNorm() < EPSILON)
+        // Nothing leans when the direction is the bed normal on a printer whose layers follow the bed.
+        if (dir.squaredNorm() < EPSILON || (!belt && std::abs(dir.z() - 1.) < EPSILON))
             continue;
-        for (int inst_idx : inst_idxs)
-            if (inst_idx >= 0 && size_t(inst_idx) < obj->instances.size())
-                arrows.emplace_back(obj->instance_bounding_box(size_t(inst_idx)), dir);
+        for (int inst_idx : inst_idxs) {
+            // The scene's own boxes follow a drag at once; the model instance only when it ends.
+            BoundingBoxf3 box;
+            for (const GLVolume* v : m_volumes.volumes)
+                if (v->object_idx() == obj_idx && v->instance_idx() == inst_idx && !v->is_modifier)
+                    box.merge(v->transformed_convex_hull_bounding_box());
+            if (box.defined)
+                arrows.emplace_back(box, dir);
+        }
     }
     if (arrows.empty())
         return;

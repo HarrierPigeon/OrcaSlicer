@@ -5,6 +5,7 @@
 #include "../Polygon.hpp"
 #include "../Slicing.hpp"
 #include "../PrintConfig.hpp"
+#include "SupportDirection.hpp"
 #include <cstddef>
 #include <functional>
 #include <vector>
@@ -23,17 +24,9 @@ class PrintObject;
 // Construct once per PrintObject, then call surface_polygon() or
 // valid_region_polygon() per layer with the layer's print_z.
 //
-// Support lean (Support/SupportDirection.hpp): while an object's support is
-// generated, its layers may be held in a sheared frame in which a column along
-// the lean direction is vertical -- geometry at print_z is translated by
-// -(print_z) * slope.  The floor plane z = shear * u + offset + z_shift (u = the
-// from-axis coordinate of the un-sheared slicing frame) is then seen through the
-// same shear: a sheared point (u', z) lies at u = u' + (z + zoff) * slope_u, where
-// zoff bridges the frame the caller's print_z is expressed in and the global
-// print_z the shear was applied at.  set_lean() switches the context into that
-// frame; without it (or with a zero slope) every formula reduces exactly to the
-// un-sheared one.  BeltBrim and the G-code export use the context outside support
-// generation, where the layers are not sheared, and never call set_lean().
+// While an object's support leans (Support/SupportDirection.hpp) its layers are held in a sheared
+// frame; set_lean() makes every query here answer in that frame. Without it, or with no lean, the
+// formulas reduce exactly to the plain ones.
 class BeltFloorContext
 {
 public:
@@ -48,16 +41,10 @@ public:
     bool init_local(const SlicingParameters &sp, const PrintConfig &pcfg,
                     double global_z_offset);
 
-    // Re-express the floor in the sheared support-lean frame.
-    //   slope_unscaled_per_mm: SupportLean::slope, XY drift of a column per mm of z.
-    //   z_offset_to_global:    what to ADD to the print_z values this context is
-    //                          queried with to get the global print_z the shear was
-    //                          applied at (0 when the caller already works in global
-    //                          print_z, PrintObject::belt_global_z_offset() when it
-    //                          works in the object-local frame).
-    // Only the component of the slope along from_axis matters: a shear along the
-    // other axis leaves u unchanged.
-    void set_lean(const Vec2d &slope_unscaled_per_mm, double z_offset_to_global);
+    // Re-express the floor in the sheared support-lean frame. z_offset_to_global is what to add
+    // to the print_z this context is queried with to get the global print_z: 0 for a caller in
+    // global print_z, PrintObject::belt_global_z_offset() for one in the object-local frame.
+    void set_lean(const SupportLean &lean, double z_offset_to_global);
 
     bool is_active() const { return m_active; }
 
@@ -77,8 +64,6 @@ public:
     // The from_axis coordinate (unscaled, slicing frame) where the belt surface
     // crosses a horizontal plane at print_z.  Inverse of floor_print_z() along
     // the shear axis.  Only meaningful when is_active().
-    // With a lean: the un-sheared crossing moved into the sheared frame,
-    // u' = u - (print_z + zoff) * slope_u.
     coordf_t cutoff_u(coordf_t print_z) const
         { return (print_z - m_z_shift - m_floor_offset) / m_shear_factor - (print_z + m_lean_zoff) * m_lean_slope_u; }
 
@@ -92,9 +77,7 @@ public:
     // Slope of the floor along from_axis in the un-sheared slicing frame.
     double shear_factor()  const { return m_shear_factor; }
     // Slope of the floor along from_axis in the frame the context is queried in:
-    // equal to shear_factor() without a lean, shear / (1 - shear * slope_u) with
-    // one.  Use this wherever "how much lower is the floor one radius further
-    // along the belt" is asked in that frame.
+    // shear_factor() without a lean, shear / (1 - shear * slope_u) with one.
     double effective_shear_factor() const { return m_shear_factor / this->lean_denominator(); }
     int    from_axis()     const { return m_from_axis; }
     double z_shift()       const { return m_z_shift; }
@@ -106,14 +89,13 @@ private:
     int    m_from_axis    = 1;  // 0=X, 1=Y
     double m_z_shift      = 0.0;
     double m_floor_offset = 0.0;
-    // Support lean, see set_lean(). Zero slope = the plain slicing frame.
+    // Support lean, see set_lean(). Zero slope = the plain slicing frame. m_lean_zoff maps a
+    // queried print_z onto the lean's own z: print_z + m_lean_zoff - z_origin.
     double m_lean_slope_u = 0.0;
     double m_lean_zoff    = 0.0;
 
-    // 1 - shear * slope_u: the floor normal's component along the lean direction.
-    // Positive for any lean that points up and away from the belt (on a belt with
-    // the "vertical" direction, slope_u = -shear, so it is 1 + shear^2). Guarded
-    // away from zero: a lean lying in the floor plane has no floor crossing.
+    // 1 - shear * slope_u, how fast a column along the lean closes on the floor; support_lean()
+    // never admits a lean for which it is not positive.
     double lean_denominator() const;
 
     // Internal: compute the raw half-plane polygon.

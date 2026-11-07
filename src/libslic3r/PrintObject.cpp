@@ -1026,15 +1026,20 @@ void PrintObject::generate_support_material(bool with_belt_brim)
                 // frame. A no-op for the default "follow layers"; the scope puts the layers back
                 // before anything else reads them. See Support/SupportDirection.hpp.
                 ScopedSupportShear shear(*this);
-                if (shear.active() && shear.clamped())
+                if (shear.floor_unreachable())
+                    this->active_step_add_warning(PrintStateBase::WarningLevel::NON_CRITICAL,
+                        // TRN %1% is the object name.
+                        Slic3r::format(L("The support direction of object %1% never reaches the belt, so its support follows the layers instead."),
+                                       this->model_object()->name));
+                else if (shear.clamped())
                     this->active_step_add_warning(PrintStateBase::WarningLevel::NON_CRITICAL,
                         // TRN %1% is the object name, %2% the configured "Max lean" angle (the degree sign follows it).
-                        Slic3r::format(L("The support direction of object %1% is tilted more than %2%° away from its layers; the lean was limited to that angle (\"Max lean\")."),
+                        Slic3r::format(L("The support direction of object %1% is more than %2%° from the layer normal; the lean was limited to that angle (\"Max lean\")."),
                                        this->model_object()->name, int(std::lround(m_config.support_direction_max_lean.value))));
-                if (shear.active() && shear.lean_deg() > SupportLean::safe_lean_deg() + EPSILON)
+                else if (shear.active() && shear.lean_deg() > SupportLean::safe_lean_deg() + EPSILON)
                     this->active_step_add_warning(PrintStateBase::WarningLevel::NON_CRITICAL,
                         // TRN %1% is the object name, %2% the lean angle in effect and %3% the angle beyond which support overhangs itself (the degree sign follows each).
-                        Slic3r::format(L("The support of object %1% leans %2%° away from its layers. Beyond %3%° the support overhangs itself; tune and test-print this before relying on it."),
+                        Slic3r::format(L("The support of object %1% leans %2%° from the layer normal. Beyond %3%° the support overhangs itself; tune and test-print this before relying on it."),
                                        this->model_object()->name, int(std::lround(shear.lean_deg())), int(std::lround(SupportLean::safe_lean_deg()))));
                 this->_generate_support_material();
             }
@@ -5165,8 +5170,11 @@ void PrintObject::_generate_support_material()
             PrintObjectSupportMaterial support_material(this, m_slicing_params);
             support_material.generate(*this);
         } catch (...) {
-            if (unshift)
+            if (unshift) {
                 shift_object_frame(1.);
+                for (SupportLayer *sl : m_support_layers)
+                    sl->print_z += global_z;
+            }
             throw;
         }
         if (unshift) {
@@ -5543,7 +5551,8 @@ static void project_triangles_to_slabs(ConstLayerPtrsAdaptor layers, const index
 void PrintObject::project_and_append_custom_facets(
         bool seam, EnforcerBlockerType type, std::vector<Polygons>& out, std::vector<std::pair<Vec3f, Vec3f>>* vertical_points) const
 {
-    const Transform3d object_trafo = this->trafo_sliced();
+    const Transform3d        object_trafo = this->trafo_sliced();
+    const std::vector<float> zs           = zs_from_layers(this->layers());
     for (const ModelVolume* mv : this->model_object()->volumes)
         if (mv->is_model_part()) {
             const indexed_triangle_set custom_facets = seam
@@ -5556,15 +5565,25 @@ void PrintObject::project_and_append_custom_facets(
                         seam, out);
                 else {
                     std::vector<Polygons> projected;
+                    const size_t          first_vertical_point = vertical_points == nullptr ? 0 : vertical_points->size();
                     // Support blockers or enforcers. Project downward facing painted areas upwards to their respective slicing plane.
-                    slice_mesh_slabs(custom_facets, zs_from_layers(this->layers()), object_trafo * mv->get_matrix(), nullptr, &projected, vertical_points, [](){});
-                    // While support is generated in a sheared frame (Support/SupportDirection.hpp) the
-                    // painted areas must follow the layers they are matched against, same rule as
-                    // slice_support_volumes(). Only these new projections: `out` may already hold the
-                    // enforcer/blocker volumes, which slice_support_volumes() has shifted.
-                    if (m_support_lean.active())
-                        for (size_t i = 0; i < projected.size() && i < m_layers.size(); ++ i)
-                            Slic3r::translate(projected[i], m_support_lean.shift_at(m_layers[i]->print_z));
+                    slice_mesh_slabs(custom_facets, zs, object_trafo * mv->get_matrix(), nullptr, &projected, vertical_points, [](){});
+                    // Follow the layers into the sheared support frame. Only what was added here: `out`
+                    // is already in that frame.
+                    if (m_support_lean.active()) {
+                        for (size_t i = 0; i < projected.size(); ++ i)
+                            Slic3r::translate(projected[i], this->support_lean_shift(i));
+                        if (vertical_points != nullptr)
+                            for (size_t k = first_vertical_point; k < vertical_points->size(); ++ k) {
+                                // Scaled XY with z in mm, matched to a layer the way the tree generators do.
+                                Vec3f &pt = (*vertical_points)[k].first;
+                                if (auto it = std::lower_bound(zs.begin(), zs.end(), pt.z()); it != zs.end()) {
+                                    const Point shift = this->support_lean_shift(size_t(it - zs.begin()));
+                                    pt.x() += float(shift.x());
+                                    pt.y() += float(shift.y());
+                                }
+                            }
+                    }
                     // Merge these projections with the output, layer by layer.
                     assert(! projected.empty());
                     assert(out.empty() || out.size() == projected.size());

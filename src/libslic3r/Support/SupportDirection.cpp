@@ -5,6 +5,7 @@
 #include "../Point.hpp"
 #include "../Print.hpp"
 #include "../PrintConfig.hpp"
+#include "../Slicing.hpp"
 #include "../libslic3r.h"
 
 #include <Eigen/Core>
@@ -14,14 +15,6 @@
 #include <cmath>
 
 namespace Slic3r {
-
-Transform3d SupportLean::shear() const
-{
-    Transform3d t = Transform3d::Identity();
-    t.linear()(0, 2) = - slope.x();
-    t.linear()(1, 2) = - slope.y();
-    return t;
-}
 
 Vec3d support_direction_bed_frame(const PrintObjectConfig &cfg)
 {
@@ -41,7 +34,8 @@ SupportLean support_lean(const PrintObject &object)
     SupportLean              lean;
     const PrintObjectConfig &cfg   = object.config();
     const Vec3d              u_bed = support_direction_bed_frame(cfg);
-    if (u_bed.squaredNorm() < 1e-18)
+    // A raft alone is not leaned.
+    if (u_bed.squaredNorm() < 1e-18 || ! object.has_support())
         return lean;
 
     // Bed frame -> slice frame. trafo_sliced() is the belt pre-slice transforms applied on top of
@@ -59,51 +53,61 @@ SupportLean support_lean(const PrintObject &object)
     if (u.z() < 0.)
         u = - u;
 
+    lean.z_origin = object.belt_global_z_offset();
     const double max_lean = std::clamp(cfg.support_direction_max_lean.value, 0., 85.);
-    const double max_cos  = std::cos(Geometry::deg2rad(max_lean));
-    if (u.z() < max_cos - EPSILON) {
-        // Too far from the layer normal: keep the azimuth, pull the tilt back to the limit. A
-        // direction lying in the layer plane (rxy == 1) is pulled back the same way; one exactly
-        // along the normal never reaches this branch.
+    const double rxy      = std::hypot(u.x(), u.y());
+    if (Geometry::rad2deg(std::atan2(rxy, u.z())) > max_lean + 1e-9) {
+        // Too far from the layer normal: keep the heading, pull the tilt back to the limit. rxy > 0
+        // here because a direction exactly along the normal never reaches this branch.
         lean.clamped = true;
-        const double rxy = std::hypot(u.x(), u.y());
-        const double s   = std::sin(Geometry::deg2rad(max_lean));
-        u = Vec3d(u.x() / rxy * s, u.y() / rxy * s, max_cos);
+        const double s = std::sin(Geometry::deg2rad(max_lean));
+        u = Vec3d(u.x() / rxy * s, u.y() / rxy * s, std::cos(Geometry::deg2rad(max_lean)));
     }
     lean.slope = Vec2d(u.x() / u.z(), u.y() / u.z());
+
+    // A column that leans along the belt plane, or past it, never meets the belt: the floor would
+    // sit infinitely far down that column. Follow the layers instead and say so.
+    const SlicingParameters &sp = object.slicing_parameters();
+    if (std::abs(sp.belt_floor_shear_factor) > EPSILON) {
+        const double slope_u = sp.belt_floor_from_axis == 0 ? lean.slope.x() : lean.slope.y();
+        if (1. - sp.belt_floor_shear_factor * slope_u <= 0.05) {
+            lean.floor_unreachable = true;
+            lean.clamped           = false;
+            lean.slope             = Vec2d(0., 0.);
+        }
+    }
     if (! lean.active())
-        // Coincides with the layer normal (within the activity threshold): follow the layers.
-        lean = SupportLean();
+        // Coincides with the layer normal: follow the layers. `clamped` stays, so a limit of 0 warns.
+        lean.slope = Vec2d(0., 0.);
     return lean;
 }
 
-// Layer::print_z is read at construction and again at destruction. Inside
-// PrintObject::_generate_support_material() the normal generator temporarily subtracts
-// PrintObject::m_belt_global_z_offset from every object layer's print_z for its run and adds it
-// back onto the object layers and the new support layers before returning, so by the time this
-// scope ends every print_z is global again and the shifts applied here and in the destructor
-// cancel exactly (the tree generators never touch print_z, organic support gets the offset added
-// onto its new layers the same way). shift_at() is therefore always evaluated on global print_z.
 ScopedSupportShear::ScopedSupportShear(PrintObject &object)
     : m_object(object), m_lean(support_lean(object))
 {
     if (! m_lean.active())
         return;
     m_object.m_support_lean = m_lean;
-    for (Layer *layer : m_object.m_layers)
-        layer->translate(m_lean.shift_at(layer->print_z));
+    m_object.m_support_lean_shifts.reserve(m_object.m_layers.size());
+    for (Layer *layer : m_object.m_layers) {
+        const Point shift = m_lean.shift_at(layer->print_z);
+        m_object.m_support_lean_shifts.emplace_back(shift);
+        layer->translate(shift);
+    }
 }
 
 ScopedSupportShear::~ScopedSupportShear()
 {
     if (! m_lean.active())
         return;
-    for (Layer *layer : m_object.m_layers)
-        layer->translate(- m_lean.shift_at(layer->print_z));
-    // Everything the generator built lives in the sheared frame; its own print_z (which may differ
-    // from any object layer's, e.g. raft layers) says exactly how far it moved.
+    // Undo exactly the shifts the constructor applied, whatever print_z the layers hold now.
+    for (size_t i = 0; i < m_object.m_layers.size() && i < m_object.m_support_lean_shifts.size(); ++ i)
+        m_object.m_layers[i]->translate(- m_object.m_support_lean_shifts[i]);
+    // Everything the generator built lives in the sheared frame; its own print_z (global by now,
+    // see PrintObject::_generate_support_material()) says exactly how far it moved.
     for (SupportLayer *layer : m_object.m_support_layers)
         layer->translate(- m_lean.shift_at(layer->print_z));
+    m_object.m_support_lean_shifts.clear();
     m_object.m_support_lean = SupportLean();
 }
 

@@ -12,6 +12,7 @@
 #include "libslic3r/Support/SupportLayer.hpp"
 #include "libslic3r/PrintConfig.hpp"
 #include "SupportCommon.hpp"
+#include "SupportDirection.hpp"
 #include "BeltFloorContext.hpp"
 #include "Geometry.hpp"
 #include "Point.hpp"
@@ -663,10 +664,8 @@ Polygons belt_floor_surface_polygon(
     BeltFloorContext ctx;
     if (!ctx.init(slicing_params, print_config))
         return {};
-    // The generator runs in the object-local frame (PrintObject::_generate_support_material()
-    // lifts belt_global_z_offset off the layers), while the support lean sheared the layers at
-    // their global print_z: pass that offset so the floor is seen through the same shear.
-    ctx.set_lean(object.support_lean().slope, object.belt_global_z_offset());
+    // The generator works in the object-local frame; the offset maps its print_z onto the global one.
+    ctx.set_lean(object.support_lean(), object.belt_global_z_offset());
     return ctx.surface_polygon(print_z);
 }
 
@@ -683,7 +682,7 @@ static Polygons belt_floor_valid_region_polygon(
     if (!ctx.init(slicing_params, print_config))
         return {};
     // Local frame, see belt_floor_surface_polygon().
-    ctx.set_lean(object.support_lean().slope, object.belt_global_z_offset());
+    ctx.set_lean(object.support_lean(), object.belt_global_z_offset());
     return ctx.valid_region_polygon(print_z);
 }
 
@@ -1478,10 +1477,8 @@ static inline ExPolygons detect_overhangs(
     const double threshold_rad = Geometry::deg2rad(thresh_angle);
     const bool bridge_no_support = object_config.bridge_no_support.value;
     const coordf_t xy_expansion = scale_(object_config.support_expansion.value);
-    // Build plate tilt: compute per-layer XY shift for tilted gravity direction.
-    // While a support lean is active (Support/SupportDirection.hpp) the layers are already
-    // held in a frame sheared along the support direction, which on a belt is the gravity
-    // direction this shift stands in for -- applying it as well would count the tilt twice.
+    // Build plate tilt: compute per-layer XY shift for tilted gravity direction. While the support
+    // leans, overhangs are judged against the support direction instead (Support/SupportDirection.hpp).
     const Vec2d  tilt_slope = build_plate_tilt_slope(print_config);
     const bool   has_tilt   = tilt_slope.cwiseAbs().maxCoeff() > EPSILON && ! layer.object()->support_lean().active();
     float lower_layer_offset = 0;
@@ -1526,14 +1523,10 @@ static inline ExPolygons detect_overhangs(
             translate(tilted_lower, Point::new_scale(tilt_slope * lower_layer.height));
             effective_lower = &tilted_lower;
         }
-        // Belt printers, while the support leans (Support/SupportDirection.hpp): material resting
-        // on the belt is held up by the belt, not by the layer below it, so the belt surface counts
-        // as support from underneath -- the union classic tree support makes. In the sheared frame
-        // the belt-contact face is flatter than the belt angle (slope shear / (1 + shear^2), 26.6
-        // degrees on a 45 degree belt) and would otherwise read as an overhang on every layer.
-        // The helper sees the floor through the lean; evaluated at the bottom of the layer, which
-        // meets the belt across its whole thickness, and clipped to the layer so Clipper never
-        // mixes the +/-1000 mm half-plane with millimetre geometry.
+        // Belt printers, while the support leans: the belt surface counts as support from underneath,
+        // as it does for classic tree support, else the belt-contact face (flatter than the belt angle
+        // in the sheared frame) reads as an overhang on every layer. Evaluated at the bottom of the
+        // layer and clipped to it, so Clipper never mixes the half-plane with millimetre geometry.
         Polygons   belt_lower;
         ExPolygons belt_surface_ex;   // the belt under this layer, for the sharp-tail test below
         if (layer.object()->support_lean().active()) {
@@ -3353,7 +3346,7 @@ static void trim_support_layers_by_belt_floor(
     if (!ctx.init(slicing_params, print_config))
         return;
     // Local frame, see belt_floor_surface_polygon().
-    ctx.set_lean(object.support_lean().slope, object.belt_global_z_offset());
+    ctx.set_lean(object.support_lean(), object.belt_global_z_offset());
 
     tbb::parallel_for(tbb::blocked_range<size_t>(0, support_layers.size()),
         [&](const tbb::blocked_range<size_t> &range) {
