@@ -17,6 +17,7 @@
 
 namespace Slic3r {
 
+class PrintConfig;
 class PrintObject;
 class PrintObjectConfig;
 
@@ -49,9 +50,16 @@ struct SupportLean
         { return Point::new_scale(- (print_z - z_origin) * slope.x(), - (print_z - z_origin) * slope.y()); }
 };
 
-// The configured support direction as a unit vector in the bed frame (the frame the object is
-// placed in, before any belt rotation), or a zero vector for "follow layers".
-Vec3d support_direction_bed_frame(const PrintObjectConfig &cfg);
+// Gravity's "up" in the bed frame (the frame the object is placed in, before any belt rotation):
+// +Z, except on a printer whose build plate is tilted (build_plate_tilt_x/y), where it is the
+// plate tilt's up direction. On a belt printer those options are synced to the belt angle and
+// describe the slicing rotation, not gravity relative to the belt; the belt itself is level, so
+// its normal is up.
+Vec3d world_up_bed_frame(const PrintConfig &print_config);
+
+// The configured support direction as a unit vector in the bed frame, or a zero vector for
+// "follow layers". `world_up` is what "World vertical" resolves to, see world_up_bed_frame().
+Vec3d support_direction_bed_frame(const PrintObjectConfig &cfg, const Vec3d &world_up);
 
 // The lean the object's config asks for, resolved into its slice frame. Inactive for the default
 // "follow layers", and for any direction that coincides with the layer normal.

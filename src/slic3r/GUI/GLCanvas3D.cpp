@@ -10770,6 +10770,8 @@ void GLCanvas3D::_render_support_direction_arrows(const Transform3d& view_matrix
     const DynamicPrintConfig& print_cfg   = preset_bundle->prints.get_edited_preset().config;
     const auto*               belt_opt    = preset_bundle->printers.get_edited_preset().config.option<ConfigOptionBool>("belt_printer");
     const bool                belt        = belt_opt != nullptr && belt_opt->value;
+    // See world_up_bed_frame(): on a belt the plate tilt options carry the belt angle, not gravity.
+    const Vec3d               world_up    = belt ? Vec3d::UnitZ() : build_plate_tilt_up_direction();
     // The object's own override wins over the process preset, as the slicer resolves it.
     auto option = [&print_cfg](const ModelObject& obj, const char* key) -> const ConfigOption* {
         const ConfigOption* opt = obj.config.option(key);
@@ -10796,7 +10798,7 @@ void GLCanvas3D::_render_support_direction_arrows(const Transform3d& view_matrix
                                    std::make_pair("support_direction_tilt_y", &cfg.support_direction_tilt_y) })
             if (const auto* opt = dynamic_cast<const ConfigOptionFloat*>(option(*obj, key)))
                 field->value = opt->value;
-        const Vec3d dir = support_direction_bed_frame(cfg);
+        const Vec3d dir = support_direction_bed_frame(cfg, world_up);
         // Nothing leans when the direction is the bed normal on a printer whose layers follow the bed.
         if (dir.squaredNorm() < EPSILON || (!belt && std::abs(dir.z() - 1.) < EPSILON))
             continue;

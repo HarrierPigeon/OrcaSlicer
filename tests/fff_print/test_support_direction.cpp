@@ -208,6 +208,30 @@ TEST_CASE("A custom support direction leans the column by the configured angle",
     }
 }
 
+TEST_CASE("Vertical support on a tilted build plate leans against the plate tilt", "[SupportDirection]")
+{
+    // A non-belt printer whose plate is tilted 30 degrees about Y: the layers follow the plate, and
+    // "World vertical" is gravity's up, which the plate tilt options describe. The column therefore
+    // leans exactly as the custom direction with the same tilt does, by tan(30) along +X.
+    Slic3r::Print print;
+    Slic3r::Test::init_and_process_print({ cantilever() }, print, direction_config({
+        { "build_plate_tilt_x",  0. },
+        { "build_plate_tilt_y",  30. },
+        { "support_direction",   "vertical" },
+    }));
+    const PrintObject &object = only_object(print);
+    REQUIRE(! object.support_layers().empty());
+    const SupportLean lean = support_lean(object);
+    CHECK(lean.active());
+    CHECK_THAT(lean.lean_deg(), WithinAbs(30., 1e-6));
+    CHECK_THAT(lean_of(column_outer_edge(object)), WithinAbs(std::tan(Geometry::deg2rad(30.)), 0.05));
+
+    // On a level plate "World vertical" is the layer normal and nothing leans.
+    Slic3r::Print level;
+    Slic3r::Test::init_and_process_print({ cantilever() }, level, direction_config({ { "support_direction", "vertical" } }));
+    CHECK(! support_lean(only_object(level)).active());
+}
+
 TEST_CASE("The direction is fixed in the bed frame, not the object's", "[SupportDirection]")
 {
     // The same tilt Y = 30 with the instance turned 180 degrees about Z: the beam now points to

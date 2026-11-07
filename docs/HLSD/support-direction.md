@@ -7,7 +7,7 @@ Support page, advanced) lets the column lean along a direction fixed in the prin
 | value      | support axis                                                                                              |
 |------------|-----------------------------------------------------------------------------------------------------------|
 | `layers`   | the layer normal (default)                                                                                |
-| `vertical` | the bed normal, +Z of the frame the object is placed in                                                   |
+| `vertical` | against gravity: +Z of the frame the object is placed in (the bed normal), or on a printer whose build plate is tilted (`build_plate_tilt_x/y`, non-belt) that tilt's up direction (`world_up_bed_frame()`) |
 | `custom`   | the bed-frame direction given by `support_direction_tilt_x/y` (`Geometry::tilt_up_direction`), in the convention of the `build_plate_tilt_x/y` printer options: up = normalize(tan(tilt_y), tan(tilt_x), 1), so 0/0 is vertical and the same tilts as the build plate grow the support against the plate's gravity |
 
 `support_direction_max_lean` limits the lean in effect, whatever asked for it. A raft alone is never
@@ -15,9 +15,12 @@ leaned: the lean needs support to be enabled or enforced.
 
 On a flat bed the bed normal is the layer normal, so `vertical` changes nothing. The point is the
 belt printer: `BeltSliceStrategy` rotates the object by the belt angle before slicing, so the layers
-are tilted and a column that follows them climbs away from the belt at that angle. With `vertical`
-the direction is the belt normal in the slice frame; the column grows perpendicular to the belt and
-lands on the belt plane. A wall that is vertical on the bed is then perpendicular to the support
+are tilted and a column that follows them climbs away from the belt at that angle. The belt itself
+is level, so gravity's up is its normal (the `build_plate_tilt_x/y` options a belt printer carries
+are synced to the belt angle and describe that slicing rotation, not a tilt of the belt). With
+`vertical` the direction is the belt normal in the slice frame; the column grows perpendicular to
+the belt and lands on the belt plane. On a non-belt printer with a tilted build plate the layers
+follow the plate, and `vertical` leans the column by the plate tilt, against gravity. A wall that is vertical on the bed is then perpendicular to the support
 direction rather than a 45-degree overhang, so it needs no support.
 
 ## How the lean is produced
@@ -55,7 +58,8 @@ Things that read object geometry during generation see the sheared frame consist
 `PrintObject::support_lean()` reports the lean only while the scope is alive, so nothing outside
 support generation can mistake sheared geometry for the slice frame; afterwards it is inactive and
 the free function `support_lean(const PrintObject &)` still tells what was applied.
-`support_direction_bed_frame()` is the shared resolution of the options into a bed-frame vector;
+`support_direction_bed_frame()` is the shared resolution of the options into a bed-frame vector
+(with `world_up_bed_frame()` for what `vertical` means on the printer at hand);
 the 3D scene draws it as an arrow above each selected instance whose object leans its support,
 showing the configured direction before the `Max lean` limit.
 

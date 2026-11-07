@@ -16,11 +16,18 @@
 
 namespace Slic3r {
 
-Vec3d support_direction_bed_frame(const PrintObjectConfig &cfg)
+Vec3d world_up_bed_frame(const PrintConfig &print_config)
+{
+    return print_config.belt_printer.value ?
+        Vec3d::UnitZ() :
+        Geometry::tilt_up_direction(print_config.build_plate_tilt_x.value, print_config.build_plate_tilt_y.value);
+}
+
+Vec3d support_direction_bed_frame(const PrintObjectConfig &cfg, const Vec3d &world_up)
 {
     switch (cfg.support_direction.value) {
     case sdVertical:
-        return Vec3d::UnitZ();
+        return world_up;
     case sdCustom:
         return Geometry::tilt_up_direction(cfg.support_direction_tilt_x.value, cfg.support_direction_tilt_y.value);
     case sdLayers:
@@ -33,7 +40,7 @@ SupportLean support_lean(const PrintObject &object)
 {
     SupportLean              lean;
     const PrintObjectConfig &cfg   = object.config();
-    const Vec3d              u_bed = support_direction_bed_frame(cfg);
+    const Vec3d              u_bed = support_direction_bed_frame(cfg, world_up_bed_frame(object.print()->config()));
     // A raft alone is not leaned.
     if (u_bed.squaredNorm() < 1e-18 || ! object.has_support())
         return lean;

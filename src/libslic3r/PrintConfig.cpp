@@ -7351,10 +7351,10 @@ void PrintConfigDef::init_fff_params()
     def->category = L("Support");
     def->tooltip = L("The direction support columns grow along. \"Follow layers\" stacks support along the layer "
                      "normal. \"World vertical\" and \"Custom\" lean it towards a direction fixed in the bed's frame, "
-                     "whatever rotation the object is sliced at: on a belt printer \"World vertical\" grows the "
-                     "support perpendicular to the belt instead of along the tilted gantry. Overhangs are then "
-                     "judged against that direction too. The lean away from the layer normal is limited by "
-                     "\"Max lean\".");
+                     "whatever rotation the object is sliced at. \"World vertical\" is against gravity: on a belt "
+                     "printer the support grows perpendicular to the belt instead of along the tilted gantry, and "
+                     "on a tilted build plate it grows along the plate tilt's up. Overhangs are then judged "
+                     "against that direction too. The lean away from the layer normal is limited by \"Max lean\".");
     def->enum_keys_map = &ConfigOptionEnum<SupportDirection>::get_enum_values();
     def->enum_values.push_back("layers");
     def->enum_values.push_back("vertical");
@@ -7370,8 +7370,7 @@ void PrintConfigDef::init_fff_params()
     def->category = L("Support");
     def->tooltip = L("Custom support direction: tilt of the support direction about the X axis, in degrees, in the "
                      "same convention as \"Build plate tilt X\". A positive value leans the support towards +Y. "
-                     "0 with tilt Y = 0 is world vertical. On a printer with a tilted build plate that is not a belt "
-                     "printer, the same tilts as the plate grow the support against gravity.");
+                     "0 with tilt Y = 0 is the bed normal.");
     def->sidetext = u8"\u00B0";
     def->min = -89;
     def->max = 89;
