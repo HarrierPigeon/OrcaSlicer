@@ -1300,6 +1300,7 @@ PRINT_CONFIG_CLASS_DEFINE(
     ((ConfigOptionFloat,               brim_width))
     ((ConfigOptionFloat,               leading_brim_length))
     ((ConfigOptionFloat,               extra_brim_width))
+    ((ConfigOptionBool,                support_brim))
     ((ConfigOptionFloat,               brim_ears_detection_length))
     ((ConfigOptionFloat,               brim_ears_max_angle))
     ((ConfigOptionBool,                brim_ears_outer_only))

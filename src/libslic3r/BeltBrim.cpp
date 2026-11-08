@@ -487,6 +487,46 @@ void make_belt_brim(PrintObject &object)
                 contact_wall_width[i] = contact_wall_width[i] > 0. ? std::min(contact_wall_width[i], w) : w;
             }
     }
+    // 1b. Support feet.  Supports land on the belt wherever they reach it, ahead of or
+    //     beside the part, and on a belt the generators give them no first-layer
+    //     expansion (SupportCommon.cpp, TreeSupport.cpp), so the brim is all that holds
+    //     them.  Each support layer's contact with the belt is taken like an object
+    //     layer's, and where no object wall rests on the belt in that band the support
+    //     line is the wall the band is levelled with.  The leading-edge cut below stays
+    //     at the object's first contact: a foot ahead of it is downhill and kept.
+    if (object.config().support_brim.value && ! object.support_layers().empty()) {
+        const double support_wall_width = support_material_flow(&object).width();
+        const LayerPtrs &object_layers = object.layers();
+        for (const SupportLayer *sl : object.support_layers()) {
+            if (sl->support_fills.empty() || sl->height < EPSILON)
+                continue;
+            const Polygons fills = sl->support_fills.polygons_covered_by_spacing();
+            if (fills.empty())
+                continue;
+            coordf_t u_lo = bc.ctx.cutoff_u(sl->print_z - sl->height);
+            coordf_t u_hi = bc.ctx.cutoff_u(sl->print_z);
+            if (u_lo > u_hi)
+                std::swap(u_lo, u_hi);
+            BoundingBox bb = get_extents(fills);
+            bb.offset(scale_(1.));
+            const Polygon band = band_box(bb, bc.frame.from_axis, u_lo, u_hi);
+            if (band.empty())
+                continue;
+            ExPolygons contact = intersection_ex(fills, Polygons{ band });
+            if (contact.empty())
+                continue;
+            expolygons_append(footprint_acc, std::move(contact));
+            // The object layer whose band this is.  Support layers share the object's
+            // print_z lattice unless they are independent, so look the band up by Z.
+            auto it = std::lower_bound(object_layers.begin(), object_layers.end(), sl->print_z - 0.5 * sl->height,
+                                       [](const Layer *l, coordf_t z) { return l->print_z < z; });
+            if (it != object_layers.end()) {
+                const size_t i = size_t(it - object_layers.begin());
+                if (contact_wall_width[i] <= 0.)
+                    contact_wall_width[i] = support_wall_width;
+            }
+        }
+    }
     const ExPolygons footprint = union_ex(footprint_acc);
     if (footprint.empty())
         return;

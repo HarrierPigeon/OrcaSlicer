@@ -641,8 +641,49 @@ static ExPolygons outer_inner_brim_area(const Print& print,
             }
             if (support_material_extruder == extruderNo && brimToWrite.at(object->id()).sup) {
                 if (!object->support_layers().empty() && object->support_layers().front()->support_type==stInnerNormal) {
-                    for (const Polygon& support_contour : object->support_layers().front()->support_fills.polygons_covered_by_spacing()) {
+                    const Polygons support_contours = object->support_layers().front()->support_fills.polygons_covered_by_spacing();
+                    for (const Polygon& support_contour : support_contours) {
                         no_brim_area_support.emplace_back(support_contour);
+                    }
+                    // Brim under supports: a ring around the feet of the normal supports, like the
+                    // object's.  Auto, Mouse ear and Painted size the object's brim per island or
+                    // per ear, which means nothing for a support foot, so those take Brim width as
+                    // configured, or 5 mm where it is 0.  (Tree supports grow their own base brim in
+                    // TreeSupport.cpp and stay as they are.)
+                    if (object->config().support_brim.value && (has_outer_brim || has_inner_brim) && !support_contours.empty()) {
+                        const double support_brim_width_mm = (has_brim_auto || use_brim_ears || use_auto_brim_ears) && object->config().brim_width.value <= 0. ?
+                            5. : object->config().brim_width.value;
+                        const coord_t support_brim_width = scale_(floor(support_brim_width_mm / flowWidth / 2) * flowWidth * 2);
+                        const ExPolygons support_islands = union_ex(support_contours);
+                        ExPolygons support_brim_ring;
+                        for (const ExPolygon& ex : support_islands) {
+                            if (has_outer_brim) {
+                                ExPolygons inner = offset_ex(ex.contour, brim_offset, jtRound, SCALED_RESOLUTION);
+                                append(support_brim_ring, diff_ex(offset_ex(inner, support_brim_width, jtRound, SCALED_RESOLUTION), inner));
+                            }
+                            if (has_inner_brim) {
+                                Polygons holes = ex.holes;
+                                polygons_reverse(holes);
+                                append(support_brim_ring, intersection_ex(diff_ex(offset_ex(holes, -brim_offset), offset_ex(holes, -brim_offset - support_brim_width)), holes));
+                            }
+                        }
+                        // Neighbouring feet keep the gap from each other's ring; the object and the
+                        // bed edge are kept out of it with every other brim below.
+                        const ExPolygons support_islands_gap = offset_ex(support_islands, brim_offset, jtRound, SCALED_RESOLUTION);
+                        support_brim_ring = diff_ex(support_brim_ring, support_islands_gap);
+                        for (size_t instance_idx = 0; instance_idx < object->instances().size(); ++instance_idx) {
+                            const PrintInstance& instance = object->instances()[instance_idx];
+                            // The feet count as islands, or the contact filter below drops a ring
+                            // that touches neither the object nor its brim.
+                            append_and_translate(objectIslands, support_islands_gap, instance);
+                            // One brim area per instance: the loops are offset per polygon, so the
+                            // ring must not overlap the object's brim or both would print the overlap.
+                            ExPolygons ring = support_brim_ring;
+                            for (ExPolygon& expoly : ring)
+                                expoly.translate(instance.shift_without_plate_offset());
+                            ExPolygons& areas = brimAreaMap[{ object->id(), instance_idx }];
+                            expolygons_append(areas, diff_ex(ring, areas));
+                        }
                     }
                 }
                 // BBS

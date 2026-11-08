@@ -3449,6 +3449,7 @@ void TabPrint::build()
         optgroup->append_single_option_line("brim_width", "others_settings_brim#width");
         optgroup->append_single_option_line("leading_brim_length", "others_settings_brim#leading-length");
         optgroup->append_single_option_line("extra_brim_width", "others_settings_brim#extra-width");
+        optgroup->append_single_option_line("support_brim", "others_settings_brim#brim-under-supports");
         optgroup->append_single_option_line("brim_object_gap", "others_settings_brim#brim-object-gap");
         optgroup->append_single_option_line("brim_flow_ratio", "others_settings_brim#brim-flow-ratio");
         optgroup->append_single_option_line("brim_use_efc_outline", "others_settings_brim#brim-use-efc-outline");

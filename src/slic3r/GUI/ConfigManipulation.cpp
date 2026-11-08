@@ -1024,6 +1024,10 @@ void ConfigManipulation::toggle_print_fff_options(DynamicPrintConfig *config, in
         toggle_line(el, is_belt_tilted, -1, _L("This setting requires a belt printer with a tilted slicing plane."));
         toggle_field(el, is_belt_tilted && have_brim, -1, _L("Enable a brim on a belt printer with a tilted slicing plane to use this setting."));
     }
+    // The support brim rides on the object's brim and needs supports to go under.
+    const bool have_supports_for_brim = config->opt_bool("enable_support") || config->opt_int("enforce_support_layers") > 0;
+    toggle_field("support_brim", have_brim && have_supports_for_brim, -1,
+                 _L("Enable supports and select a brim type other than No brim to use this setting."));
     // Wall filament selectors use the same logic as in Print::extruders().
     const wxString wall_filament_reason = _L("Enable walls or a brim to select the wall filament.");
     toggle_field("outer_wall_filament_id", have_perimeters || have_brim, -1, wall_filament_reason);

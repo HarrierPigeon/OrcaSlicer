@@ -1708,3 +1708,172 @@ TEST_CASE("Belt brim slices when every object is a flush target", "[SkirtBrim][b
     const std::string out = gcode(print);
     CHECK(out.find(";TYPE:Brim") != std::string::npos);
 }
+
+// Brim under supports -----------------------------------------------------------
+
+// A 20 mm cube with a 2 mm fin leaving its top edge toward -Y, the end that prints first,
+// climbing at 45 deg.  With the layers leaning at 45 deg the fin's underside is one ceiling
+// with nothing but air between it and the belt, so the supports under it land on the belt
+// well ahead of the cube (the same part as "Belt supports reach the belt under a leading
+// overhang" in test_print.cpp).
+static TriangleMesh belt_fin_mesh()
+{
+    indexed_triangle_set its = its_make_cube(20., 20., 20.);
+    indexed_triangle_set fin = its_make_cube(20., 20., 2.);
+    Transform3d shear = Transform3d::Identity();
+    shear.matrix() << 1., 0., 0.,   0.,
+                      0., 1., 0., -20.,
+                      0., -1., 1., 38.,
+                      0., 0., 0.,   1.;
+    its_transform(fin, shear);
+    its_merge(its, fin);
+    return TriangleMesh(std::move(its));
+}
+
+struct BeltBrimMeasure
+{
+    double brim_z      = std::numeric_limits<double>::max();   // lowest print_z of a band that prints
+    double brim_length = 0.;                                    // every brim path, prologue included
+    double support_z   = std::numeric_limits<double>::max();   // lowest print_z of a support layer that prints
+};
+
+static BeltBrimMeasure measure_belt_brim(const char *support_type, bool supports, bool support_brim)
+{
+    DynamicPrintConfig config = belt_brim_config();
+    config.set_deserialize_strict({
+        { "brim_type",               "outer_only" },
+        { "brim_width",              4 },
+        { "brim_object_gap",         0 },
+        { "z_hop",                   0 },
+        { "enable_support",          supports ? 1 : 0 },
+        { "support_type",            support_type },
+        { "support_threshold_angle", 30 },
+        { "support_brim",            support_brim ? 1 : 0 },
+    });
+    Print print;
+    Model model;
+    init_print({ belt_fin_mesh() }, print, model, config);
+    // On the bed, not at its corner: organic tree support clips its branches to the bed outline.
+    model.objects.front()->instances.front()->set_offset(Vec3d(100., 100., 0.));
+    print.apply(model, config);
+    print.set_status_silent();
+    print.process();
+
+    const PrintObject &object = *print.objects().front();
+    BeltBrimMeasure m;
+    auto add = [&m](const ExtrusionEntityCollection &fills, double print_z) {
+        if (fills.empty())
+            return;
+        m.brim_z = std::min(m.brim_z, print_z);
+        for (const ExtrusionEntity *entity : fills.flatten().entities)
+            m.brim_length += entity->length();
+    };
+    for (const BeltBrimBand &band : object.belt_brim_prologue())
+        add(band.fills, band.print_z);
+    const std::vector<ExtrusionEntityCollection> &by_layer = object.belt_brim_by_layer();
+    for (size_t i = 0; i < by_layer.size(); ++ i)
+        add(by_layer[i], object.layers()[i]->print_z);
+    for (const SupportLayer *layer : object.support_layers())
+        if (! layer->support_fills.empty())
+            m.support_z = std::min(m.support_z, layer->print_z);
+    return m;
+}
+
+TEST_CASE("Brim under supports reaches the support feet ahead of the part on a belt", "[SkirtBrim][belt][Support]")
+{
+    // default resolves to organic for tree support.
+    const char *support_type = GENERATE("normal(auto)", "tree(auto)");
+    DYNAMIC_SECTION(support_type) {
+        const BeltBrimMeasure off = measure_belt_brim(support_type, true, false);
+        const BeltBrimMeasure on  = measure_belt_brim(support_type, true, true);
+        REQUIRE(off.support_z < std::numeric_limits<double>::max());
+        REQUIRE(off.brim_z < std::numeric_limits<double>::max());
+        INFO("brim starts at z " << off.brim_z << " without, " << on.brim_z << " with the support brim; "
+             << "lowest support layer at z " << on.support_z);
+        // Without it the brim starts with the apron just ahead of the cube's first contact.
+        // The support feet land on the belt tens of millimetres of slicing Z earlier, and with
+        // it the brim starts ahead of them...
+        CHECK(on.brim_z < off.brim_z - 10.);
+        CHECK(on.brim_z < on.support_z + 0.5);
+        // ...so there is more of it.
+        CHECK(on.brim_length > off.brim_length + 10.);
+    }
+}
+
+TEST_CASE("Brim under supports changes nothing without supports on a belt", "[SkirtBrim][belt][Support]")
+{
+    const BeltBrimMeasure off = measure_belt_brim("normal(auto)", false, false);
+    const BeltBrimMeasure on  = measure_belt_brim("normal(auto)", false, true);
+    REQUIRE(off.brim_z < std::numeric_limits<double>::max());
+    CHECK_THAT(on.brim_z, Catch::Matchers::WithinAbs(off.brim_z, 1e-9));
+    CHECK_THAT(on.brim_length, Catch::Matchers::WithinAbs(off.brim_length, 1e-6));
+}
+
+// Total length of the plate brim, and whether any of it lies on the first support layer.
+struct PlateBrimMeasure
+{
+    double brim_length      = 0.;
+    bool   brim_on_support  = false;
+    bool   brim_near_support = false;   // within 3.5 mm of a support foot
+    bool   has_support      = false;
+};
+
+static PlateBrimMeasure measure_plate_brim(bool support_brim)
+{
+    Print print;
+    Model model;
+    init_print({ TestMesh::overhang }, print, model, {
+        { "layer_height",               0.2 },
+        { "initial_layer_print_height", 0.2 },
+        { "skirt_loops",                0 },
+        { "enable_support",             1 },
+        { "support_type",               "normal(auto)" },
+        { "support_threshold_angle",    30 },
+        { "brim_type",                  "outer_only" },
+        { "brim_width",                 3 },
+        { "brim_object_gap",            0 },
+        { "support_brim",               support_brim ? 1 : 0 },
+    });
+    print.process();
+
+    PlateBrimMeasure m;
+    const PrintObject &object = *print.get_object(0);
+    Polygons feet;
+    if (! object.support_layers().empty())
+        feet = object.support_layers().front()->support_fills.polygons_covered_by_spacing();
+    m.has_support = ! feet.empty();
+    const Vec3d plate_origin = print.get_plate_origin();
+    Point shift = object.instances().front().shift_without_plate_offset();
+    shift += Point(scaled(plate_origin.x()), scaled(plate_origin.y()));
+    for (Polygon &foot : feet)
+        foot.translate(shift);
+    const Polygons near_feet = offset(feet, scale_(3.5));
+    for (const auto &kv : print.get_brimMap()) {
+        Polylines brim_paths;
+        kv.second.collect_polylines(brim_paths);
+        for (const Polyline &path : brim_paths) {
+            m.brim_length += unscale<double>(path.length());
+            for (const Point &point : path.points) {
+                if (contains(feet, point, false))
+                    m.brim_on_support = true;
+                if (contains(near_feet, point, false))
+                    m.brim_near_support = true;
+            }
+        }
+    }
+    return m;
+}
+
+TEST_CASE("Brim under supports rings the feet of normal supports on a flat bed", "[SkirtBrim][Support]")
+{
+    const PlateBrimMeasure off = measure_plate_brim(false);
+    const PlateBrimMeasure on  = measure_plate_brim(true);
+    REQUIRE(off.has_support);
+    REQUIRE(off.brim_length > 0.);
+    INFO("brim length " << off.brim_length << " mm without, " << on.brim_length << " mm with the support brim");
+    CHECK(on.brim_length > off.brim_length + 10.);
+    CHECK(on.brim_near_support);
+    // The ring goes around the feet, never over them.
+    CHECK(! on.brim_on_support);
+    CHECK(! off.brim_on_support);
+}
