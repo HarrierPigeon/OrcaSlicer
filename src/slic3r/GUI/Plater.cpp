@@ -17124,9 +17124,10 @@ void Plater::_calib_apply_belt_mode()
     // hollow outlines (no infill) — the wedge needs a real pattern.
     print_config->set_key_value("support_base_pattern", new ConfigOptionEnum<SupportMaterialPattern>(smpRectilinear));
 
-    // The belt refuses a brim beside spiral vase (Print::validate()), and the
-    // wedge's own belt contact already holds a spiral test down, so the brim
-    // the flat-bed test asks for is dropped on the belt.
+    // The wedge's feet land on the belt ahead of the part with no first-layer
+    // expansion, so they take the object's brim as well (BeltBrim.cpp).
+    print_config->set_key_value("support_brim", new ConfigOptionBool(true));
+
     const bool spiral_mode = print_config->opt_bool("spiral_mode");
     if (spiral_mode) {
         // The spiral tests put their vase settings on the object only, so the
@@ -17150,9 +17151,6 @@ void Plater::_calib_apply_belt_mode()
         if (obj->instances.size() != 1)
             continue;
         obj_idxs.emplace_back(i);
-
-        if (spiral_mode)
-            obj->config.set_key_value("brim_type", new ConfigOptionEnum<BrimType>(btNoBrim));
 
         // Counter-rotate exactly the way the rotate gizmo would: rotation on
         // the instance, then a plain drop to the bed. This leaves the object

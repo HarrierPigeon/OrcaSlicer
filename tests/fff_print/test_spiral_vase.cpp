@@ -174,4 +174,33 @@ TEST_CASE("Spiral vase mode accepts supports on a belt printer", "[SpiralVase][b
         CHECK(gcode.find(";TYPE:Support") != std::string::npos);
         CHECK(gcode.find(";TYPE:Outer wall") != std::string::npos);
     }
+
+    SECTION("A brim under the wedge's feet is accepted beside spiral vase")
+    {
+        config.set_deserialize_strict({
+            { "brim_type",    "outer_only" },
+            { "brim_width",   3 },
+            { "support_brim", 1 },
+        });
+        indexed_triangle_set its = its_make_cube(20., 20., 20.);
+        its_transform(its, Transform3d(Eigen::AngleAxisd(-M_PI / 4., Vec3d::UnitX())));
+        Print print;
+        Model model;
+        init_print({ TriangleMesh(std::move(its)) }, print, model, config);
+        ModelInstance &instance = *model.objects.front()->instances.front();
+        instance.set_offset(Vec3d(100., 100., instance.get_offset().z()));
+        print.apply(model, config);
+
+        std::vector<StringObjectException> warnings;
+        REQUIRE(print.validate(&warnings).string.empty());
+        const PrintObject &object = *print.objects().front();
+        REQUIRE(object.has_belt_brim());
+        const std::string gcode = Test::gcode(print);
+        CHECK(gcode.find(";TYPE:Brim") != std::string::npos);
+        CHECK(gcode.find(";TYPE:Support") != std::string::npos);
+        CHECK(gcode.find(";TYPE:Outer wall") != std::string::npos);
+        // The wedge shares the cube's layers here, so its feet's bands ride on them.
+        const std::vector<ExtrusionEntityCollection> &bands = object.belt_brim_by_layer();
+        CHECK(std::any_of(bands.begin(), bands.end(), [](const ExtrusionEntityCollection &b) { return ! b.empty(); }));
+    }
 }

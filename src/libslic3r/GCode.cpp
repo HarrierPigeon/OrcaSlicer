@@ -6176,8 +6176,8 @@ LayerResult GCode::process_belt_brim_layer(
     // (CoolingBuffer.cpp), and every apron band is first-layer material by the only
     // definition that means anything on a belt: it lies on the belt plane itself.  Numbering
     // the bands 1, 2, 3... would ramp the fan up while still printing on the belt.
-    // spiral_vase_enable false: spiral vase is refused alongside belt brim in
-    // Print::validate().  cooling_buffer_flush true: an apron layer is a complete layer, and
+    // spiral_vase_enable false: an apron band lies on the belt below the object and is
+    // never part of the spiral.  cooling_buffer_flush true: an apron layer is a complete layer, and
     // the default (object_layer || raft_layer || last_layer) is false here, so fan and
     // slowdown would otherwise never be applied to it.
     LayerResult result { {}, 0, false, true };
@@ -6668,6 +6668,14 @@ LayerResult GCode::process_layer(
     m_enable_loop_clipping = true;
     if (m_spiral_vase && layers.size() == 1 && support_layer == nullptr) {
         bool enable = (layer.id() > 0 || !print.has_brim()) && (layer.id() >= (size_t)print.config().skirt_height.value && ! print.has_infinite_skirt());
+        // Belt printers lay the brim over many layers; a layer that carries one of its
+        // bands is a brim layer like layer 0 above, so it is printed flat. The spiral
+        // starts once the object (and the feet of its supports) has left the belt.
+        if (enable && layer.object()->has_belt_brim()) {
+            const std::vector<ExtrusionEntityCollection> &bands = layer.object()->belt_brim_by_layer();
+            if (layer.id() < bands.size() && ! bands[layer.id()].empty())
+                enable = false;
+        }
         if (enable) {
             for (const LayerRegion *layer_region : layer.regions())
                 if (size_t(layer_region->region().config().bottom_shell_layers.value) > layer.id() ||

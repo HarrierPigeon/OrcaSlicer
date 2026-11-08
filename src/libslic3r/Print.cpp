@@ -2322,15 +2322,12 @@ StringObjectException Print::validate(std::vector<StringObjectException> *warnin
         if (m_config.draft_shield != dsDisabled)
             return { L("Draft shield is not compatible with belt printer mode.") };
 
-        // Belt brim spans many layers and owns the layers below the object, which
-        // spiral vase cannot share. The prime tower setting is no obstacle: belt
+        // Belt brim beside spiral vase is fine: the apron bands below the object are
+        // never spiralized (GCode::process_belt_brim_layer), and an object layer that
+        // carries a brim band is left flat the way the first layer is on a flat bed
+        // (GCode::process_layer). The prime tower setting is no obstacle either: belt
         // printers never print the classic tower, and the belt purge prism is an
         // ordinary object that never takes a brim.
-        if (this->has_belt_brim()) {
-            if (m_config.spiral_mode.value)
-                return { L("Brim is not compatible with spiral vase mode on a belt printer. "
-                           "Disable one of them.") };
-        }
 
         for (const PrintObject *object : m_objects) {
             const PrintObjectConfig &ocfg = object->config();
