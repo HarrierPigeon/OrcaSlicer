@@ -472,13 +472,23 @@ void ConfigManipulation::update_print_fff_config(DynamicPrintConfig* config, con
     int    fill_multiline        = config->option<ConfigOptionInt>("fill_multiline")->value;
     auto timelapse_type = config->opt_enum<TimelapseType>("timelapse_type");
 
+    // Belt printer: supports and spiral vase coexist. A support layer never
+    // spiralizes (GCode::process_layer), and the counter-rotated calibration
+    // objects stand on a support wedge printed entirely before the object, so
+    // the spiral cleanup must not switch supports off there (and the CLI check
+    // in Slic3r::validate() lets the same combination through).
+    bool belt_printer = false;
+    if (GUI::wxGetApp().preset_bundle != nullptr)
+        if (const auto *belt_opt = GUI::wxGetApp().preset_bundle->printers.get_edited_preset().config.option<ConfigOptionBool>("belt_printer"))
+            belt_printer = belt_opt->value;
+    const bool supports_off = belt_printer || (! config->opt_bool("enable_support") && config->opt_int("enforce_support_layers") == 0);
+
     if (!is_plate_config &&
         config->opt_bool("spiral_mode") &&
         ! (config->opt_int("wall_loops") == 1 &&
            config->opt_int("top_shell_layers") == 0 &&
            sparse_infill_density == 0 &&
-           ! config->opt_bool("enable_support") &&
-           config->opt_int("enforce_support_layers") == 0 &&
+           supports_off &&
            ! config->opt_bool("detect_thin_wall") &&
            ! config->opt_bool("overhang_reverse") &&
             config->opt_enum<TimelapseType>("timelapse_type") == TimelapseType::tlTraditional &&
@@ -491,8 +501,10 @@ void ConfigManipulation::update_print_fff_config(DynamicPrintConfig* config, con
             new_conf.set_key_value("wall_loops", new ConfigOptionInt(1));
             new_conf.set_key_value("top_shell_layers", new ConfigOptionInt(0));
             new_conf.set_key_value("sparse_infill_density", new ConfigOptionPercent(0));
-            new_conf.set_key_value("enable_support", new ConfigOptionBool(false));
-            new_conf.set_key_value("enforce_support_layers", new ConfigOptionInt(0));
+            if (!belt_printer) {
+                new_conf.set_key_value("enable_support", new ConfigOptionBool(false));
+                new_conf.set_key_value("enforce_support_layers", new ConfigOptionInt(0));
+            }
             new_conf.set_key_value("detect_thin_wall", new ConfigOptionBool(false));
             new_conf.set_key_value("overhang_reverse", new ConfigOptionBool(false));
             new_conf.set_key_value("timelapse_type", new ConfigOptionEnum<TimelapseType>(tlTraditional));

@@ -12,6 +12,7 @@
 #include "libslic3r/Config.hpp"
 #include "libslic3r/GCode/SpiralVase.hpp"
 #include "libslic3r/GCodeReader.hpp"
+#include "libslic3r/Layer.hpp"
 #include "libslic3r/Model.hpp"
 #include "libslic3r/Print.hpp"
 #include "libslic3r/PrintBase.hpp"
@@ -109,5 +110,68 @@ TEST_CASE("Spiral vase mode warns about an object that overrides infill, walls o
     } else {
         REQUIRE(warning != warnings.end());
         CHECK(warning->opt_key == opt_key);
+    }
+}
+
+// Belt printers keep their supports under spiral vase: the counter-rotated calibration
+// objects stand on a support wedge (Plater::_calib_apply_belt_mode), and a layer that
+// carries support never spiralizes anyway (GCode::process_layer).
+TEST_CASE("Spiral vase mode accepts supports on a belt printer", "[SpiralVase][belt][Support]")
+{
+    DynamicPrintConfig config = DynamicPrintConfig::full_print_config();
+    config.set_deserialize_strict({
+        { "belt_printer",               1 },
+        { "belt_slice_rotation",        "x" },
+        { "belt_slice_rotation_angle",  45 },
+        { "gcode_remap_x",              "rev_x" },
+        { "gcode_remap_y",              "pos_z" },
+        { "gcode_remap_z",              "pos_y" },
+        { "layer_height",               0.2 },
+        { "initial_layer_print_height", 0.2 },
+        { "skirt_loops",                0 },
+        { "brim_type",                  "no_brim" },
+        { "spiral_mode",                1 },
+        { "sparse_infill_density",      "0%" },
+        { "wall_loops",                 1 },
+        { "top_shell_layers",           0 },
+        { "bottom_shell_layers",        0 },
+        { "enable_support",             1 },
+        { "support_type",               "tree(auto)" },
+        { "support_style",              "tree_hybrid" },
+        { "support_base_pattern",       "rectilinear" },
+        { "machine_start_gcode",        "T[initial_tool]\n" },
+        { "layer_change_gcode",         "G92 E0\n" },
+    });
+
+    SECTION("The CLI config check lets the combination through on a belt only")
+    {
+        CHECK(config.validate(/*under_cli=*/true).count("enable_support") == 0);
+        DynamicPrintConfig flat = config;
+        flat.set_deserialize_strict({ { "belt_printer", 0 } });
+        CHECK(flat.validate(/*under_cli=*/true).count("enable_support") == 1);
+    }
+
+    SECTION("A counter-rotated cube slices with its support wedge")
+    {
+        // The calibration pose: the cube's bottom face leans over the belt, so the wedge
+        // between that face and the belt is support printed before the object.
+        indexed_triangle_set its = its_make_cube(20., 20., 20.);
+        its_transform(its, Transform3d(Eigen::AngleAxisd(-M_PI / 4., Vec3d::UnitX())));
+        Print print;
+        Model model;
+        init_print({ TriangleMesh(std::move(its)) }, print, model, config);
+        // On the bed, not at its corner: the wedge is clipped to the bed outline.
+        ModelInstance &instance = *model.objects.front()->instances.front();
+        instance.set_offset(Vec3d(100., 100., instance.get_offset().z()));
+        print.apply(model, config);
+
+        std::vector<StringObjectException> warnings;
+        REQUIRE(print.validate(&warnings).string.empty());
+        const std::string gcode = Test::gcode(print);
+        const PrintObject &object = *print.objects().front();
+        CHECK(std::any_of(object.support_layers().begin(), object.support_layers().end(),
+                          [](const SupportLayer *layer) { return ! layer->support_fills.empty(); }));
+        CHECK(gcode.find(";TYPE:Support") != std::string::npos);
+        CHECK(gcode.find(";TYPE:Outer wall") != std::string::npos);
     }
 }

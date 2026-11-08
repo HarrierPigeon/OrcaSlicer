@@ -12646,11 +12646,14 @@ std::map<std::string, std::string> validate(const FullPrintConfig &cfg, bool und
             //return "Spiral vase mode is not compatible with top solid layers";
         }
 
-        if (cfg.enable_support ) {
+        // A belt printer keeps its supports: a layer carrying support never spiralizes
+        // (GCode::process_layer), and the belt calibration tests stand their spiral
+        // objects on a support wedge (Plater::_calib_apply_belt_mode).
+        if (cfg.enable_support && !cfg.belt_printer) {
             error_message.emplace("enable_support", _u8L("Invalid value when spiral vase mode is enabled: ") + std::to_string(cfg.enable_support));
             //return "Spiral vase mode is not compatible with support";
         }
-        if (cfg.enforce_support_layers > 0) {
+        if (cfg.enforce_support_layers > 0 && !cfg.belt_printer) {
             error_message.emplace("enforce_support_layers", _u8L("Invalid value when spiral vase mode is enabled: ") + std::to_string(cfg.enforce_support_layers));
             //return "Spiral vase mode is not compatible with support";
         }

@@ -17053,13 +17053,16 @@ bool Plater::add_model(bool imperial_units, std::string fname)
 // world space cancels the global rotation, so in slicing space the object
 // stands upright exactly as on a flat-bed printer and every test keeps its
 // designed meaning. Physically the object then leans over the belt with its
-// bottom face overhanging, so per-object supports fill the wedge between the
-// bottom face and the belt. The wedge prints entirely below the object's base
-// plane and leaves the test geometry untouched. Manual tree support is used
-// so the deliberate bridge/overhang features of the test models stay
-// unsupported; the wedge under the floating bottom face is built by the
-// belt-floor extension in TreeSupport::generate(), which stacks the floating
-// first-layer footprint down to the belt surface.
+// bottom face overhanging, so supports fill the wedge between the bottom face
+// and the belt. The wedge prints entirely below the object's base plane and
+// leaves the test geometry untouched. Manual tree support is used so the
+// deliberate bridge/overhang features of the test models stay unsupported;
+// the wedge under the floating bottom face is built by the belt-floor
+// extension of the support generators, which stack the floating first-layer
+// footprint down to the belt surface. The support settings go into the print
+// preset, not the objects: the Support tab then drives the wedge (type, style,
+// pattern angle...) exactly as for any print, instead of being shadowed by
+// per-object overrides that the tab cannot see.
 static bool belt_calib_rotation_params(double& angle_rad, Vec3d& axis)
 {
     const auto& printer_config = wxGetApp().preset_bundle->printers.get_edited_preset().config;
@@ -17101,13 +17104,44 @@ void Plater::_calib_apply_belt_mode()
 
     auto print_config = &wxGetApp().preset_bundle->prints.get_edited_preset().config;
     // Spiral vase stays enabled where the tests request it: the support wedge
-    // lies strictly below the object, support layers never spiralize
-    // (spiral_vase_enable requires an object layer), and the spiral/support
-    // exclusivity check only applies to globally enabled supports — the wedge
-    // uses per-object supports.
+    // lies strictly below the object and a layer carrying support never
+    // spiralizes (GCode::process_layer). Supports beside spiral vase are let
+    // through on belt printers by ConfigManipulation::update_print_fff_config()
+    // and Slic3r::validate().
     // A skirt would be drawn in the first slicing plane, which lies mostly
     // above the belt surface.
     print_config->set_key_value("skirt_loops", new ConfigOptionInt(0));
+
+    // Manual tree support: only the floating bottom face gets a support
+    // wedge, leaving the test features untouched. Hybrid is the starting
+    // style because it fills the wedge solid; organic and normal supports
+    // build it too, so the user may switch in the Support tab afterwards.
+    print_config->set_key_value("enable_support", new ConfigOptionBool(true));
+    print_config->set_key_value("support_type", new ConfigOptionEnum<SupportType>(stTree));
+    print_config->set_key_value("support_style", new ConfigOptionEnum<SupportMaterialStyle>(smsTreeHybrid));
+    print_config->set_key_value("support_on_build_plate_only", new ConfigOptionBool(false));
+    // With the default base pattern, tree support base areas print as
+    // hollow outlines (no infill) — the wedge needs a real pattern.
+    print_config->set_key_value("support_base_pattern", new ConfigOptionEnum<SupportMaterialPattern>(smpRectilinear));
+
+    // The belt refuses a brim beside spiral vase (Print::validate()), and the
+    // wedge's own belt contact already holds a spiral test down, so the brim
+    // the flat-bed test asks for is dropped on the belt.
+    const bool spiral_mode = print_config->opt_bool("spiral_mode");
+    if (spiral_mode) {
+        // The spiral tests put their vase settings on the object only, so the
+        // first edit in the Print tab (switching the wedge's support type, say)
+        // trips ConfigManipulation's spiral check on the untouched preset and
+        // its "No" answer silently drops spiral mode. Apply the same values to
+        // the preset that the "Yes" answer would, so the question never comes up.
+        print_config->set_key_value("wall_loops", new ConfigOptionInt(1));
+        print_config->set_key_value("top_shell_layers", new ConfigOptionInt(0));
+        print_config->set_key_value("sparse_infill_density", new ConfigOptionPercent(0));
+        print_config->set_key_value("detect_thin_wall", new ConfigOptionBool(false));
+        print_config->set_key_value("overhang_reverse", new ConfigOptionBool(false));
+        print_config->set_key_value("timelapse_type", new ConfigOptionEnum<TimelapseType>(tlTraditional));
+        print_config->set_key_value("enable_wrapping_detection", new ConfigOptionBool(false));
+    }
 
     const Matrix3d cancel_rotation = Eigen::AngleAxisd(angle_rad, axis).toRotationMatrix();
     std::vector<size_t> obj_idxs;
@@ -17117,18 +17151,8 @@ void Plater::_calib_apply_belt_mode()
             continue;
         obj_idxs.emplace_back(i);
 
-        // Manual tree support: only the floating bottom face gets a support
-        // wedge (via the belt-floor extension in TreeSupport::generate()),
-        // leaving the test features untouched. The style is pinned to hybrid
-        // because the default style resolves to organic, which bypasses the
-        // non-organic generator that hosts the belt-floor extension.
-        obj->config.set_key_value("enable_support", new ConfigOptionBool(true));
-        obj->config.set_key_value("support_type", new ConfigOptionEnum<SupportType>(stTree));
-        obj->config.set_key_value("support_style", new ConfigOptionEnum<SupportMaterialStyle>(smsTreeHybrid));
-        obj->config.set_key_value("support_on_build_plate_only", new ConfigOptionBool(false));
-        // With the default base pattern, tree support base areas print as
-        // hollow outlines (no infill) — the wedge needs a real pattern.
-        obj->config.set_key_value("support_base_pattern", new ConfigOptionEnum<SupportMaterialPattern>(smpRectilinear));
+        if (spiral_mode)
+            obj->config.set_key_value("brim_type", new ConfigOptionEnum<BrimType>(btNoBrim));
 
         // Counter-rotate exactly the way the rotate gizmo would: rotation on
         // the instance, then a plain drop to the bed. This leaves the object
