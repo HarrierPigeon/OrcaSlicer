@@ -444,6 +444,14 @@ set(lisbslic3r_sources
     QuadricEdgeCollapse.cpp
     QuadricEdgeCollapse.hpp
     Semver.cpp
+    ShakeTune/InputShaperLimits.cpp
+    ShakeTune/InputShaperLimits.hpp
+    ShakeTune/KlipperReport.cpp
+    ShakeTune/KlipperReport.hpp
+    ShakeTune/MotorResonance.cpp
+    ShakeTune/MotorResonance.hpp
+    ShakeTune/Vibrations.cpp
+    ShakeTune/Vibrations.hpp
     ShortEdgeCollapse.cpp
     ShortEdgeCollapse.hpp
     ShortestPath.cpp
@@ -815,6 +823,11 @@ endif ()
 
 if (TARGET OpenVDB::openvdb)
     target_link_libraries(libslic3r PRIVATE OpenVDB::openvdb)
+endif()
+# ShakeTune/Vibrations.cpp decodes Shake&Tune's zstd files with the zstd that c-blosc bundles.
+# FindOpenVDB defines Blosc::blosc; link it directly so the dependency is not only transitive.
+if (TARGET Blosc::blosc)
+    target_link_libraries(libslic3r PRIVATE Blosc::blosc)
 endif()
 
 if (SLIC3R_CAD)
