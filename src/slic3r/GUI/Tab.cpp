@@ -1,5 +1,6 @@
 //#include "slic3r/Utils/Serial.hpp"
 #include "Tab.hpp"
+#include "ShakeTuneImportDialog.hpp"
 #include "PresetHints.hpp"
 #include "libslic3r/IMEXHelpers.hpp"
 #include "libslic3r/PresetBundle.hpp"
@@ -5925,6 +5926,28 @@ PageShp TabPrinter::build_kinematics_page()
     optgroup->append_single_option_line("motor_resonance_kinematics");
     optgroup->append_single_option_line("motor_resonance_bands_x");
     optgroup->append_single_option_line("motor_resonance_bands_y");
+    {
+        Line line{ "", "" };
+        line.full_width = 1;
+        line.widget     = [this](wxWindow *parent) -> wxSizer * {
+            auto *btn = new Button(parent, _L("Import from Shake&Tune") + dots);
+            btn->SetStyle(ButtonStyle::Regular, ButtonType::Parameter);
+            btn->SetToolTip(_L("Set the stepper resonant speeds, the outer wall resonance avoidance range and the "
+                               "acceleration limits from a Shake&Tune vibrations profile, read from the printer or a file."));
+            btn->Bind(wxEVT_BUTTON, [this](wxCommandEvent &) {
+                ShakeTuneImportDialog dlg(this, *m_config);
+                if (dlg.ShowModal() != wxID_OK || dlg.changes().empty())
+                    return;
+                DynamicPrintConfig config = *m_config;
+                config.apply(dlg.changes());
+                load_config(config);
+            });
+            auto *sizer = new wxBoxSizer(wxHORIZONTAL);
+            sizer->Add(btn);
+            return sizer;
+        };
+        optgroup->append_line(line);
+    }
     optgroup->append_single_option_line("input_shaping_emit", "printer_motion_ability#input-shaping");
     optgroup->append_single_option_line("input_shaping_type", "printer_motion_ability#input-shaping-type");
     {

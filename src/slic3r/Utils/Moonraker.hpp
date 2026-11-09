@@ -1,6 +1,7 @@
 #ifndef slic3r_Moonraker_hpp_
 #define slic3r_Moonraker_hpp_
 
+#include <functional>
 #include <string>
 #include <wx/string.h>
 #include <wx/arrstr.h>
@@ -48,6 +49,10 @@ public:
     PrintHostPostUploadActions get_post_upload_actions() const override { return PrintHostPostUploadAction::StartPrint; }
     std::string get_host() const override { return m_host; }
     bool get_storage(wxArrayString &storage_path, wxArrayString &storage_name) const override;
+    // GET an endpoint relative to the host, e.g. "server/files/list?root=config", into `body`.
+    // Blocking; call it from a worker thread. `cancelled`, when given, is polled during the transfer.
+    bool get(const std::string &path, std::string &body, wxString &error, long timeout_max_s = 20,
+             std::function<bool()> cancelled = {}) const;
     const std::string& get_apikey() const { return m_apikey; }
     const std::string& get_cafile() const { return m_cafile; }
 
