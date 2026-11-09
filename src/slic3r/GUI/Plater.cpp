@@ -17124,10 +17124,6 @@ void Plater::_calib_apply_belt_mode()
     // hollow outlines (no infill) — the wedge needs a real pattern.
     print_config->set_key_value("support_base_pattern", new ConfigOptionEnum<SupportMaterialPattern>(smpRectilinear));
 
-    // The wedge's feet land on the belt ahead of the part with no first-layer
-    // expansion, so they take the object's brim as well (BeltBrim.cpp).
-    print_config->set_key_value("support_brim", new ConfigOptionBool(true));
-
     const bool spiral_mode = print_config->opt_bool("spiral_mode");
     if (spiral_mode) {
         // The spiral tests put their vase settings on the object only, so the

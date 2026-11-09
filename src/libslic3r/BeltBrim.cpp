@@ -245,23 +245,45 @@ ExPolygons belt_brim_clip_leading_edge(const ExPolygons &region, const BeltBrimF
     return keep.empty() ? ExPolygons{} : intersection_ex(region, Polygons{ keep });
 }
 
+// One region the per-band line generator lays lines in, and the role those lines take.
+struct BeltBrimRegion
+{
+    ExPolygons    region;   // object-local slicing XY
+    Polygons      polys;    // to_polygons(region), once
+    BoundingBox   bbox;
+    ExtrusionRole role = erBrim;
+
+    bool empty() const { return region.empty(); }
+    void set(ExPolygons &&r, ExtrusionRole role_)
+    {
+        region = std::move(r);
+        polys  = to_polygons(region);
+        bbox   = get_extents(region);
+        role   = role_;
+    }
+};
+
 // Everything the per-band line generator needs, gathered once per object.
 struct BeltBrimContext
 {
     BeltFloorContext ctx;
     BeltBrimFrame    frame;
-    ExPolygons       region;      // brim region, object-local slicing XY
-    BoundingBox      region_bbox;
+    // The brim ring and its apron, erBrim.
+    BeltBrimRegion   ring;
+    // The supports' first layer: a skin under every support foot, erSupportMaterial.
+    BeltBrimRegion   skin;
     Flow             brim_flow;
     coord_t          pitch_u   = 0;
     coord_t          u_anchor  = 0;
     double           in_plane_pitch = 0.;   // mm
 };
 
-// Emit the cross-belt brim lines that belong to the band [print_z - height, print_z].
-// wall_inset is how far the centreline of the outer wall of the band's object layer lies
-// inside where the layer's slice met the belt, mm.
+// Emit the cross-belt lines of region `r` that belong to the band [print_z - height, print_z].
+// wall_inset is how far the centreline of the wall the band is levelled with (the object's
+// outer wall, or the support line for the skin) lies inside where the layer's slice met
+// the belt, mm.
 static void belt_brim_band_paths(const BeltBrimContext      &bc,
+                                 const BeltBrimRegion       &r,
                                  coordf_t                    print_z,
                                  coordf_t                    height,
                                  double                      wall_inset,
@@ -269,6 +291,8 @@ static void belt_brim_band_paths(const BeltBrimContext      &bc,
                                  ExtrusionEntityCollection  &out,
                                  ExPolygons                 &areas_out)
 {
+    if (r.empty())
+        return;
     coordf_t u_lo = bc.ctx.cutoff_u(print_z - height);
     coordf_t u_hi = bc.ctx.cutoff_u(print_z);
     if (u_lo > u_hi)
@@ -319,8 +343,6 @@ static void belt_brim_band_paths(const BeltBrimContext      &bc,
     if (us.empty())
         return;
 
-    const Polygons region_polys = to_polygons(bc.region);
-
     // One lattice line at a time: the clearance - and therefore the extrusion
     // volume - is a property of the line's u, so the pieces of different lines
     // must not be pooled before the flow is resolved.
@@ -355,13 +377,13 @@ static void belt_brim_band_paths(const BeltBrimContext      &bc,
 
         Polyline line;
         if (bc.frame.from_axis == 0)
-            line.points = { Point(u, coord_t(bc.region_bbox.min.y() - margin)),
-                            Point(u, coord_t(bc.region_bbox.max.y() + margin)) };
+            line.points = { Point(u, coord_t(r.bbox.min.y() - margin)),
+                            Point(u, coord_t(r.bbox.max.y() + margin)) };
         else
-            line.points = { Point(coord_t(bc.region_bbox.min.x() - margin), u),
-                            Point(coord_t(bc.region_bbox.max.x() + margin), u) };
+            line.points = { Point(coord_t(r.bbox.min.x() - margin), u),
+                            Point(coord_t(r.bbox.max.x() + margin), u) };
 
-        Polylines pieces = intersection_pl(Polylines{ line }, region_polys);
+        Polylines pieces = intersection_pl(Polylines{ line }, r.polys);
         if (! obstacles.empty())
             pieces = diff_pl(pieces, obstacles);
         if (pieces.empty())
@@ -379,8 +401,55 @@ static void belt_brim_band_paths(const BeltBrimContext      &bc,
             areas_out.emplace_back(ExPolygon(p));
 
         extrusion_entities_append_paths(out.entities, chain_polylines(std::move(pieces)),
-                                        erBrim, f.mm3_per_mm(), f.width(), float(clearance));
+                                        r.role, f.mm3_per_mm(), f.width(), float(clearance));
     }
+}
+
+// Cut everything on `belt_side` out of `fills`, keeping each remaining piece's role and
+// flow.  A loop or multi-path the cut touches comes back as the open paths that remain
+// of it.  Pieces shorter than their own width are dropped: they would print as blobs on
+// the skin bead that takes their place.
+static void trim_support_fills_at_belt(ExtrusionEntityCollection &fills, const Polygons &belt_side)
+{
+    auto touched = [&belt_side](const Polyline &pl) { return ! intersection_pl(Polylines{ pl }, belt_side).empty(); };
+    auto cut = [&belt_side](const ExtrusionPath &path, ExtrusionEntitiesPtr &dst) {
+        Polylines pieces = diff_pl(Polylines{ path.polyline.to_polyline() }, belt_side);
+        pieces.erase(std::remove_if(pieces.begin(), pieces.end(),
+                                    [&path](const Polyline &pl) { return pl.length() < scale_(path.width); }),
+                     pieces.end());
+        extrusion_entities_append_paths(dst, std::move(pieces), path.role(), path.mm3_per_mm, path.width, path.height);
+    };
+    ExtrusionEntityCollection out;
+    out.no_sort = fills.no_sort;
+    for (const ExtrusionEntity *ee : fills.entities) {
+        if (ee == nullptr)
+            continue;
+        if (const auto *sub = dynamic_cast<const ExtrusionEntityCollection *>(ee)) {
+            ExtrusionEntityCollection copy = *sub;
+            trim_support_fills_at_belt(copy, belt_side);
+            if (! copy.empty())
+                out.entities.emplace_back(new ExtrusionEntityCollection(std::move(copy)));
+        } else if (const auto *loop = dynamic_cast<const ExtrusionLoop *>(ee)) {
+            if (! touched(loop->polygon().split_at_first_point()))
+                out.entities.emplace_back(ee->clone());
+            else
+                for (const ExtrusionPath &path : loop->paths)
+                    cut(path, out.entities);
+        } else if (const auto *multi = dynamic_cast<const ExtrusionMultiPath *>(ee)) {
+            if (! touched(multi->as_polyline()))
+                out.entities.emplace_back(ee->clone());
+            else
+                for (const ExtrusionPath &path : multi->paths)
+                    cut(path, out.entities);
+        } else if (const auto *path = dynamic_cast<const ExtrusionPath *>(ee)) {
+            if (! touched(path->polyline.to_polyline()))
+                out.entities.emplace_back(ee->clone());
+            else
+                cut(*path, out.entities);
+        } else
+            out.entities.emplace_back(ee->clone());
+    }
+    fills = std::move(out);
 }
 
 // Union of everything extruded at `print_z` that the brim must keep clear of, expressed
@@ -400,8 +469,14 @@ static void belt_brim_band_paths(const BeltBrimContext      &bc,
 // objects are skipped without materialising their polygons.  On a typical plate the
 // objects do not overlap and every foreign object drops out here, which matters because
 // this runs once per band - hundreds of times per object.
+// `own_support` false leaves this object's supports out: the skin under them is laid
+// where their toolpaths were cut away (make_belt_brim, step 1c), and the end caps of
+// the cut lines would otherwise nick every bead.  `self_gap` (scaled) grows this object's
+// own slices, so the skin keeps the support's first-layer XY distance from the part the
+// way the generators keep the support itself (trim_support_layers_by_object).
 static Polygons belt_brim_obstacles(const Print &print, const PrintObject &self,
-                                    const BoundingBox &region_bbox, coordf_t print_z, coordf_t tol)
+                                    const BoundingBox &region_bbox, coordf_t print_z, coordf_t tol,
+                                    bool own_support = true, coord_t self_gap = 0)
 {
     const Point shift_self = self.instances().empty() ? Point(0, 0)
                                                       : self.instances().front().shift_without_plate_offset();
@@ -411,16 +486,18 @@ static Polygons belt_brim_obstacles(const Print &print, const PrintObject &self,
         for (const PrintInstance &inst : o->instances()) {
             const Point delta = inst.shift_without_plate_offset() - shift_self;
             if (const Layer *l = o->get_layer_at_printz(print_z, tol)) {
-                BoundingBox lb = get_extents(l->lslices);
+                const coord_t grow = is_self ? self_gap : 0;
+                BoundingBox   lb   = get_extents(l->lslices);
                 lb.translate(delta.x(), delta.y());
+                lb.offset(grow);
                 if (lb.overlap(region_bbox)) {
-                    Polygons ps = to_polygons(l->lslices);
+                    Polygons ps = grow > 0 ? offset(l->lslices, float(grow)) : to_polygons(l->lslices);
                     for (Polygon &p : ps)
                         p.translate(delta);
                     polygons_append(out, std::move(ps));
                 }
             }
-            if (! is_self)
+            if (! is_self || ! own_support)
                 continue;
             if (const SupportLayer *sl = o->get_support_layer_at_printz(print_z, tol)) {
                 Polygons ps = sl->support_fills.polygons_covered_by_spacing();
@@ -488,14 +565,21 @@ void make_belt_brim(PrintObject &object)
             }
     }
     // 1b. Support feet.  Supports land on the belt wherever they reach it, ahead of or
-    //     beside the part, and on a belt the generators give them no first-layer
-    //     expansion (SupportCommon.cpp, TreeSupport.cpp), so the brim is all that holds
-    //     them.  Each support layer's contact with the belt is taken like an object
-    //     layer's, and where no object wall rests on the belt in that band the support
-    //     line is the wall the band is levelled with.  The leading-edge cut below stays
-    //     at the object's first contact: a foot ahead of it is downhill and kept.
-    if (object.config().support_brim.value && ! object.support_layers().empty()) {
-        const double support_wall_width = support_material_flow(&object).width();
+    //     beside the part, and on a belt the generators give them none of the flat-bed
+    //     first-layer treatment (SupportCommon.cpp, TreeSupport.cpp, TreeSupport3D.cpp:
+    //     no expansion, no dense flange, no first-layer flow), so a foot starts as a
+    //     sliver of base pattern at normal flow.  Each support layer's contact with the
+    //     belt is taken like an object layer's; together they are the feet, which get a
+    //     first layer of their own below (1c) and, with a brim, the ring around them.
+    //     Where no object wall rests on the belt in a band the support line is the wall
+    //     the ring is levelled with.  Always on a belt, whatever support_brim says: that
+    //     option decides whether the flat-bed brim ring surrounds the supports, and on a
+    //     belt the ring is the lesser part of what keeps a foot down.  The leading-edge
+    //     cut below stays at the object's first contact: a foot ahead of it is downhill
+    //     and kept.
+    ExPolygons   feet_acc;
+    const double support_wall_width = object.support_layers().empty() ? 0. : support_material_flow(&object).width();
+    {
         const LayerPtrs &object_layers = object.layers();
         for (const SupportLayer *sl : object.support_layers()) {
             if (sl->support_fills.empty() || sl->height < EPSILON)
@@ -515,7 +599,7 @@ void make_belt_brim(PrintObject &object)
             ExPolygons contact = intersection_ex(fills, Polygons{ band });
             if (contact.empty())
                 continue;
-            expolygons_append(footprint_acc, std::move(contact));
+            expolygons_append(feet_acc, std::move(contact));
             // The object layer whose band this is.  Support layers share the object's
             // print_z lattice unless they are independent, so look the band up by Z.
             auto it = std::lower_bound(object_layers.begin(), object_layers.end(), sl->print_z - 0.5 * sl->height,
@@ -527,12 +611,48 @@ void make_belt_brim(PrintObject &object)
             }
         }
     }
-    const ExPolygons footprint = union_ex(footprint_acc);
+    const ExPolygons feet = union_ex(feet_acc);
+
+    // 1c. The supports' first layer.  On a flat bed it is the flange: the support's
+    //     footprint widened by raft_first_layer_expansion, dense, slow.  On the belt that
+    //     layer is spread over every band, so it is laid the way the brim is: one bead per
+    //     band across the whole foot at the support line's clearance, flow matched to the
+    //     band pitch (belt_brim_band_paths), which tiles the belt gap-free.  The region is
+    //     the feet widened by the expansion in the true on-belt metric, so a tree tip
+    //     lands on a bead as wide as the expansion instead of on its own sliver, and the
+    //     bands ahead of a foot are laid before the foot arrives, as the apron is.
+    //
+    //     The supports' own toolpaths are then cut clear of that band: the bead takes
+    //     their place, and the layer above rests on it with a full layer under it, the
+    //     way layer two rests on the flange.  Done here, after the generators, rather than
+    //     in their three belt clips: it is the toolpaths that have to clear the band, the
+    //     generators work in different frames (global, local, sheared by a support lean),
+    //     and the feet have to be measured before the cut.  The support step always
+    //     re-runs before this (PrintObject::generate_belt_brim), so the fills are never
+    //     cut twice.  The bands' lines print with the brim filament (belt_brim_filament),
+    //     not the support filament.
+    const PrintObjectConfig &cfg = object.config();
+    ExPolygons skin_flat;
+    if (! feet.empty()) {
+        const double expansion = std::max(0., cfg.raft_first_layer_expansion.value);
+        skin_flat = offset_ex(belt_flatten(feet, bc.frame), float(scale_(expansion)), jtRound, SCALED_RESOLUTION);
+        bc.skin.set(belt_unflatten(skin_flat, bc.frame), erSupportMaterial);
+        for (SupportLayer *sl : object.support_layers()) {
+            if (sl->support_fills.empty() || sl->height < EPSILON)
+                continue;
+            const coordf_t keep = belt_support_keep_z(sl->height, support_wall_width, bc.frame.shear);
+            trim_support_fills_at_belt(sl->support_fills, bc.ctx.surface_polygon(sl->print_z - keep));
+        }
+    }
+
+    ExPolygons footprint = footprint_acc;
+    expolygons_append(footprint, feet);
+    footprint = union_ex(footprint);
     if (footprint.empty())
         return;
 
-    // 2. Brim region, offset in the flattened (true on-belt) metric.
-    const PrintObjectConfig &cfg = object.config();
+    // 2. Brim region, offset in the flattened (true on-belt) metric, around the object's
+    //    contact and the supports' skin.
     bc.brim_flow = print.brim_flow();
     const double  flow_w = bc.brim_flow.scaled_spacing() * SCALING_FACTOR;
     // Quantize to an even number of lines, as the plate brim does.
@@ -549,23 +669,31 @@ void make_belt_brim(PrintObject &object)
                         || bt == btAutoBrim  || bt == btEar || bt == btPainted
                         || bt == btLeadingEdgeOnly;
     const bool has_inner = bt == btInnerOnly || bt == btOuterAndInner;
+    // Mirrors the brim half of PrintObject::has_belt_brim(): the other half, supports on
+    // the belt, wants the skin and no ring.
+    const bool wants_ring = (has_outer || has_inner)
+                         && (has_outer ? (width > 0 || leading > 0 || lateral > 0) : width > 0);
 
-    bc.region = belt_unflatten(
-        belt_brim_region(belt_flatten(footprint, bc.frame), has_outer, has_inner,
-                         width, gap, leading, lateral, bc.frame),
-        bc.frame);
+    if (wants_ring) {
+        ExPolygons base_flat = belt_flatten(footprint, bc.frame);
+        expolygons_append(base_flat, skin_flat);
+        ExPolygons ring = belt_unflatten(
+            belt_brim_region(union_ex(base_flat), has_outer, has_inner, width, gap, leading, lateral, bc.frame),
+            bc.frame);
+        if (bt == btLeadingEdgeOnly && first_contact != nullptr && ! ring.empty())
+            // The cut is the uphill edge of the first contact's band: everything past it
+            // belongs to later contacts.  The first contact is the first layer that touches
+            // the belt (step 1), neither layers().front(), an empty lead-in layer, nor the
+            // first layer with geometry, which is an overhang's tip when the part overhangs
+            // its leading end: both lie ahead of the part.
+            ring = belt_brim_clip_leading_edge(ring, bc.frame, bc.ctx.cutoff_u(first_contact->print_z));
+        bc.ring.set(std::move(ring), erBrim);
+    }
 
-    if (bt == btLeadingEdgeOnly && first_contact != nullptr && ! bc.region.empty())
-        // The cut is the uphill edge of the first contact's band: everything past it
-        // belongs to later contacts.  The first contact is the first layer that touches
-        // the belt (step 1), neither layers().front(), an empty lead-in layer, nor the
-        // first layer with geometry, which is an overhang's tip when the part overhangs
-        // its leading end: both lie ahead of the part.
-        bc.region = belt_brim_clip_leading_edge(bc.region, bc.frame, bc.ctx.cutoff_u(first_contact->print_z));
-
-    if (bc.region.empty())
+    if (bc.ring.empty() && bc.skin.empty())
         return;
-    bc.region_bbox = get_extents(bc.region);
+    BoundingBox region_bbox = bc.ring.bbox;
+    region_bbox.merge(bc.skin.bbox);
 
     // 3. Line lattice.  Fixed pitch in the flattened metric, anchored at the
     //    footprint's leading-most edge so lines stay collinear across
@@ -597,14 +725,32 @@ void make_belt_brim(PrintObject &object)
             wall_insets[i] = 0.5 * width - contour_compensation;
         }
     }
+    // The skin is levelled with the support line it replaces, in every band: the same
+    // clearance belt_support_keep_z() cleared the toolpaths down to.
+    const double  skin_inset = 0.5 * support_wall_width;
+    const coord_t skin_gap   = scale_(std::max(0., cfg.support_object_first_layer_gap.value));
+
+    // Both regions' lines for one band.  The skin first: it is the first layer under
+    // the support, the ring only surrounds it.
+    auto emit_band = [&](coordf_t print_z, coordf_t height, double ring_inset,
+                         ExtrusionEntityCollection &out, ExPolygons &areas_out) {
+        if (! bc.skin.empty()) {
+            const Polygons obstacles = belt_brim_obstacles(print, object, bc.skin.bbox, print_z, 0.5 * height,
+                                                           /*own_support=*/false, skin_gap);
+            belt_brim_band_paths(bc, bc.skin, print_z, height, skin_inset, obstacles, out, areas_out);
+        }
+        if (! bc.ring.empty()) {
+            const Polygons obstacles = belt_brim_obstacles(print, object, bc.ring.bbox, print_z, 0.5 * height);
+            belt_brim_band_paths(bc, bc.ring, print_z, height, ring_inset, obstacles, out, areas_out);
+        }
+    };
 
     // 4. Bands coincident with an object layer.
     std::vector<ExtrusionEntityCollection> by_layer(nlayers);
     std::vector<ExPolygons>                areas_by_layer(nlayers);
     for (size_t i = 0; i < nlayers; ++ i) {
         const Layer &layer = *object.layers()[i];
-        const Polygons obstacles = belt_brim_obstacles(print, object, bc.region_bbox, layer.print_z, 0.5 * layer.height);
-        belt_brim_band_paths(bc, layer.print_z, layer.height, wall_insets[i], obstacles, by_layer[i], areas_by_layer[i]);
+        emit_band(layer.print_z, layer.height, wall_insets[i], by_layer[i], areas_by_layer[i]);
     }
 
     // 5. Apron prologue: the part of the region downhill of the object's first
@@ -616,19 +762,18 @@ void make_belt_brim(PrintObject &object)
         const coordf_t h      = first.height;
         const bool     low_side = bc.frame.shear > 0.;
         const coord_t  u_lead_s = bc.frame.from_axis == 0
-            ? (low_side ? bc.region_bbox.min.x() : bc.region_bbox.max.x())
-            : (low_side ? bc.region_bbox.min.y() : bc.region_bbox.max.y());
+            ? (low_side ? region_bbox.min.x() : region_bbox.max.x())
+            : (low_side ? region_bbox.min.y() : region_bbox.max.y());
         const coordf_t u_lead  = unscale<double>(u_lead_s);
         // print_z at which the belt surface crosses the region's leading edge.
         const coordf_t z_lead  = bc.ctx.shear_factor() * u_lead
                                + bc.ctx.floor_offset() + bc.ctx.z_shift();
         if (h > EPSILON)
             for (coordf_t z = first.print_z - h; z > z_lead - h; z -= h) {
-                const Polygons obstacles = belt_brim_obstacles(print, object, bc.region_bbox, z, 0.5 * h);
                 BeltBrimBand band;
                 band.print_z = z;
                 band.height  = h;
-                belt_brim_band_paths(bc, z, h, wall_insets.front(), obstacles, band.fills, band.areas);
+                emit_band(z, h, wall_insets.front(), band.fills, band.areas);
                 if (! band.fills.empty())
                     prologue.emplace_back(std::move(band));
             }

@@ -44,6 +44,8 @@
 #include "libslic3r/Print.hpp"
 #include "libslic3r/BeltBrim.hpp"
 #include "libslic3r/Config.hpp"
+#include "libslic3r/Flow.hpp"
+#include "libslic3r/Support/BeltFloorContext.hpp"
 #include "libslic3r/ExtrusionEntity.hpp"
 #include "libslic3r/TriangleMesh.hpp"
 
@@ -1779,24 +1781,105 @@ static BeltBrimMeasure measure_belt_brim(const char *support_type, bool supports
     return m;
 }
 
-TEST_CASE("Brim under supports reaches the support feet ahead of the part on a belt", "[SkirtBrim][belt][Support]")
+TEST_CASE("Belt supports get their brim and first layer ahead of the part, whatever support_brim says", "[SkirtBrim][belt][Support]")
 {
     // default resolves to organic for tree support.
     const char *support_type = GENERATE("normal(auto)", "tree(auto)");
     DYNAMIC_SECTION(support_type) {
-        const BeltBrimMeasure off = measure_belt_brim(support_type, true, false);
-        const BeltBrimMeasure on  = measure_belt_brim(support_type, true, true);
+        const BeltBrimMeasure plain = measure_belt_brim(support_type, false, false);
+        const BeltBrimMeasure off   = measure_belt_brim(support_type, true,  false);
+        const BeltBrimMeasure on    = measure_belt_brim(support_type, true,  true);
         REQUIRE(off.support_z < std::numeric_limits<double>::max());
-        REQUIRE(off.brim_z < std::numeric_limits<double>::max());
-        INFO("brim starts at z " << off.brim_z << " without, " << on.brim_z << " with the support brim; "
-             << "lowest support layer at z " << on.support_z);
-        // Without it the brim starts with the apron just ahead of the cube's first contact.
-        // The support feet land on the belt tens of millimetres of slicing Z earlier, and with
-        // it the brim starts ahead of them...
-        CHECK(on.brim_z < off.brim_z - 10.);
-        CHECK(on.brim_z < on.support_z + 0.5);
-        // ...so there is more of it.
-        CHECK(on.brim_length > off.brim_length + 10.);
+        REQUIRE(plain.brim_z < std::numeric_limits<double>::max());
+        INFO("bands start at z " << plain.brim_z << " without supports, " << off.brim_z << " with them; "
+             << "lowest support layer at z " << off.support_z);
+        // Without supports the brim starts with the apron just ahead of the cube's first
+        // contact.  The support feet land on the belt tens of millimetres of slicing Z
+        // earlier, and their skin and ring start ahead of them...
+        CHECK(off.brim_z < plain.brim_z - 10.);
+        CHECK(off.brim_z < off.support_z + 0.5);
+        // ...so there is more to lay.
+        CHECK(off.brim_length > plain.brim_length + 10.);
+        // On a belt the feet always take it: the flat-bed switch changes nothing.
+        CHECK_THAT(on.brim_z, Catch::Matchers::WithinAbs(off.brim_z, 1e-9));
+        CHECK_THAT(on.brim_length, Catch::Matchers::WithinAbs(off.brim_length, 1e-6));
+    }
+}
+
+// The supports' first layer on a belt: one Support bead per layer band under every foot,
+// in place of the support's own material there, with or without a brim.
+TEST_CASE("Belt supports rest on a skin that replaces their own material in the belt band", "[SkirtBrim][belt][Support]")
+{
+    const char *support_type = GENERATE("normal(auto)", "tree(auto)");
+    const bool  with_brim    = GENERATE(false, true);
+    DYNAMIC_SECTION(support_type << (with_brim ? " with brim" : " without brim")) {
+        DynamicPrintConfig config = belt_brim_config();
+        config.set_deserialize_strict({
+            { "brim_type",                  with_brim ? "outer_only" : "no_brim" },
+            { "brim_width",                 4 },
+            { "brim_object_gap",            0 },
+            { "enable_support",             1 },
+            { "support_type",               support_type },
+            { "support_threshold_angle",    30 },
+            { "raft_first_layer_expansion", 2 },
+        });
+        Print print;
+        Model model;
+        init_print({ belt_fin_mesh() }, print, model, config);
+        model.objects.front()->instances.front()->set_offset(Vec3d(100., 100., 0.));
+        print.apply(model, config);
+        print.set_status_silent();
+        print.process();
+        const PrintObject &object = *print.objects().front();
+        REQUIRE(object.has_belt_brim());
+
+        // Skin lines are Support, ring lines Brim; without a brim there is no ring.
+        size_t skin_paths = 0, ring_paths = 0;
+        auto count = [&](const ExtrusionEntityCollection &fills) {
+            for (const ExtrusionEntity *entity : fills.flatten().entities) {
+                if (entity->role() == erSupportMaterial)
+                    ++ skin_paths;
+                else if (entity->role() == erBrim)
+                    ++ ring_paths;
+                else
+                    FAIL("unexpected role in a belt brim band");
+            }
+        };
+        for (const BeltBrimBand &band : object.belt_brim_prologue())
+            count(band.fills);
+        for (const ExtrusionEntityCollection &band : object.belt_brim_by_layer())
+            count(band);
+        CHECK(skin_paths > 0);
+        CHECK((ring_paths > 0) == with_brim);
+
+        // The supports' own toolpaths stay clear of the belt band under them, by the
+        // skin's clearance, so the skin and the support never overlap.
+        BeltFloorContext floor;
+        REQUIRE(floor.init(object.slicing_parameters(), print.config()));
+        const double support_width = support_material_flow(&object).width();
+        size_t support_paths = 0, intruding = 0;
+        for (const SupportLayer *layer : object.support_layers()) {
+            if (layer->support_fills.empty())
+                continue;
+            const coordf_t keep      = belt_support_keep_z(layer->height, support_width, floor.shear_factor());
+            const Polygons belt_side = floor.surface_polygon(layer->print_z - keep + 0.01);
+            for (const ExtrusionEntity *entity : layer->support_fills.flatten().entities) {
+                ++ support_paths;
+                if (! intersection_pl(entity->as_polyline(), belt_side).empty())
+                    ++ intruding;
+            }
+        }
+        INFO(support_paths << " support paths, " << intruding << " reach into the belt band");
+        CHECK(support_paths > 0);
+        CHECK(intruding == 0);
+        // Some support still rests right above the skin: the cut did not take the feet away.
+        double closest = std::numeric_limits<double>::max();
+        for (const SupportLayer *layer : object.support_layers())
+            for (const ExtrusionEntity *entity : layer->support_fills.flatten().entities)
+                for (const Point &pt : entity->as_polyline().points)
+                    closest = std::min(closest, layer->print_z - floor.floor_print_z(pt));
+        INFO("closest support approach to the belt " << closest << " mm of slicing Z");
+        CHECK(closest < belt_support_keep_z(0.2, support_width, floor.shear_factor()) + 0.3);
     }
 }
 

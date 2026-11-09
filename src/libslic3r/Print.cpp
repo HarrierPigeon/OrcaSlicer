@@ -2329,12 +2329,14 @@ StringObjectException Print::validate(std::vector<StringObjectException> *warnin
         // printers never print the classic tower, and the belt purge prism is an
         // ordinary object that never takes a brim.
 
+        bool any_wants_brim = false;
         for (const PrintObject *object : m_objects) {
             const PrintObjectConfig &ocfg = object->config();
-            // Mirror PrintObject::has_belt_brim(): an inner-only brim needs a positive
-            // brim_width (leading/extra widen only the outer ring), so keep this
-            // predicate in step or the belt-brim warnings below would fire for a brim
-            // that has_belt_brim() rejects.
+            // Mirror the brim half of PrintObject::has_belt_brim(): an inner-only brim
+            // needs a positive brim_width (leading/extra widen only the outer ring), so
+            // keep this predicate in step or the belt-brim warnings below would fire for
+            // a brim that is never drawn.  has_belt_brim() itself is also true for an
+            // object with supports and no brim, which gets the support skin only.
             const bool wants_brim = ocfg.brim_type != btNoBrim
                                  && (ocfg.brim_type == btInnerOnly
                                          ? ocfg.brim_width.value > 0.
@@ -2342,6 +2344,7 @@ StringObjectException Print::validate(std::vector<StringObjectException> *warnin
                                             || ocfg.extra_brim_width.value > 0.));
             if (! wants_brim)
                 continue;
+            any_wants_brim = true;
 
             if (! this->has_tilted_belt()) {
                 if (std::abs(m_config.belt_slice_rotation_angle.value) > BELT_BRIM_MAX_TILT_DEG)
@@ -2364,7 +2367,7 @@ StringObjectException Print::validate(std::vector<StringObjectException> *warnin
                        "brim length."),
                      "brim_object_gap", object->model_object());
         }
-        if (this->has_belt_brim() && m_objects.size() > 1)
+        if (any_wants_brim && this->has_tilted_belt() && m_objects.size() > 1)
             warn(L("Leading brim length extends ahead of each object along the belt, and Arrange does "
                    "not reserve that space. Leave room between objects."),
                  "leading_brim_length");

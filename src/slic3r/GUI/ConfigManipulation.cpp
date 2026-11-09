@@ -1036,10 +1036,12 @@ void ConfigManipulation::toggle_print_fff_options(DynamicPrintConfig *config, in
         toggle_line(el, is_belt_tilted, -1, _L("This setting requires a belt printer with a tilted slicing plane."));
         toggle_field(el, is_belt_tilted && have_brim, -1, _L("Enable a brim on a belt printer with a tilted slicing plane to use this setting."));
     }
-    // The support brim rides on the object's brim and needs supports to go under.
+    // The support brim rides on the object's brim and needs supports to go under.  On a
+    // tilted belt the support feet always take it (BeltBrim.cpp), so the switch is moot.
     const bool have_supports_for_brim = config->opt_bool("enable_support") || config->opt_int("enforce_support_layers") > 0;
-    toggle_field("support_brim", have_brim && have_supports_for_brim, -1,
-                 _L("Enable supports and select a brim type other than No brim to use this setting."));
+    toggle_field("support_brim", have_brim && have_supports_for_brim && !is_belt_tilted, -1,
+                 is_belt_tilted ? _L("On a tilted belt the support feet always take the brim, together with a first layer of their own.")
+                                : _L("Enable supports and select a brim type other than No brim to use this setting."));
     // Wall filament selectors use the same logic as in Print::extruders().
     const wxString wall_filament_reason = _L("Enable walls or a brim to select the wall filament.");
     toggle_field("outer_wall_filament_id", have_perimeters || have_brim, -1, wall_filament_reason);
@@ -1162,12 +1164,17 @@ void ConfigManipulation::toggle_print_fff_options(DynamicPrintConfig *config, in
     toggle_field("raft_expansion", !(is_tree(support_type) && (support_style == smsTreeSlim || support_style == smsTreeStrong || support_style == smsTreeHybrid)), -1,
                  _L("Slim, Strong and Hybrid tree supports use first layer expansion instead of raft expansion."));
 
-    // Orca: First-layer density is available for supports broadly.
-    toggle_field("raft_first_layer_density", have_support_material, -1, support_reason);
+    // Orca: First-layer density is available for supports broadly.  On a tilted belt the
+    // supports' first layer is one bead per layer band, gap-free by construction
+    // (BeltBrim.cpp), so there is no density to set.
+    toggle_field("raft_first_layer_density", have_support_material && !is_belt_tilted, -1,
+                 is_belt_tilted ? _L("On a tilted belt the supports' first layer is laid as one solid bead per layer, so it has no density setting.")
+                                : support_reason);
     // Orca: For regular tree (Slim/Strong) without raft, hide first-layer expansion.
     // Keep it enabled for non-tree supports, organic tree, hybrid tree, and any raft case.
+    // On a tilted belt it widens the skin under every support foot, whatever the style.
     toggle_field("raft_first_layer_expansion",
-                 have_support_material && ((!support_is_normal_tree || support_style == smsTreeHybrid) || have_raft), -1,
+                 have_support_material && ((!support_is_normal_tree || support_style == smsTreeHybrid) || have_raft || is_belt_tilted), -1,
                  !have_support_material ? support_reason : _L("Add a raft or choose a tree support style other than Slim or Strong to edit first layer expansion."));
 
     bool has_ironing = (config->opt_enum<IroningType>("ironing_type") != IroningType::NoIroning);

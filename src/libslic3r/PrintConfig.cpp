@@ -2125,8 +2125,8 @@ void PrintConfigDef::init_fff_params()
     def->category = L("Support");
     def->tooltip = L("Lay the brim around the feet of the supports as well as around the object, "
                      "using the same brim type, width and gap. On a belt printer the support feet "
-                     "land on the belt ahead of the part and get no first-layer expansion, so this "
-                     "is what holds them down.");
+                     "always take the brim, together with a first layer of their own under every "
+                     "foot, widened by the support's first layer expansion.");
     def->mode = comAdvanced;
     def->set_default_value(new ConfigOptionBool(false));
 

@@ -1418,6 +1418,13 @@ bool PrintObject::has_belt_brim() const
     // this keeps it brimless whatever its config says, so a brim on the parts never blocks purging.
     if (m_config.belt_purge_tower_object.value)
         return false;
+    if (this->has_raft())
+        return false;
+    // Supports on a belt always get their first layer from the belt brim machinery: a
+    // skin bead under every foot, laid band by band (BeltBrim.cpp, step 1c).  Whether
+    // the object wants a brim ring as well is decided below.
+    if (this->has_support())
+        return true;
     if (m_config.brim_type == btNoBrim)
         return false;
     // An inner-only brim has no leading/extra geometry: leading_brim_length and
@@ -1433,7 +1440,7 @@ bool PrintObject::has_belt_brim() const
                && m_config.extra_brim_width.value <= 0.) {
         return false;
     }
-    return ! this->has_raft();
+    return true;
 }
 
 unsigned int PrintObject::belt_brim_filament() const
