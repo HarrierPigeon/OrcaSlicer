@@ -11,6 +11,7 @@ add_executable(${_TEST_NAME}_tests
 	test_extrusion_processor.cpp
 	test_exclusion_volumes.cpp
 	test_fan_mover.cpp
+	test_motor_resonance.cpp
 	test_fill.cpp
 	test_flow.cpp
 	test_gcode_processor.cpp

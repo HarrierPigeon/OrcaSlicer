@@ -30,6 +30,7 @@
 #include "GCode/SmallAreaInfillFlowCompensator.hpp"
 // ORCA: post processor below used for Dynamic Pressure advance
 #include "GCode/AdaptivePAProcessor.hpp"
+#include "GCode/MotorResonanceAvoider.hpp"
 
 #include "GCode/TimelapsePosPicker.hpp"
 #include "libslic3r_version.h"
@@ -882,6 +883,8 @@ protected:
     std::unique_ptr<PressureEqualizer>  m_pressure_equalizer;
     
     std::unique_ptr<AdaptivePAProcessor>      m_pa_processor;
+    // Set when the printer has motor resonance bands; paths in scope are bracketed for it in _extrude_piece.
+    std::unique_ptr<MotorResonanceAvoider>    m_motor_resonance_avoider;
 
     // IMEX: active parallel mode name ("primary", "copy", "iq-copy", etc.).
     // Set at the start of export. Empty string means non-IMEX or not yet set.

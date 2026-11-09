@@ -664,6 +664,20 @@ static t_config_enum_values s_keys_map_InputShaperType {
 };
 CONFIG_OPTION_ENUM_DEFINE_STATIC_MAPS(InputShaperType)
 
+static t_config_enum_values s_keys_map_MotorResonanceKinematics {
+    {"cartesian", int(MotorResonanceKinematics::Cartesian)},
+    {"corexy",    int(MotorResonanceKinematics::CoreXY)}
+};
+CONFIG_OPTION_ENUM_DEFINE_STATIC_MAPS(MotorResonanceKinematics)
+
+static t_config_enum_values s_keys_map_MotorResonanceAvoidance {
+    {"disabled",       int(MotorResonanceAvoidance::Disabled)},
+    {"outer_walls",    int(MotorResonanceAvoidance::OuterWalls)},
+    {"all_walls",      int(MotorResonanceAvoidance::AllWalls)},
+    {"all_extrusions", int(MotorResonanceAvoidance::AllExtrusions)}
+};
+CONFIG_OPTION_ENUM_DEFINE_STATIC_MAPS(MotorResonanceAvoidance)
+
 static t_config_enum_values s_keys_map_PerimeterGeneratorType{
     { "classic", int(PerimeterGeneratorType::Classic) },
     { "arachne", int(PerimeterGeneratorType::Arachne) }
@@ -2708,6 +2722,20 @@ void PrintConfigDef::init_fff_params()
     def->mode = comAdvanced;
     def->nullable = true;
     def->set_default_value(new ConfigOptionFloatsNullable{60});
+
+    def = this->add("motor_resonance_avoidance", coEnum);
+    def->label = L("Avoid motor resonances");
+    def->category = L("Speed");
+    def->tooltip = L("Slow down moves that would run the X or Y stepper inside one of its resonant speed ranges, which cause "
+                     "vertical fine artifacts (VFAs). The ranges are set in the printer's Motion ability settings, where they "
+                     "can be imported from a Shake&Tune vibrations profile.\n"
+                     "Each move drops to the fastest speed at which both steppers are clear, given its direction, but never "
+                     "below half its speed.");
+    def->enum_keys_map = &ConfigOptionEnum<MotorResonanceAvoidance>::get_enum_values();
+    def->enum_values = { "disabled", "outer_walls", "all_walls", "all_extrusions" };
+    def->enum_labels = { L("Disabled"), L("Outer walls"), L("All walls"), L("All extrusions") };
+    def->mode = comAdvanced;
+    def->set_default_value(new ConfigOptionEnum<MotorResonanceAvoidance>(MotorResonanceAvoidance::Disabled));
 
     def = this->add("small_perimeter_speed", coFloatsOrPercents);
     def->label = L("Small perimeters");
@@ -5564,6 +5592,39 @@ void PrintConfigDef::init_fff_params()
     def->min      = 0;
     def->mode     = comAdvanced;
     def->set_default_value(new ConfigOptionFloat(120));
+
+    def               = this->add("motor_resonance_kinematics", coEnum);
+    def->label        = L("Motor layout");
+    def->tooltip      = L("How the X and Y steppers move the toolhead, which decides how fast each one turns for a move in a "
+                          "given direction.\n"
+                          "CoreXY (also H-bot): the X stepper (motor A) alone moves the toolhead along the 45° diagonal and "
+                          "the Y stepper (motor B) along the 135° one.\n"
+                          "Cartesian (also bed slingers, and CoreXZ in X and Y): each stepper drives one axis.");
+    def->enum_keys_map = &ConfigOptionEnum<MotorResonanceKinematics>::get_enum_values();
+    def->enum_values  = { "cartesian", "corexy" };
+    def->enum_labels  = { L("Cartesian"), L("CoreXY") };
+    def->mode         = comAdvanced;
+    def->set_default_value(new ConfigOptionEnum<MotorResonanceKinematics>(MotorResonanceKinematics::Cartesian));
+
+    def           = this->add("motor_resonance_bands_x", coString);
+    def->label    = L("X stepper");
+    def->tooltip  = L("Speed ranges where the X stepper (motor A on a CoreXY) resonates, as comma-separated ranges such as "
+                      "45-52, 96-104. A speed is that of the toolhead moving along this stepper's own direction, as "
+                      "Shake&Tune measures it. Import them from a Shake&Tune vibrations profile or type them in.\n"
+                      "The process setting \"Avoid motor resonances\" slows moves down to keep the stepper out of these ranges.");
+    def->sidetext = L("mm/s"); // millimeters per second, CIS languages need translation
+    def->mode     = comAdvanced;
+    def->set_default_value(new ConfigOptionString(""));
+
+    def           = this->add("motor_resonance_bands_y", coString);
+    def->label    = L("Y stepper");
+    def->tooltip  = L("Speed ranges where the Y stepper (motor B on a CoreXY) resonates, as comma-separated ranges such as "
+                      "45-52, 96-104. A speed is that of the toolhead moving along this stepper's own direction, as "
+                      "Shake&Tune measures it. Import them from a Shake&Tune vibrations profile or type them in.\n"
+                      "The process setting \"Avoid motor resonances\" slows moves down to keep the stepper out of these ranges.");
+    def->sidetext = L("mm/s"); // millimeters per second, CIS languages need translation
+    def->mode     = comAdvanced;
+    def->set_default_value(new ConfigOptionString(""));
 
     // Orca: Input Shaping support
     def          = this->add("input_shaping_emit", coBool);

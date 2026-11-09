@@ -3248,6 +3248,7 @@ void TabPrint::build()
         optgroup->append_single_option_line("support_interface_speed", "speed_settings_other_layers_speed#support-interface", 0);
         optgroup->append_single_option_line("small_support_perimeter_speed", "speed_settings_other_layers_speed#small-tree-support-perimeters", 0);
         optgroup->append_single_option_line("small_support_perimeter_threshold", "speed_settings_other_layers_speed#small-tree-support-perimeters-threshold", 0);
+        optgroup->append_single_option_line("motor_resonance_avoidance");
         optgroup = page->new_optgroup(L("Overhang speed"), L"param_overhang_speed", 15);
         optgroup->append_single_option_line("enable_overhang_speed", "speed_settings_overhang_speed#slow-down-for-overhang", 0);
 
@@ -5920,6 +5921,10 @@ PageShp TabPrinter::build_kinematics_page()
         resonance_line.append_option(optgroup->get_option("max_resonance_avoidance_speed"));
         optgroup->append_line(resonance_line);
     }
+    // Per-stepper resonant speed ranges, read by the process setting "Avoid motor resonances".
+    optgroup->append_single_option_line("motor_resonance_kinematics");
+    optgroup->append_single_option_line("motor_resonance_bands_x");
+    optgroup->append_single_option_line("motor_resonance_bands_y");
     optgroup->append_single_option_line("input_shaping_emit", "printer_motion_ability#input-shaping");
     optgroup->append_single_option_line("input_shaping_type", "printer_motion_ability#input-shaping-type");
     {

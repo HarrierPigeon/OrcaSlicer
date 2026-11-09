@@ -580,6 +580,21 @@ enum class InputShaperType : unsigned char {
     Disable
 };
 
+// How the X and Y steppers move the toolhead, which decides how fast each one turns for a move in
+// a given direction (motor_resonance_bands_x/_y). See ShakeTune::MotorKinematics.
+enum class MotorResonanceKinematics : unsigned char {
+    Cartesian,
+    CoreXY
+};
+
+// Which extrusions are slowed to keep the X and Y steppers out of their resonant speed bands.
+enum class MotorResonanceAvoidance : unsigned char {
+    Disabled,
+    OuterWalls,
+    AllWalls,
+    AllExtrusions
+};
+
 // BBS
 enum ZHopType {
     zhtAuto = 0,
@@ -822,6 +837,8 @@ CONFIG_OPTION_ENUM_DECLARE_STATIC_MAPS(TimelapseType)
 CONFIG_OPTION_ENUM_DECLARE_STATIC_MAPS(BedType)
 CONFIG_OPTION_ENUM_DECLARE_STATIC_MAPS(SkirtType)
 CONFIG_OPTION_ENUM_DECLARE_STATIC_MAPS(InputShaperType)
+CONFIG_OPTION_ENUM_DECLARE_STATIC_MAPS(MotorResonanceKinematics)
+CONFIG_OPTION_ENUM_DECLARE_STATIC_MAPS(MotorResonanceAvoidance)
 CONFIG_OPTION_ENUM_DECLARE_STATIC_MAPS(DraftShield)
 CONFIG_OPTION_ENUM_DECLARE_STATIC_MAPS(ForwardCompatibilitySubstitutionRule)
 CONFIG_OPTION_ENUM_DECLARE_STATIC_MAPS(GCodeThumbnailsFormat)
@@ -1476,6 +1493,7 @@ PRINT_CONFIG_CLASS_DEFINE(
     ((ConfigOptionEnum<InfillPattern>, internal_solid_infill_pattern))
     ((ConfigOptionFloatOrPercent,       outer_wall_line_width))
     ((ConfigOptionFloatsNullable,       outer_wall_speed))
+    ((ConfigOptionEnum<MotorResonanceAvoidance>, motor_resonance_avoidance))
     ((ConfigOptionFloat,                infill_direction))
     ((ConfigOptionFloat,                solid_infill_direction))
     ((ConfigOptionFloat,                top_layer_direction))
@@ -1693,6 +1711,10 @@ PRINT_CONFIG_CLASS_DEFINE(
     ((ConfigOptionBool,                 resonance_avoidance))
     ((ConfigOptionFloat,                min_resonance_avoidance_speed))
     ((ConfigOptionFloat,                max_resonance_avoidance_speed))
+    // Speed bands where each stepper resonates, e.g. from a Shake&Tune vibrations profile.
+    ((ConfigOptionEnum<MotorResonanceKinematics>, motor_resonance_kinematics))
+    ((ConfigOptionString,               motor_resonance_bands_x))
+    ((ConfigOptionString,               motor_resonance_bands_y))
 
     //Orca: Input shaping
     ((ConfigOptionBool,                 input_shaping_emit))
