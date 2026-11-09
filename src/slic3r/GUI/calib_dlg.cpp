@@ -848,6 +848,37 @@ VFA_Test_Dlg::VFA_Test_Dlg(wxWindow* parent, wxWindowID id, Plater* plater)
     auto_adjust_sizer->Add(auto_adjust_text, 0, wxALL | wxALIGN_CENTER_VERTICAL, FromDIP(2));
     settings_sizer->Add(auto_adjust_sizer, 0, wxLEFT | wxTOP, FromDIP(3));
 
+    // Motor resonance avoidance: print the tower with it, without it, or both side by side.
+    {
+        auto sizer = new wxBoxSizer(wxHORIZONTAL);
+        auto text  = new wxStaticText(this, wxID_ANY, _L("Motor resonance avoidance"), wxDefaultPosition, wxDefaultSize, wxALIGN_LEFT);
+        m_cbMotorResonance = new ComboBox(this, wxID_ANY, wxEmptyString, wxDefaultPosition, FromDIP(wxSize(220, -1)), 0, nullptr, wxCB_READONLY);
+        m_cbMotorResonance->Append(_L("Disabled"));
+        m_cbMotorResonance->Append(_L("Enabled"));
+        m_cbMotorResonance->Append(_L("Both, side by side"));
+        m_cbMotorResonance->SetSelection(0);
+        bool has_bands = false;
+        if (const auto* preset_bundle = wxGetApp().preset_bundle) {
+            const auto& printer_config = preset_bundle->printers.get_edited_preset().config;
+            for (const char* key : { "motor_resonance_bands_x", "motor_resonance_bands_y" })
+                if (printer_config.has(key) && !printer_config.opt_string(key).empty())
+                    has_bands = true;
+        }
+        wxString tip = _L("Slow the tower's walls down to keep the X and Y steppers out of their resonant speed ranges.\n"
+                          "\"Both, side by side\" prints a second tower with avoidance, to the right of one without it. "
+                          "Vase mode prints a single object, so both towers are printed as single-wall towers instead.");
+        if (!has_bands) {
+            m_cbMotorResonance->Enable(false);
+            tip += "\n\n" + _L("Set the stepper resonant speeds in the printer's Motion ability settings first, for example "
+                                "by importing them from Shake&Tune.");
+        }
+        m_cbMotorResonance->SetToolTip(tip);
+        text->SetToolTip(tip);
+        sizer->Add(text, 0, wxALL | wxALIGN_CENTER_VERTICAL, FromDIP(2));
+        sizer->Add(m_cbMotorResonance, 0, wxALL | wxALIGN_CENTER_VERTICAL, FromDIP(2));
+        settings_sizer->Add(sizer, 0, wxLEFT | wxTOP, FromDIP(3));
+    }
+
     settings_sizer->AddSpacer(FromDIP(5));
 
     v_sizer->Add(settings_sizer, 0, wxTOP | wxRIGHT | wxLEFT | wxEXPAND, FromDIP(10));
@@ -1026,6 +1057,11 @@ void VFA_Test_Dlg::on_start(wxCommandEvent& event)
         }
     }
 
+    switch (m_cbMotorResonance->GetSelection()) {
+    case 1:  m_params.vfa_motor_resonance = Calib_Params::VfaMotorResonance::On; break;
+    case 2:  m_params.vfa_motor_resonance = Calib_Params::VfaMotorResonance::Compare; break;
+    default: m_params.vfa_motor_resonance = Calib_Params::VfaMotorResonance::Off; break;
+    }
     m_params.mode = CalibMode::Calib_VFA_Tower;
     m_plater->calib_VFA(m_params);
     EndModal(wxID_OK);

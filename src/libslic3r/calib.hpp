@@ -55,6 +55,11 @@ struct Calib_Params
     // Scale the calibration model to the nozzle diameter and set the layer height accordingly (temp tower / VFA).
     // When false the 0.4 mm / 0.2 mm reference model is printed as-is.
     bool nozzle_based_resize = true;
+    // VFA tower: how motor resonance avoidance (motor_resonance_avoidance) is used. Compare prints a
+    // second tower with it on beside one with it off; vase mode allows one object, so both are
+    // printed as single-wall towers instead.
+    enum class VfaMotorResonance { Off, On, Compare };
+    VfaMotorResonance vfa_motor_resonance = VfaMotorResonance::Off;
 
     CalibMode mode;
 };
