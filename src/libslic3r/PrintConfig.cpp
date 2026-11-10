@@ -2123,10 +2123,11 @@ void PrintConfigDef::init_fff_params()
     def = this->add("support_brim", coBool);
     def->label = L("Brim under supports");
     def->category = L("Support");
-    def->tooltip = L("Lay the brim around the feet of the supports as well as around the object, "
-                     "using the same brim type, width and gap. On a belt printer the support feet "
-                     "always take the brim, together with a first layer of their own under every "
-                     "foot, widened by the support's first layer expansion.");
+    def->tooltip = L("Lay the brim around the feet of normal supports as well as around the object, "
+                     "using the same brim type, width and gap. Tree supports keep their own base brim. "
+                     "On a tilted belt the support feet always take the brim, together with a first "
+                     "layer of their own under every foot, widened by the support's first layer "
+                     "expansion and printed with the brim's filament.");
     def->mode = comAdvanced;
     def->set_default_value(new ConfigOptionBool(false));
 

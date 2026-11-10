@@ -1406,8 +1406,8 @@ void PrintObject::clear_support_layers()
 //
 // The tilt test is answered from the print CONFIG, not from SlicingParameters:
 // invalidating posSupportMaterial clears m_slicing_params.valid, and this is
-// queried from Print::process() dispatch, Brim.cpp and the G-code emitter, where
-// a stale zero shear factor would silently drop the brim.  BeltBrim.cpp itself
+// queried from Print::process() dispatch, Print::validate() and the G-code emitter,
+// where a stale zero shear factor would silently drop the brim.  BeltBrim.cpp itself
 // reads the real belt floor through BeltFloorContext, where the parameters are
 // guaranteed current.
 bool PrintObject::has_belt_brim() const
@@ -1421,10 +1421,12 @@ bool PrintObject::has_belt_brim() const
     if (this->has_raft())
         return false;
     // Supports on a belt always get their first layer from the belt brim machinery: a
-    // skin bead under every foot, laid band by band (BeltBrim.cpp, step 1c).  Whether
-    // the object wants a brim ring as well is decided below.
-    if (this->has_support())
-        return true;
+    // skin bead under every foot, laid band by band (BeltBrim.cpp, step 1c).
+    return this->has_support() || this->wants_belt_brim_ring();
+}
+
+bool PrintObject::wants_belt_brim_ring() const
+{
     if (m_config.brim_type == btNoBrim)
         return false;
     // An inner-only brim has no leading/extra geometry: leading_brim_length and
@@ -1433,14 +1435,10 @@ bool PrintObject::has_belt_brim() const
     // satisfied by any one of the three widths.  Requiring the width here (instead of
     // "any width") stops has_belt_brim() - and therefore Print::validate() - from
     // rejecting the prime tower / spiral vase for a brim that would never be drawn.
-    if (m_config.brim_type == btInnerOnly) {
-        if (m_config.brim_width.value <= 0.)
-            return false;
-    } else if (m_config.brim_width.value <= 0. && m_config.leading_brim_length.value <= 0.
-               && m_config.extra_brim_width.value <= 0.) {
-        return false;
-    }
-    return true;
+    if (m_config.brim_type == btInnerOnly)
+        return m_config.brim_width.value > 0.;
+    return m_config.brim_width.value > 0. || m_config.leading_brim_length.value > 0.
+        || m_config.extra_brim_width.value > 0.;
 }
 
 unsigned int PrintObject::belt_brim_filament() const

@@ -439,8 +439,12 @@ public:
     // BeltBrim.cpp and stored per layer here.  Deliberately separate from
     // has_brim(): that predicate feeds PrintRegion extruder collection, support
     // trimming and the spiral vase probe, and widening it would perturb belt
-    // support output.
+    // support output.  True for an object that wants a brim ring and for one with
+    // supports, whose feet get a skin; see BeltBrim.cpp.
     bool                         has_belt_brim() const;
+    // The brim half of has_belt_brim(): the object's own brim settings ask for a ring
+    // that would be drawn.  Config only, no slicing state.
+    bool                         wants_belt_brim_ring() const;
     // Brim filament for this object's belt brim, returned in the 1-based domain of
     // PrintRegion::outer_wall_filament_id and the raw values pushed into
     // LayerTools::extruders in ToolOrdering::collect_extruders (ToolOrdering reindexes
@@ -1124,9 +1128,9 @@ public:
     // and must not run, whatever the per-object brim settings say - in particular
     // brim_type "Auto", which has_brim() reports as enabled even at width 0.
     bool                has_tilted_belt() const;
-    // True when at least one object actually gets a tilted-belt brim generated.
-    // Implies has_tilted_belt(), but additionally requires the object's own brim
-    // settings to ask for one.
+    // True when the belt brim machinery runs for at least one object: a brim ring
+    // its settings ask for, or the skin under its supports' feet.  Implies
+    // has_tilted_belt().
     bool                has_belt_brim() const;
     //BBS
     bool                has_auto_brim() const    {

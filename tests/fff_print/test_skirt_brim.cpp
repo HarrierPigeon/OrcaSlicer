@@ -1878,8 +1878,10 @@ TEST_CASE("Belt supports rest on a skin that replaces their own material in the 
             for (const ExtrusionEntity *entity : layer->support_fills.flatten().entities)
                 for (const Point &pt : entity->as_polyline().points)
                     closest = std::min(closest, layer->print_z - floor.floor_print_z(pt));
+        // The cut leaves a vertex on its boundary, so this pins the depth itself: one layer
+        // too deep (0.2 mm) would fail.
         INFO("closest support approach to the belt " << closest << " mm of slicing Z");
-        CHECK(closest < belt_support_keep_z(0.2, support_width, floor.shear_factor()) + 0.3);
+        CHECK(closest < belt_support_keep_z(0.2, support_width, floor.shear_factor()) + 0.05);
     }
 }
 
@@ -1897,15 +1899,19 @@ struct PlateBrimMeasure
 {
     double brim_length      = 0.;
     bool   brim_on_support  = false;
-    bool   brim_near_support = false;   // within 3.5 mm of a support foot
+    double brim_length_near_support = 0.;   // of the paths that come within 3.5 mm of a support foot
     bool   has_support      = false;
 };
 
-static PlateBrimMeasure measure_plate_brim(bool support_brim)
+// `wall_filament` / `support_filament` 0: one filament.  With two, the ring and the
+// object's brim are built in different filament passes (Brim.cpp).
+static PlateBrimMeasure measure_plate_brim(bool support_brim, unsigned int wall_filament = 0, unsigned int support_filament = 0)
 {
     Print print;
     Model model;
-    init_print({ TestMesh::overhang }, print, model, {
+    const bool two_filaments = wall_filament > 0 || support_filament > 0;
+    DynamicPrintConfig config = two_filaments ? multifilament_config(2) : DynamicPrintConfig::full_print_config();
+    config.set_deserialize_strict({
         { "layer_height",               0.2 },
         { "initial_layer_print_height", 0.2 },
         { "skirt_loops",                0 },
@@ -1917,6 +1923,13 @@ static PlateBrimMeasure measure_plate_brim(bool support_brim)
         { "brim_object_gap",            0 },
         { "support_brim",               support_brim ? 1 : 0 },
     });
+    if (two_filaments)
+        config.set_deserialize_strict({
+            { "wall_filament",              int(wall_filament) },
+            { "support_filament",           int(support_filament) },
+            { "support_interface_filament", int(support_filament) },
+        });
+    init_print({ TestMesh::overhang }, print, model, config);
     print.process();
 
     PlateBrimMeasure m;
@@ -1935,13 +1948,17 @@ static PlateBrimMeasure measure_plate_brim(bool support_brim)
         Polylines brim_paths;
         kv.second.collect_polylines(brim_paths);
         for (const Polyline &path : brim_paths) {
-            m.brim_length += unscale<double>(path.length());
+            const double length = unscale<double>(path.length());
+            m.brim_length += length;
+            bool near = false;
             for (const Point &point : path.points) {
                 if (contains(feet, point, false))
                     m.brim_on_support = true;
                 if (contains(near_feet, point, false))
-                    m.brim_near_support = true;
+                    near = true;
             }
+            if (near)
+                m.brim_length_near_support += length;
         }
     }
     return m;
@@ -1955,8 +1972,23 @@ TEST_CASE("Brim under supports rings the feet of normal supports on a flat bed",
     REQUIRE(off.brim_length > 0.);
     INFO("brim length " << off.brim_length << " mm without, " << on.brim_length << " mm with the support brim");
     CHECK(on.brim_length > off.brim_length + 10.);
-    CHECK(on.brim_near_support);
+    // The extra brim is around the feet: the object's own brim is in both measures.
+    CHECK(on.brim_length_near_support > off.brim_length_near_support + 10.);
     // The ring goes around the feet, never over them.
     CHECK(! on.brim_on_support);
     CHECK(! off.brim_on_support);
+
+    // With two filaments the ring and the object's brim are built in separate filament
+    // passes, in either order (Brim.cpp); the loops of overlapping areas are unioned when
+    // they are generated, so neither order prints the overlap twice.
+    SECTION("Two filaments, either pass first")
+    {
+        const PlateBrimMeasure object_first = measure_plate_brim(true, /*wall*/ 1, /*support*/ 2);
+        const PlateBrimMeasure ring_first   = measure_plate_brim(true, /*wall*/ 2, /*support*/ 1);
+        REQUIRE(object_first.has_support);
+        INFO("brim length " << object_first.brim_length << " mm with the object's pass first, " << ring_first.brim_length << " mm with the ring's pass first");
+        CHECK_THAT(ring_first.brim_length, Catch::Matchers::WithinRel(object_first.brim_length, 0.02));
+        CHECK(! object_first.brim_on_support);
+        CHECK(! ring_first.brim_on_support);
+    }
 }

@@ -112,15 +112,15 @@ std::map<std::string, std::vector<SimpleSettingData>>  SettingsFactory::OBJECT_C
                     {"make_overhang_printable_angle","", 8},{"make_overhang_printable_hole_size","",9}, {"wall_sequence","",10},
                     {"precise_z_height", "",10}
                     }},
-    { L("Support"), {{"brim_type", "",1},{"brim_width", "",2},{"leading_brim_length", "",3},{"extra_brim_width", "",4},{"brim_object_gap", "",5},{"brim_flow_ratio", "",6},{"brim_use_efc_outline", "",7},
-                    {"enable_support", "",8},{"support_type", "",9},{"support_threshold_angle", "",10}, {"support_threshold_overlap", "",11}, {"support_on_build_plate_only", "",12},
-                    {"support_filament", "",13},{"support_interface_filament", "",14},{"support_expansion", "",15},{"support_style", "",16},
-                    {"tree_support_brim_width", "",17}, {"tree_support_branch_angle", "",18},{"tree_support_branch_angle_organic","",19}, {"tree_support_wall_count", "",20},{"tree_support_branch_diameter_angle", "",21},//tree support
-                    {"support_bottom_z_distance", "",22},{"support_top_z_distance", "",23},{"support_base_pattern", "",24},{"support_base_pattern_spacing", "",25},
-                    {"support_interface_top_layers", "",26},{"support_interface_bottom_layers", "",27},{"support_interface_spacing", "",28},{"support_bottom_interface_spacing", "",29},
-                    {"support_object_xy_distance", "",30}, {"bridge_no_support", "",31},{"max_bridge_length", "",32},{"support_critical_regions_only", "",33},{"support_remove_small_overhang","",34},
-                    {"support_object_first_layer_gap","",35},
-                    {"support_direction", "",36}, {"support_direction_tilt_x", "",37}, {"support_direction_tilt_y", "",38}, {"support_direction_max_lean", "",39}
+    { L("Support"), {{"brim_type", "",1},{"brim_width", "",2},{"leading_brim_length", "",3},{"extra_brim_width", "",4},{"brim_object_gap", "",5},{"support_brim", "",6},{"brim_flow_ratio", "",7},{"brim_use_efc_outline", "",8},
+                    {"enable_support", "",9},{"support_type", "",10},{"support_threshold_angle", "",11}, {"support_threshold_overlap", "",12}, {"support_on_build_plate_only", "",13},
+                    {"support_filament", "",14},{"support_interface_filament", "",15},{"support_expansion", "",16},{"support_style", "",17},
+                    {"tree_support_brim_width", "",18}, {"tree_support_branch_angle", "",19},{"tree_support_branch_angle_organic","",20}, {"tree_support_wall_count", "",21},{"tree_support_branch_diameter_angle", "",22},//tree support
+                    {"support_bottom_z_distance", "",23},{"support_top_z_distance", "",24},{"support_base_pattern", "",25},{"support_base_pattern_spacing", "",26},
+                    {"support_interface_top_layers", "",27},{"support_interface_bottom_layers", "",28},{"support_interface_spacing", "",29},{"support_bottom_interface_spacing", "",30},
+                    {"support_object_xy_distance", "",31}, {"bridge_no_support", "",32},{"max_bridge_length", "",33},{"support_critical_regions_only", "",34},{"support_remove_small_overhang","",35},
+                    {"support_object_first_layer_gap","",36},
+                    {"support_direction", "",37}, {"support_direction_tilt_x", "",38}, {"support_direction_tilt_y", "",39}, {"support_direction_max_lean", "",40}
                     }},
     { L("Speed"), {{"support_speed", "",12}, {"support_interface_speed", "",13}
                   }}

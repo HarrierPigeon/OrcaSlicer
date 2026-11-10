@@ -17139,6 +17139,10 @@ void Plater::_calib_apply_belt_mode()
         print_config->set_key_value("timelapse_type", new ConfigOptionEnum<TimelapseType>(tlTraditional));
         print_config->set_key_value("enable_wrapping_detection", new ConfigOptionBool(false));
     }
+    // The callers refreshed the Print tab before this ran: show these values there and
+    // mark the preset modified.
+    wxGetApp().get_tab(Preset::TYPE_PRINT)->update_dirty();
+    wxGetApp().get_tab(Preset::TYPE_PRINT)->reload_config();
 
     const Matrix3d cancel_rotation = Eigen::AngleAxisd(angle_rad, axis).toRotationMatrix();
     std::vector<size_t> obj_idxs;

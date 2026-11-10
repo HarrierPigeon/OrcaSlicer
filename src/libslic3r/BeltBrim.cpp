@@ -405,50 +405,85 @@ static void belt_brim_band_paths(const BeltBrimContext      &bc,
     }
 }
 
-// Cut everything on `belt_side` out of `fills`, keeping each remaining piece's role and
-// flow.  A loop or multi-path the cut touches comes back as the open paths that remain
-// of it.  Pieces shorter than their own width are dropped: they would print as blobs on
-// the skin bead that takes their place.
-static void trim_support_fills_at_belt(ExtrusionEntityCollection &fills, const Polygons &belt_side)
+// Everything of `src` that lies off `belt_side`, appended to `out`.  Each surviving piece
+// keeps its path's role, flow and attributes.  Of a loop or multi-path the cut touches,
+// the paths it leaves whole stay whole, consecutive ones grouped as a multi-path so they
+// print in order, and the pieces of a cut path follow as open paths.  Pieces shorter than
+// their own width are dropped: they would print as blobs on the skin bead that takes their
+// place.  `side_bbox` bounds `belt_side`: an entity outside it is cloned without a Clipper
+// call, which is most of a tall support.
+static void trim_support_fills_at_belt(const ExtrusionEntityCollection &src, const Polygons &belt_side,
+                                       const BoundingBox &side_bbox, ExtrusionEntityCollection &out)
 {
-    auto touched = [&belt_side](const Polyline &pl) { return ! intersection_pl(Polylines{ pl }, belt_side).empty(); };
-    auto cut = [&belt_side](const ExtrusionPath &path, ExtrusionEntitiesPtr &dst) {
-        Polylines pieces = diff_pl(Polylines{ path.polyline.to_polyline() }, belt_side);
-        pieces.erase(std::remove_if(pieces.begin(), pieces.end(),
-                                    [&path](const Polyline &pl) { return pl.length() < scale_(path.width); }),
-                     pieces.end());
-        extrusion_entities_append_paths(dst, std::move(pieces), path.role(), path.mm3_per_mm, path.width, path.height);
+    auto touched = [&](const Polyline &pl) {
+        return get_extents(pl).overlap(side_bbox) && ! intersection_pl(Polylines{ pl }, belt_side).empty();
     };
-    ExtrusionEntityCollection out;
-    out.no_sort = fills.no_sort;
-    for (const ExtrusionEntity *ee : fills.entities) {
+    auto cut_paths = [&](const ExtrusionPaths &paths, bool can_reverse, ExtrusionEntitiesPtr &dst) {
+        ExtrusionPaths run;
+        auto flush = [&]() {
+            if (run.size() == 1)
+                dst.emplace_back(new ExtrusionPath(std::move(run.front())));
+            else if (run.size() > 1) {
+                auto *mp = new ExtrusionMultiPath(run);
+                if (! can_reverse)
+                    mp->set_reverse();
+                dst.emplace_back(mp);
+            }
+            run.clear();
+        };
+        for (const ExtrusionPath &path : paths) {
+            const Polyline pl = path.polyline.to_polyline();
+            if (! touched(pl)) {
+                run.emplace_back(path);
+                continue;
+            }
+            flush();
+            for (const Polyline &piece : diff_pl(Polylines{ pl }, belt_side))
+                if (piece.length() >= scale_(path.width))
+                    dst.emplace_back(new ExtrusionPath(Polyline3(piece), path));
+        }
+        flush();
+    };
+    out.no_sort = src.no_sort;
+    if (! src.no_sort && ! src.can_reverse())
+        out.set_reverse();
+    for (const ExtrusionEntity *ee : src.entities) {
         if (ee == nullptr)
             continue;
         if (const auto *sub = dynamic_cast<const ExtrusionEntityCollection *>(ee)) {
-            ExtrusionEntityCollection copy = *sub;
-            trim_support_fills_at_belt(copy, belt_side);
-            if (! copy.empty())
-                out.entities.emplace_back(new ExtrusionEntityCollection(std::move(copy)));
+            auto *trimmed = new ExtrusionEntityCollection();
+            trim_support_fills_at_belt(*sub, belt_side, side_bbox, *trimmed);
+            if (trimmed->empty())
+                delete trimmed;
+            else
+                out.entities.emplace_back(trimmed);
         } else if (const auto *loop = dynamic_cast<const ExtrusionLoop *>(ee)) {
             if (! touched(loop->polygon().split_at_first_point()))
                 out.entities.emplace_back(ee->clone());
             else
-                for (const ExtrusionPath &path : loop->paths)
-                    cut(path, out.entities);
+                cut_paths(loop->paths, loop->can_reverse(), out.entities);
         } else if (const auto *multi = dynamic_cast<const ExtrusionMultiPath *>(ee)) {
             if (! touched(multi->as_polyline()))
                 out.entities.emplace_back(ee->clone());
             else
-                for (const ExtrusionPath &path : multi->paths)
-                    cut(path, out.entities);
+                cut_paths(multi->paths, multi->can_reverse(), out.entities);
         } else if (const auto *path = dynamic_cast<const ExtrusionPath *>(ee)) {
             if (! touched(path->polyline.to_polyline()))
                 out.entities.emplace_back(ee->clone());
             else
-                cut(*path, out.entities);
+                cut_paths(ExtrusionPaths{ *path }, path->can_reverse(), out.entities);
         } else
             out.entities.emplace_back(ee->clone());
     }
+}
+
+// In-place form.  The entities the cut replaces are deleted here: the collection's move
+// assignment only takes over the new pointers.
+static void trim_support_fills_at_belt(ExtrusionEntityCollection &fills, const Polygons &belt_side)
+{
+    ExtrusionEntityCollection out;
+    trim_support_fills_at_belt(fills, belt_side, get_extents(belt_side), out);
+    fills.clear();
     fills = std::move(out);
 }
 
@@ -469,11 +504,11 @@ static void trim_support_fills_at_belt(ExtrusionEntityCollection &fills, const P
 // objects are skipped without materialising their polygons.  On a typical plate the
 // objects do not overlap and every foreign object drops out here, which matters because
 // this runs once per band - hundreds of times per object.
-// `own_support` false leaves this object's supports out: the skin under them is laid
-// where their toolpaths were cut away (make_belt_brim, step 1c), and the end caps of
-// the cut lines would otherwise nick every bead.  `self_gap` (scaled) grows this object's
-// own slices, so the skin keeps the support's first-layer XY distance from the part the
-// way the generators keep the support itself (trim_support_layers_by_object).
+// `own_support` false is the skin's call: this object's supports are left out (the skin
+// is laid where their toolpaths were cut away, and the end caps of the cut lines would
+// nick every bead) and the other objects' supports are taken in instead.  `self_gap`
+// (scaled) grows this object's own slices, so the skin keeps the support's first-layer XY
+// distance from the part the way the generators keep the support itself.
 static Polygons belt_brim_obstacles(const Print &print, const PrintObject &self,
                                     const BoundingBox &region_bbox, coordf_t print_z, coordf_t tol,
                                     bool own_support = true, coord_t self_gap = 0)
@@ -497,7 +532,10 @@ static Polygons belt_brim_obstacles(const Print &print, const PrintObject &self,
                     polygons_append(out, std::move(ps));
                 }
             }
-            if (! is_self || ! own_support)
+            // The ring dodges this object's own supports and, as it always has, no other
+            // object's.  The skin is the other way round: its own fills are what it
+            // replaces, a neighbour's foot is material it must not run across.
+            if (is_self ? ! own_support : own_support)
                 continue;
             if (const SupportLayer *sl = o->get_support_layer_at_printz(print_z, tol)) {
                 Polygons ps = sl->support_fills.polygons_covered_by_spacing();
@@ -579,6 +617,9 @@ void make_belt_brim(PrintObject &object)
     //     and kept.
     ExPolygons   feet_acc;
     const double support_wall_width = object.support_layers().empty() ? 0. : support_material_flow(&object).width();
+    // Extents of each support layer's fills, for the cut below to skip the layers that
+    // lie wholly off the belt band.
+    std::vector<std::pair<const SupportLayer *, BoundingBox>> support_extents;
     {
         const LayerPtrs &object_layers = object.layers();
         for (const SupportLayer *sl : object.support_layers()) {
@@ -592,6 +633,7 @@ void make_belt_brim(PrintObject &object)
             if (u_lo > u_hi)
                 std::swap(u_lo, u_hi);
             BoundingBox bb = get_extents(fills);
+            support_extents.emplace_back(sl, bb);
             bb.offset(scale_(1.));
             const Polygon band = band_box(bb, bc.frame.from_axis, u_lo, u_hi);
             if (band.empty())
@@ -636,12 +678,32 @@ void make_belt_brim(PrintObject &object)
     if (! feet.empty()) {
         const double expansion = std::max(0., cfg.raft_first_layer_expansion.value);
         skin_flat = offset_ex(belt_flatten(feet, bc.frame), float(scale_(expansion)), jtRound, SCALED_RESOLUTION);
+        // The feet are on the bed, the expansion need not be: keep the skin within the
+        // printable width, less half a bead.  Along the belt the bands end with the feet.
+        {
+            BoundingBox bed = get_extents(get_bed_shape_with_excluded_area(print.config()));
+            const Point shift = object.instances().empty() ? Point(0, 0) : object.instances().front().shift_without_plate_offset();
+            bed.translate(-shift.x(), -shift.y());
+            bed.offset(-scale_(0.5 * support_wall_width));
+            BoundingBox clip = get_extents(skin_flat);
+            clip.offset(scale_(1.));
+            if (bc.frame.from_axis == 0) {
+                clip.min.y() = std::max(clip.min.y(), bed.min.y());
+                clip.max.y() = std::min(clip.max.y(), bed.max.y());
+            } else {
+                clip.min.x() = std::max(clip.min.x(), bed.min.x());
+                clip.max.x() = std::min(clip.max.x(), bed.max.x());
+            }
+            skin_flat = clip.min.x() < clip.max.x() && clip.min.y() < clip.max.y()
+                ? intersection_ex(skin_flat, Polygons{ clip.polygon() }) : ExPolygons{};
+        }
         bc.skin.set(belt_unflatten(skin_flat, bc.frame), erSupportMaterial);
-        for (SupportLayer *sl : object.support_layers()) {
-            if (sl->support_fills.empty() || sl->height < EPSILON)
-                continue;
+        for (const auto &[layer, extents] : support_extents) {
+            auto          *sl   = const_cast<SupportLayer *>(layer);
             const coordf_t keep = belt_support_keep_z(sl->height, support_wall_width, bc.frame.shear);
-            trim_support_fills_at_belt(sl->support_fills, bc.ctx.surface_polygon(sl->print_z - keep));
+            const Polygons belt_side = bc.ctx.surface_polygon(sl->print_z - keep);
+            if (! belt_side.empty() && get_extents(belt_side).overlap(extents))
+                trim_support_fills_at_belt(sl->support_fills, belt_side);
         }
     }
 
@@ -669,12 +731,8 @@ void make_belt_brim(PrintObject &object)
                         || bt == btAutoBrim  || bt == btEar || bt == btPainted
                         || bt == btLeadingEdgeOnly;
     const bool has_inner = bt == btInnerOnly || bt == btOuterAndInner;
-    // Mirrors the brim half of PrintObject::has_belt_brim(): the other half, supports on
-    // the belt, wants the skin and no ring.
-    const bool wants_ring = (has_outer || has_inner)
-                         && (has_outer ? (width > 0 || leading > 0 || lateral > 0) : width > 0);
 
-    if (wants_ring) {
+    if (object.wants_belt_brim_ring()) {
         ExPolygons base_flat = belt_flatten(footprint, bc.frame);
         expolygons_append(base_flat, skin_flat);
         ExPolygons ring = belt_unflatten(
@@ -726,9 +784,10 @@ void make_belt_brim(PrintObject &object)
         }
     }
     // The skin is levelled with the support line it replaces, in every band: the same
-    // clearance belt_support_keep_z() cleared the toolpaths down to.
+    // clearance belt_support_keep_z() cleared the toolpaths down to.  Its gap from the
+    // part is measured to the bead's edge, so half a bead is added to the centreline cut.
     const double  skin_inset = 0.5 * support_wall_width;
-    const coord_t skin_gap   = scale_(std::max(0., cfg.support_object_first_layer_gap.value));
+    const coord_t skin_gap   = scale_(std::max(0., cfg.support_object_first_layer_gap.value) + 0.5 * support_wall_width);
 
     // Both regions' lines for one band.  The skin first: it is the first layer under
     // the support, the ring only surrounds it.

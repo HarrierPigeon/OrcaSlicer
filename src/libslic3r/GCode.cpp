@@ -6675,6 +6675,21 @@ LayerResult GCode::process_layer(
             const std::vector<ExtrusionEntityCollection> &bands = layer.object()->belt_brim_by_layer();
             if (layer.id() < bands.size() && ! bands[layer.id()].empty())
                 enable = false;
+            // A support layer of its own printed since the layer below (independent support
+            // layer heights) leaves the nozzle on the support, not at the loop's start the
+            // spiral would continue from: this layer is printed flat too.
+            if (enable) {
+                const auto sls = layer.object()->support_layers();
+                const coordf_t lo = layer.lower_layer != nullptr ? layer.lower_layer->print_z + EPSILON
+                                                                 : -std::numeric_limits<coordf_t>::max();
+                for (auto it = std::lower_bound(sls.begin(), sls.end(), lo,
+                                                [](const SupportLayer *sl, coordf_t z) { return sl->print_z < z; });
+                     it != sls.end() && (*it)->print_z < layer.print_z - EPSILON; ++ it)
+                    if (! (*it)->support_fills.empty()) {
+                        enable = false;
+                        break;
+                    }
+            }
         }
         if (enable) {
             for (const LayerRegion *layer_region : layer.regions())
@@ -8165,6 +8180,10 @@ LayerResult GCode::process_layer(
         for (const LayerToPrint &ltp : layers) {
             const PrintObject *obj = ltp.original_object;
             if (obj == nullptr || ! obj->has_belt_brim() || ltp.object_layer == nullptr)
+                continue;
+            // Nothing to lay on this layer: no toolchange for it either.
+            if (const auto &by_layer = obj->belt_brim_by_layer();
+                ltp.object_layer->id() >= by_layer.size() || by_layer[ltp.object_layer->id()].empty())
                 continue;
             const size_t       ltp_idx = size_t(&ltp - layers.data());
             const unsigned int brim0   = (unsigned int)(obj->belt_brim_filament() - 1);

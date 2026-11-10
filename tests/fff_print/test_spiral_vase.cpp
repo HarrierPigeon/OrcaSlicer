@@ -5,15 +5,24 @@
 #include <catch2/matchers/catch_matchers_floating_point.hpp>
 
 #include <algorithm>
+#include <cmath>
+#include <cstddef>
+#include <limits>
+#include <math.h>
 #include <string>
 #include <tuple>
+#include <utility>
 #include <vector>
 
+#include <boost/algorithm/string/predicate.hpp>
+
 #include "libslic3r/Config.hpp"
+#include "libslic3r/ExtrusionEntityCollection.hpp"
 #include "libslic3r/GCode/SpiralVase.hpp"
 #include "libslic3r/GCodeReader.hpp"
 #include "libslic3r/Layer.hpp"
 #include "libslic3r/Model.hpp"
+#include "libslic3r/Point.hpp"
 #include "libslic3r/Print.hpp"
 #include "libslic3r/PrintBase.hpp"
 #include "libslic3r/PrintConfig.hpp"
@@ -145,10 +154,17 @@ TEST_CASE("Spiral vase mode accepts supports on a belt printer", "[SpiralVase][b
 
     SECTION("The CLI config check lets the combination through on a belt only")
     {
-        CHECK(config.validate(/*under_cli=*/true).count("enable_support") == 0);
+        // Accepted means no error at all, for enabled and for enforced supports alike.
+        CHECK(config.validate(/*under_cli=*/true).empty());
+        DynamicPrintConfig enforced = config;
+        enforced.set_deserialize_strict({ { "enable_support", 0 }, { "enforce_support_layers", 3 } });
+        CHECK(enforced.validate(/*under_cli=*/true).empty());
         DynamicPrintConfig flat = config;
         flat.set_deserialize_strict({ { "belt_printer", 0 } });
         CHECK(flat.validate(/*under_cli=*/true).count("enable_support") == 1);
+        DynamicPrintConfig flat_enforced = enforced;
+        flat_enforced.set_deserialize_strict({ { "belt_printer", 0 } });
+        CHECK(flat_enforced.validate(/*under_cli=*/true).count("enforce_support_layers") == 1);
     }
 
     SECTION("A counter-rotated cube slices with its support wedge")
@@ -203,4 +219,89 @@ TEST_CASE("Spiral vase mode accepts supports on a belt printer", "[SpiralVase][b
         const std::vector<ExtrusionEntityCollection> &bands = object.belt_brim_by_layer();
         CHECK(std::any_of(bands.begin(), bands.end(), [](const ExtrusionEntityCollection &b) { return ! b.empty(); }));
     }
+}
+
+// On a tilted belt the brim is laid band by band over many layers.  A layer that carries
+// one of its bands is printed flat, the way layer 0 is with a brim on a flat bed, and the
+// spiral starts once the part has left the belt (GCode::process_layer).  Under the IR3
+// remap the belt axis is the G-code's Z: a flat layer holds one Z over all its extrusions,
+// a spiral layer ramps it by the layer's pitch along the belt.
+TEST_CASE("Belt brim layers print flat beside spiral vase and the spiral starts above them", "[SpiralVase][belt][Brim]")
+{
+    DynamicPrintConfig config = DynamicPrintConfig::full_print_config();
+    config.set_deserialize_strict({
+        { "belt_printer",               1 },
+        { "belt_slice_rotation",        "x" },
+        { "belt_slice_rotation_angle",  45 },
+        { "gcode_remap_x",              "rev_x" },
+        { "gcode_remap_y",              "pos_z" },
+        { "gcode_remap_z",              "pos_y" },
+        { "layer_height",               0.2 },
+        { "initial_layer_print_height", 0.2 },
+        { "skirt_loops",                0 },
+        { "brim_type",                  "outer_only" },
+        { "brim_width",                 3 },
+        { "spiral_mode",                1 },
+        { "sparse_infill_density",      "0%" },
+        { "wall_loops",                 1 },
+        { "top_shell_layers",           0 },
+        { "bottom_shell_layers",        0 },
+        { "enable_support",             0 },
+        { "machine_start_gcode",        "T[initial_tool]\n" },
+        { "layer_change_gcode",         "G92 E0\n" },
+    });
+    Print print;
+    Model model;
+    init_print({ TriangleMesh(its_make_cube(20., 20., 20.)) }, print, model, config);
+    ModelInstance &instance = *model.objects.front()->instances.front();
+    instance.set_offset(Vec3d(100., 100., instance.get_offset().z()));
+    print.apply(model, config);
+    std::vector<StringObjectException> warnings;
+    REQUIRE(print.validate(&warnings).string.empty());
+    const std::string gcode = Test::gcode(print);
+    const PrintObject &object = *print.objects().front();
+    REQUIRE(object.has_belt_brim());
+    const std::vector<ExtrusionEntityCollection> &bands = object.belt_brim_by_layer();
+    REQUIRE(bands.size() == object.layers().size());
+
+    // The G-code Z range of each layer's extrusions, keyed by the ;Z: marker's slicing Z.
+    struct ZRange { double lo = std::numeric_limits<double>::max(), hi = -std::numeric_limits<double>::max(); };
+    std::vector<std::pair<double, ZRange>> layers;
+    GCodeReader reader;
+    reader.apply_config(print.config());
+    reader.parse_buffer(gcode, [&layers](GCodeReader &self, const GCodeReader::GCodeLine &line) {
+        if (boost::starts_with(line.raw(), ";Z:")) {
+            layers.emplace_back(std::stod(line.raw().substr(3)), ZRange{});
+        } else if (! layers.empty() && line.extruding(self) && line.dist_XY(self) > 0.) {
+            ZRange &r = layers.back().second;
+            r.lo = std::min(r.lo, double(line.new_Z(self)));
+            r.hi = std::max(r.hi, double(line.new_Z(self)));
+        }
+    });
+    auto range_of = [&layers](coordf_t print_z) -> const ZRange * {
+        for (const auto &[z, r] : layers)
+            if (std::abs(z - print_z) < 1e-4 && r.lo <= r.hi)
+                return &r;
+        return nullptr;
+    };
+
+    const double pitch = 0.2 / std::sin(M_PI / 4.);   // a layer's advance along the belt
+    size_t flat_band_layers = 0, ramped_layers = 0, measured = 0;
+    for (size_t i = 0; i < object.layers().size(); ++ i) {
+        const ZRange *r = range_of(object.layers()[i]->print_z);
+        if (r == nullptr)
+            continue;
+        ++ measured;
+        const double rise = r->hi - r->lo;
+        INFO("layer " << i << " at " << object.layers()[i]->print_z << ": Z rises " << rise << " mm, band " << (bands[i].empty() ? "empty" : "laid"));
+        if (! bands[i].empty()) {
+            CHECK(rise < 1e-3);
+            ++ flat_band_layers;
+        } else if (rise > 0.5 * pitch)
+            ++ ramped_layers;
+    }
+    INFO(measured << " layers measured, " << flat_band_layers << " flat with a band, " << ramped_layers << " spiralled");
+    // The cube sits on the belt over its first 14 mm of slicing Z and spirals above that.
+    CHECK(flat_band_layers > 20);
+    CHECK(ramped_layers > 20);
 }
