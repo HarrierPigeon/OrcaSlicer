@@ -2182,6 +2182,15 @@ StringObjectException Print::validate(std::vector<StringObjectException> *warnin
         }
     }
 
+    // The split PA line test changes pressure advance in the middle of a move, which Klipper does without stopping the
+    // toolhead only while pressure advance stays on.
+    if (m_calib_params.mode == CalibMode::Calib_PA_Line && m_calib_params.pa_split != CalibPASplit::None) {
+        if (m_config.gcode_flavor != gcfKlipper)
+            return {L("The split PA line test needs the Klipper G-code flavor."), nullptr, "gcode_flavor"};
+        if (std::min(m_calib_params.start, m_calib_params.pa_split_fixed) <= 0.)
+            return {L("The split PA line test needs pressure advance values above 0.")};
+    }
+
     // IDEX/IQEX: block multi-color in non-primary parallel modes when the active
     // configuration can't physically support it (no within-gantry toolchange path
     // or MMU lane sharing). See imex_multicolor_block_reason() for the full rule.

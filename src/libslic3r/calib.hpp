@@ -38,12 +38,26 @@ enum class CalibMode : int {
 
 enum class CalibState { Start = 0, Preset, Calibration, CoarseSave, FineCalibration, Save, Finish };
 
+// Split PA line test: a separate pressure advance for the speed-up into each fast segment and for the slow-down out of
+// it. One of the two varies per line from Calib_Params::start to end; the other is Calib_Params::pa_split_fixed.
+//
+// Klipper only. Its planner ramps up at the start of a fast move and down at the end of it, so the test prints each
+// fast segment as two collinear moves and sends SET_PRESSURE_ADVANCE between them. Klipper (since v0.13, and Kalico
+// since v2026.11.00) applies a changed ADVANCE from the start of the next move without flushing its lookahead queue,
+// but stops the toolhead when the change turns pressure advance on or off, so no value may be 0. Each move's extruder
+// motion uses the PA in effect when the move starts, averaged over pressure_advance_smooth_time centred on each moment:
+// the halves must cruise long enough that the ramps' smoothing windows do not reach the joint.
+enum class CalibPASplit : int { None = 0, VarySpeedUp, VarySlowDown };
+
 struct Calib_Params
 {
     Calib_Params() : mode(CalibMode::Calib_None){};
     int extruder_id = 0;
     double    start = 0.0, end = 1.0, step = 0.1;
     bool      print_numbers = false;
+    // PA line test only (Klipper only).
+    CalibPASplit pa_split       = CalibPASplit::None;
+    double       pa_split_fixed = 0.0;
     double freqStartX = 0.0, freqEndX = 1.0, freqStartY = 0.0, freqEndY = 1.0;
     int test_model = 0;
     std::string shaper_type;
@@ -275,6 +289,12 @@ public:
         m_slow_speed = slow;
         m_fast_speed = fast;
     }
+    // See CalibPASplit.
+    void set_split(CalibPASplit vary, double fixed_pa)
+    {
+        m_split          = vary;
+        m_split_fixed_pa = fixed_pa;
+    }
 
     const double &line_width() { return m_line_width; };
     const double &height_layer() { return m_height_layer; };
@@ -285,6 +305,9 @@ private:
     std::string print_pa_lines(double start_x, double start_y, double start_pa, double step_pa, int num);
 
     void delta_modify_start(double &startx, double &starty, int count);
+
+    double split_max_length_long(double bed_width) const;
+    void   size_split_length_long(double bed_width);
 
     GCode *mp_gcodegen;
 
@@ -299,6 +322,9 @@ private:
 
     double m_length_short{20.0}, m_length_long{40.0};
     bool   m_draw_numbers{true};
+
+    CalibPASplit m_split{CalibPASplit::None};
+    double       m_split_fixed_pa{0.};
 };
 
 struct SuggestedConfigCalibPAPattern

@@ -496,6 +496,8 @@ std::string CalibPressureAdvanceLine::generate_test(double start_pa /*= 0*/, dou
     count                 = std::min(count, int((h - 10) / m_space_y));
 
     m_length_long = 40 + std::min(w - 120.0, 0.0);
+    if (m_split != CalibPASplit::None)
+        size_split_length_long(w);
 
     auto startx = bed_ext.min.x() + (w - m_length_short * 2 - m_length_long - 20) / 2;
     auto starty = bed_ext.min.y() + (h - count * m_space_y) / 2;
@@ -511,8 +513,9 @@ BoundingBoxf CalibPressureAdvanceLine::print_extents(const BoundingBoxf &bed_ext
     }
     
     double bed_width     = adjusted_bed.size().x();
-    // m_length_long adjusts for narrow beds – exactly as in generate_test()
-    double line_long     = 40.0 + std::min(bed_width - 120.0, 0.0);
+    // m_length_long adjusts for narrow beds – exactly as in generate_test(). The split test's depends on the speeds and
+    // the acceleration, so take the longest it can be.
+    double line_long     = m_split == CalibPASplit::None ? 40.0 + std::min(bed_width - 120.0, 0.0) : split_max_length_long(bed_width);
     double total_line_len = m_length_short * 2 + line_long;
     double start_x       = adjusted_bed.min.x() + (bed_width - 2 * m_length_short - line_long - 20.0) / 2.0;
     double box_width     = m_draw_numbers ? (number_spacing() * 8) : 0.0;   // 3.0 * 8 = 24 mm
@@ -529,6 +532,43 @@ BoundingBoxf CalibPressureAdvanceLine::print_extents(const BoundingBoxf &bed_ext
 }
 
 bool CalibPressureAdvanceLine::is_delta() const { return mp_gcodegen->config().printable_area.values.size() > 4; }
+
+namespace {
+// Klipper's default pressure_advance_smooth_time.
+constexpr double klipper_pa_smooth_time = 0.04;
+// Enough for 500 mm/s at 20000 mm/s².
+constexpr double split_length_long_limit = 120.;
+} // namespace
+
+// The longest fast segment the split PA line test fits on a bed this wide, numbers included.
+double CalibPressureAdvanceLine::split_max_length_long(double bed_width) const
+{
+    // generate_test() centres the lines and their 10 mm margins on the bed, and the numbers box follows the lines.
+    const double box_width = number_spacing() * 8;
+    return std::min(split_length_long_limit, bed_width - 2 * m_length_short - 2 * (m_line_width + box_width) + 10);
+}
+
+// Sizes the split PA line test's fast segment for the speeds and the acceleration it prints with (see print_pa_lines()).
+// When the bed is too narrow for the segment, the fast speed comes down instead.
+void CalibPressureAdvanceLine::size_split_length_long(double bed_width)
+{
+    // When nothing has set the acceleration, size for a slow printer: a faster one just cruises longer.
+    const unsigned int set_accel = mp_gcodegen->writer().get_print_acceleration();
+    const double       accel     = set_accel > 0 ? double(set_accel) : 1000.;
+    // Each half ramps between the slow and the fast speed, then cruises for two smooth times to the joint. The ramp's
+    // smoothing window reaches half a smooth time past the ramp and the joint's half a smooth time before the joint, so
+    // a smooth time of clean cruise stays between them, and they still do not overlap at a smooth time of 0.08 s.
+    // Klipper's default minimum_cruise_ratio of 0.5 (Orca's default accel_to_decel of 50 %) reaches the fast speed only
+    // on moves that cruise for half their length, hence the other bound.
+    const auto half_length = [this, accel](double fast) {
+        const double ramp = (fast * fast - m_slow_speed * m_slow_speed) / (2. * accel);
+        return std::max(ramp + 2. * klipper_pa_smooth_time * fast, 2. * ramp);
+    };
+    const double max_length = split_max_length_long(bed_width);
+    while (2. * half_length(m_fast_speed) > max_length && m_fast_speed > m_slow_speed + 5.)
+        m_fast_speed -= 1.;
+    m_length_long = std::min(std::max(m_length_long, 2. * half_length(m_fast_speed)), max_length);
+}
 
 std::string CalibPressureAdvanceLine::print_pa_lines(double start_x, double start_y, double start_pa, double step_pa, int num)
 {
@@ -549,6 +589,10 @@ std::string CalibPressureAdvanceLine::print_pa_lines(double start_x, double star
     const double      fast = CalibPressureAdvance::speed_adjust(m_fast_speed);
     const double      slow = CalibPressureAdvance::speed_adjust(m_slow_speed);
     std::stringstream gcode;
+    if (m_split != CalibPASplit::None)
+        gcode << "; Split PA line test: the PA for the " << (m_split == CalibPASplit::VarySpeedUp ? "speed-up" : "slow-down")
+              << " varies per line as numbered, the PA for the " << (m_split == CalibPASplit::VarySpeedUp ? "slow-down" : "speed-up")
+              << " is " << m_split_fixed_pa << "\n";
     gcode << mp_gcodegen->writer().travel_to_z(m_height_layer + z_offset);
     gcode << ";" << GCodeProcessor::reserved_tag(GCodeProcessor::ETags::Height) << (m_height_layer + z_offset) << "\n";
     double y_pos = start_y;
@@ -561,14 +605,25 @@ std::string CalibPressureAdvanceLine::print_pa_lines(double start_x, double star
     gcode << writer.extrude_to_xy(Vec2d(prime_x, y_pos), e_per_mm * m_space_y * num * 1.2);
 
     for (int i = 0; i < num; ++i) {
-        gcode << writer.set_pressure_advance(start_pa + i * step_pa);
+        const double pa = start_pa + i * step_pa;
+        // The PA for the speed-up into the fast segment and the one for the slow-down out of it.
+        const double pa_up   = m_split == CalibPASplit::VarySlowDown ? m_split_fixed_pa : pa;
+        const double pa_down = m_split == CalibPASplit::VarySpeedUp ? m_split_fixed_pa : pa;
+        gcode << writer.set_pressure_advance(pa_up);
         gcode << move_to(Vec2d(start_x, y_pos + i * m_space_y), writer);
         gcode << ";" << GCodeProcessor::reserved_tag(GCodeProcessor::ETags::Role) << "Custom\n";
         gcode << writer.set_speed(slow);
         gcode << writer.extrude_to_xy(Vec2d(start_x + m_length_short, y_pos + i * m_space_y), e_per_mm * m_length_short);
         gcode << ";" << GCodeProcessor::reserved_tag(GCodeProcessor::ETags::Role) << "Outer wall\n";
         gcode << writer.set_speed(fast);
-        gcode << writer.extrude_to_xy(Vec2d(start_x + m_length_short + m_length_long, y_pos + i * m_space_y), e_per_mm * m_length_long);
+        if (m_split != CalibPASplit::None) {
+            // Two collinear halves with the slow-down PA set between them, in the middle of the cruise (see CalibPASplit).
+            const double half = m_length_long / 2;
+            gcode << writer.extrude_to_xy(Vec2d(start_x + m_length_short + half, y_pos + i * m_space_y), e_per_mm * half);
+            gcode << writer.set_pressure_advance(pa_down);
+            gcode << writer.extrude_to_xy(Vec2d(start_x + m_length_short + m_length_long, y_pos + i * m_space_y), e_per_mm * half);
+        } else
+            gcode << writer.extrude_to_xy(Vec2d(start_x + m_length_short + m_length_long, y_pos + i * m_space_y), e_per_mm * m_length_long);
         gcode << ";" << GCodeProcessor::reserved_tag(GCodeProcessor::ETags::Role) << "Custom\n";
         gcode << writer.set_speed(slow);
         gcode << writer.extrude_to_xy(Vec2d(start_x + m_length_short + m_length_long + m_length_short, y_pos + i * m_space_y),

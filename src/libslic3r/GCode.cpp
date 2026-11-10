@@ -3907,6 +3907,7 @@ void GCode::_do_export(Print& print, GCodeOutputStream &file, ThumbnailsGenerato
         } else if (print.calib_mode() == CalibMode::Calib_PA_Line) {
             // Derive X bounds from the actual calibration geometry.
             CalibPressureAdvanceLine temp_pa_line_forsize(this);
+            temp_pa_line_forsize.set_split(print.calib_params().pa_split, print.calib_params().pa_split_fixed);
             BoundingBoxf pattern_extents = temp_pa_line_forsize.print_extents(bbox_bed);
 
             bbox = bbox_bed;
@@ -4620,6 +4621,7 @@ void GCode::_do_export(Print& print, GCodeOutputStream &file, ThumbnailsGenerato
 
         pa_test.set_speed(fast_speed, slow_speed);
         pa_test.draw_numbers() = print.calib_params().print_numbers;
+        pa_test.set_split(params.pa_split, params.pa_split_fixed);
 
         // ORCA-Belt: the PA line test draws directly on the build surface in
         // logical bed coordinates — on a belt printer that surface is the

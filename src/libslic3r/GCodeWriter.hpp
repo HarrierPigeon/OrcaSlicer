@@ -68,6 +68,9 @@ public:
     std::string set_chamber_temperature(int temperature, bool wait = false);
     std::string set_print_acceleration(unsigned int acceleration)   { return set_acceleration_internal(Acceleration::Print, acceleration); }
     std::string set_travel_acceleration(unsigned int acceleration)  { return set_acceleration_internal(Acceleration::Travel, acceleration); }
+    // The acceleration printing moves run at as this writer last set it, after its machine limit clamp (travel moves
+    // set it too on flavors without a separate travel acceleration). 0 if it has set none since it was invalidated.
+    unsigned int get_print_acceleration() const { return m_last_acceleration; }
     std::string set_jerk_xy(double jerk);
     // Orca: set acceleration and jerk in one command for Klipper
     std::string set_accel_and_jerk(unsigned int acceleration, double jerk);
