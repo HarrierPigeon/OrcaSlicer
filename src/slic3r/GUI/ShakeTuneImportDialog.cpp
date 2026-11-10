@@ -102,6 +102,19 @@ std::optional<ShakeTune::SpeedBand> outer_wall_avoidance_range(const ShakeTune::
     return ShakeTune::SpeedBand{ std::floor(lo), std::ceil(hi) };
 }
 
+// The printer's kinematics, for a vibrations profile recorded along more directions than the motors' (see
+// ShakeTune::analyze_vibrations_energy()): Klipper's when the dialog has read it, else the printer settings' motor layout.
+std::optional<ShakeTune::MotorKinematics> printer_kinematics(const std::optional<ShakeTune::KlipperMotion> &motion,
+                                                             const DynamicPrintConfig                    &printer_config)
+{
+    if (motion)
+        if (const std::optional<ShakeTune::MotorKinematics> kinematics = motion->motor_kinematics())
+            return kinematics;
+    if (const auto *layout = printer_config.option<ConfigOptionEnum<MotorResonanceKinematics>>("motor_resonance_kinematics"))
+        return layout->value == MotorResonanceKinematics::CoreXY ? ShakeTune::MotorKinematics::CoreXY : ShakeTune::MotorKinematics::Cartesian;
+    return std::nullopt;
+}
+
 } // namespace
 
 // ---------------------------------------------------------------------------------------------------
@@ -886,9 +899,10 @@ void ShakeTuneImportDialog::analyse_remote(size_t index)
     auto              result   = std::make_shared<Result>();
     const std::string path     = m_recordings[index].path;
     const double      max_freq = m_motion ? 5. * m_motion->shaketune_max_freq : ShakeTune::DEFAULT_VIBRATIONS_MAX_FREQ;
+    const auto        kinematics = printer_kinematics(m_motion, m_printer_config);
     set_status(_L("Downloading and analysing the vibrations profile…"));
     replace_job(*m_worker,
-        [host = m_host, result, path, max_freq](Job::Ctl &ctl) {
+        [host = m_host, result, path, max_freq, kinematics](Job::Ctl &ctl) {
             wxString    error;
             std::string bytes;
             if (!host->get(config_file_url(path), bytes, error, 300, [&ctl] { return ctl.was_canceled(); })) {
@@ -901,7 +915,7 @@ void ShakeTuneImportDialog::analyse_remote(size_t index)
             bytes.clear();
             if (ctl.was_canceled())
                 return;
-            result->profile = ShakeTune::analyze_vibrations(measurements, max_freq, result->error);
+            result->profile = ShakeTune::analyze_vibrations(measurements, max_freq, result->error, kinematics);
         },
         [this, result](bool canceled, std::exception_ptr &eptr) {
             if (eptr) {
@@ -928,14 +942,15 @@ void ShakeTuneImportDialog::analyse_file(const std::string &path)
         std::string                                 error;
     };
     auto         result   = std::make_shared<Result>();
-    const double max_freq = m_motion ? 5. * m_motion->shaketune_max_freq : ShakeTune::DEFAULT_VIBRATIONS_MAX_FREQ;
+    const double max_freq   = m_motion ? 5. * m_motion->shaketune_max_freq : ShakeTune::DEFAULT_VIBRATIONS_MAX_FREQ;
+    const auto   kinematics = printer_kinematics(m_motion, m_printer_config);
     set_status(_L("Analysing the vibrations profile…"));
     replace_job(*m_worker,
-        [result, path, max_freq](Job::Ctl &ctl) {
+        [result, path, max_freq, kinematics](Job::Ctl &ctl) {
             std::vector<ShakeTune::Measurement> measurements;
             if (!ShakeTune::load_stdata(path, measurements, result->error) || ctl.was_canceled())
                 return;
-            result->profile = ShakeTune::analyze_vibrations(measurements, max_freq, result->error);
+            result->profile = ShakeTune::analyze_vibrations(measurements, max_freq, result->error, kinematics);
         },
         [this, result](bool canceled, std::exception_ptr &eptr) {
             if (eptr) {

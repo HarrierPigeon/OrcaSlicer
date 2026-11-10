@@ -1,6 +1,7 @@
 #include <catch2/catch_all.hpp>
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
@@ -312,6 +313,46 @@ VibrationsEnergy load_vibrations_energy(const std::string &file)
 }
 
 } // namespace
+
+TEST_CASE("A vibrations profile recorded along more directions than the motors' is analysed along the motors'", "[ShakeTune]")
+{
+    // CREATE_VIBRATIONS_PROFILE ANGLES=... records along other directions as well, possibly at other speeds.
+    const VibrationsEnergy motors = load_vibrations_energy("trident_vibrations_2-200mms.json");
+    std::string            error;
+    const auto             expected = analyze_vibrations_energy(motors, error);
+    REQUIRE(expected.has_value());
+    const auto matches = [&expected](const std::optional<VibrationsProfile> &p) {
+        REQUIRE(p.has_value());
+        CHECK(p->kinematics == expected->kinematics);
+        CHECK(p->measured_speeds == expected->measured_speeds);
+        CHECK(p->peak_speeds == expected->peak_speeds);
+        CHECK(p->symmetry_pct == expected->symmetry_pct);
+    };
+
+    // Another direction, at speeds the motors were not measured at.
+    VibrationsEnergy more = motors;
+    for (const auto &[speed, energy] : motors.at(45.))
+        more[30.][speed + 0.5] = 3. * energy;
+    matches(analyze_vibrations_energy(more, error));
+
+    // The other pair of motor directions as well: only the printer's kinematics tells which pair is the motors'.
+    for (const auto &[speed, energy] : motors.at(45.)) {
+        more[0.][speed]  = 2. * energy;
+        more[90.][speed] = 5. * energy;
+    }
+    error.clear();
+    CHECK_FALSE(analyze_vibrations_energy(more, error).has_value());
+    CHECK(error.find("kinematics") != std::string::npos);
+    matches(analyze_vibrations_energy(more, error, MotorKinematics::CoreXY));
+    const auto cartesian = analyze_vibrations_energy(more, error, MotorKinematics::Cartesian);
+    REQUIRE(cartesian.has_value());
+    CHECK(cartesian->kinematics == MotorKinematics::Cartesian);
+    CHECK(cartesian->motor_angles == std::array<double, 2>{ 0., 90. });
+    CHECK(cartesian->motor_energy[1][0] == 5. * motors.at(45.).begin()->second);
+
+    // Settings that disagree with the recordings give way to them when the recordings cover one pair only.
+    matches(analyze_vibrations_energy(motors, error, MotorKinematics::Cartesian));
+}
 
 TEST_CASE("Vibrations analysis of a real printer matches Shake&Tune's own results", "[ShakeTune]")
 {

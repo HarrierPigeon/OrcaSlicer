@@ -97,11 +97,15 @@ using VibrationsEnergy = std::map<double, std::map<double, double>>;
 // and recordings too short to analyse are counted in `unusable`.
 VibrationsEnergy vibrations_energy(const std::vector<Measurement> &measurements, double max_freq, size_t *unusable = nullptr);
 
-// The analysis proper, from the per-recording energies.
-std::optional<VibrationsProfile> analyze_vibrations_energy(const VibrationsEnergy &energy, std::string &error);
+// The analysis proper, from the per-recording energies. It uses the recordings along the motors' directions: 45 and 135
+// degrees for CoreXY, 0 and 90 otherwise. A profile recorded along more directions (Shake&Tune's ANGLES argument) can
+// cover both pairs, and then `kinematics`, the printer's, tells which pair is the motors'. Otherwise the pair the
+// recordings cover says it.
+std::optional<VibrationsProfile> analyze_vibrations_energy(const VibrationsEnergy &energy, std::string &error,
+                                                           std::optional<MotorKinematics> kinematics = std::nullopt);
 
 // vibrations_energy() followed by analyze_vibrations_energy().
 std::optional<VibrationsProfile> analyze_vibrations(const std::vector<Measurement> &measurements, double max_freq,
-                                                    std::string &error);
+                                                    std::string &error, std::optional<MotorKinematics> kinematics = std::nullopt);
 
 } // namespace Slic3r::ShakeTune

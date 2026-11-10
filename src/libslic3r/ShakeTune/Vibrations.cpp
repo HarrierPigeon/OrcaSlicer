@@ -573,7 +573,7 @@ VibrationsEnergy vibrations_energy(const std::vector<Measurement> &measurements,
 }
 
 std::optional<VibrationsProfile> analyze_vibrations(const std::vector<Measurement> &measurements, double max_freq,
-                                                    std::string &error)
+                                                    std::string &error, std::optional<MotorKinematics> kinematics)
 {
     size_t                 unusable = 0;
     const VibrationsEnergy energy   = vibrations_energy(measurements, max_freq, &unusable);
@@ -582,30 +582,38 @@ std::optional<VibrationsProfile> analyze_vibrations(const std::vector<Measuremen
                              : "this is not a vibrations profile (CREATE_VIBRATIONS_PROFILE) recording";
         return std::nullopt;
     }
-    return analyze_vibrations_energy(energy, error);
+    return analyze_vibrations_energy(energy, error, kinematics);
 }
 
-std::optional<VibrationsProfile> analyze_vibrations_energy(const VibrationsEnergy &energy, std::string &error)
+std::optional<VibrationsProfile> analyze_vibrations_energy(const VibrationsEnergy &energy, std::string &error,
+                                                           std::optional<MotorKinematics> kinematics)
 {
     if (energy.empty()) {
         error = "there are no vibrations recordings to analyse";
         return std::nullopt;
     }
     VibrationsProfile p;
-    if (energy.count(45.) && energy.count(135.)) {
-        p.kinematics   = MotorKinematics::CoreXY;
-        p.motor_angles = { 45., 135. };
-    } else if (energy.count(0.) && energy.count(90.)) {
-        p.kinematics   = MotorKinematics::Cartesian;
-        p.motor_angles = { 0., 90. };
-    } else {
-        error = "the recordings were not taken along the motor directions (0/90 or 45/135 degrees)";
+    const bool        corexy_pair    = energy.count(45.) && energy.count(135.);
+    const bool        cartesian_pair = energy.count(0.) && energy.count(90.);
+    if (kinematics && (*kinematics == MotorKinematics::CoreXY ? corexy_pair : cartesian_pair))
+        p.kinematics = *kinematics;
+    else if (corexy_pair != cartesian_pair)
+        p.kinematics = corexy_pair ? MotorKinematics::CoreXY : MotorKinematics::Cartesian;
+    else {
+        error = corexy_pair ? "the recordings cover both the 0/90 and the 45/135 degree directions, and the printer's "
+                              "kinematics is needed to tell which are the motors'"
+                            : "the recordings were not taken along the motor directions (0/90 or 45/135 degrees)";
         return std::nullopt;
     }
+    if (p.kinematics == MotorKinematics::CoreXY)
+        p.motor_angles = { 45., 135. };
+    else
+        p.motor_angles = { 0., 90. };
 
+    // The speeds the motors were measured at. Recordings along other directions may use other speeds.
     std::set<double> speed_set;
-    for (const auto &[angle, by_speed] : energy)
-        for (const auto &kv : by_speed)
+    for (const double angle : p.motor_angles)
+        for (const auto &kv : energy.at(angle))
             speed_set.insert(kv.first);
     p.measured_speeds.assign(speed_set.begin(), speed_set.end());
     const size_t n_measured = p.measured_speeds.size();
