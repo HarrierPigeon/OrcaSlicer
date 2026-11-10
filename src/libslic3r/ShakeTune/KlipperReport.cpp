@@ -68,7 +68,7 @@ bool parse_remote_recordings(const std::string &files_list_json, std::vector<Rem
     return true;
 }
 
-std::optional<MotorKinematics> KlipperMotion::motor_kinematics() const
+std::optional<MotorKinematics> klipper_motor_kinematics(const std::string &kinematics)
 {
     if (kinematics == "corexy" || kinematics == "limited_corexy")
         return MotorKinematics::CoreXY;

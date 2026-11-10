@@ -104,6 +104,7 @@ std::optional<ShakeTune::SpeedBand> outer_wall_avoidance_range(const ShakeTune::
 
 // The printer's kinematics, for a vibrations profile recorded along more directions than the motors' (see
 // ShakeTune::analyze_vibrations_energy()): Klipper's when the dialog has read it, else the printer settings' motor layout.
+// Kinematics recorded in the file come before either (ShakeTune::analyze_vibrations()).
 std::optional<ShakeTune::MotorKinematics> printer_kinematics(const std::optional<ShakeTune::KlipperMotion> &motion,
                                                              const DynamicPrintConfig                    &printer_config)
 {

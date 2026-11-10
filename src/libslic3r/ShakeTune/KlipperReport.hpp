@@ -25,6 +25,9 @@ struct RemoteRecording
 // result_folder can be any folder under the config root, so files are recognised by name, not place.
 bool parse_remote_recordings(const std::string &files_list_json, std::vector<RemoteRecording> &out, std::string &error);
 
+// Motor layout for a Klipper [printer] kinematics, if Shake&Tune's vibrations profile supports it.
+std::optional<MotorKinematics> klipper_motor_kinematics(const std::string &kinematics);
+
 // The parts of Klipper's saved configuration the import uses, from a
 // /printer/objects/query?configfile=settings reply.
 struct KlipperMotion
@@ -47,8 +50,7 @@ struct KlipperMotion
     bool                  keep_raw_data{ false };
     double                shaketune_max_freq{ 200. };
 
-    // Motor layout for the given Klipper kinematics, if Shake&Tune's vibrations profile supports it.
-    std::optional<MotorKinematics> motor_kinematics() const;
+    std::optional<MotorKinematics> motor_kinematics() const { return klipper_motor_kinematics(kinematics); }
 };
 
 bool parse_klipper_motion(const std::string &configfile_settings_json, KlipperMotion &out, std::string &error);

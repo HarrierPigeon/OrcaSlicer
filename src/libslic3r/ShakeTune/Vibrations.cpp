@@ -15,6 +15,7 @@
 // are this file's own addition.
 
 #include "Vibrations.hpp"
+#include "KlipperReport.hpp"
 
 #include <algorithm>
 #include <cctype>
@@ -455,6 +456,9 @@ bool parse_stdata(const std::string &compressed, std::vector<Measurement> &out, 
                     throw std::runtime_error("a sample is not [time, x, y, z]");
                 m.samples.push_back({ s[0].get<double>(), s[1].get<double>(), s[2].get<double>(), s[3].get<double>() });
             }
+            if (const auto machine = j.find("machine"); machine != j.end() && machine->is_object())
+                if (const auto kinematics = machine->find("kinematics"); kinematics != machine->end() && kinematics->is_string())
+                    m.kinematics = kinematics->get<std::string>();
             out.push_back(std::move(m));
         } catch (const std::exception &ex) {
             error = "line " + std::to_string(line_no) + " of the Shake&Tune data file is malformed: " + ex.what();
@@ -582,6 +586,11 @@ std::optional<VibrationsProfile> analyze_vibrations(const std::vector<Measuremen
                              : "this is not a vibrations profile (CREATE_VIBRATIONS_PROFILE) recording";
         return std::nullopt;
     }
+    for (const Measurement &m : measurements)
+        if (const std::optional<MotorKinematics> recorded = klipper_motor_kinematics(m.kinematics)) {
+            kinematics = recorded;
+            break;
+        }
     return analyze_vibrations_energy(energy, error, kinematics);
 }
 

@@ -186,14 +186,16 @@ TEST_CASE("A .stdata file decodes into named recordings", "[ShakeTune]")
 {
     std::vector<Measurement> m;
     std::string              error;
-    // Two recordings, after a record without samples that is not one; the first recording also
-    // carries the per-recording "parameters" a newer Shake&Tune writes, which is ignored.
+    // Two recordings, after a record without samples that is not one. The first recording also carries
+    // the "parameters" and "machine" records a newer Shake&Tune writes; of those only the kinematics are kept.
     REQUIRE(load_stdata(std::string(TEST_DATA_DIR) + "/shaketune/tiny.stdata", m, error));
     REQUIRE(m.size() == 2);
     CHECK(m[0].name == "vib_an45_00sp2_00_20261108_120000");
     REQUIRE(m[0].samples.size() == 2);
     CHECK_THAT(m[0].samples[1][1], WithinAbs(11., 1e-9));
+    CHECK(m[0].kinematics == "corexy");
     CHECK(m[1].samples.size() == 1);
+    CHECK(m[1].kinematics.empty());
 
     CHECK_FALSE(parse_stdata("not zstd at all", m, error));
     CHECK_FALSE(error.empty());
@@ -234,6 +236,34 @@ TEST_CASE("Vibrations analysis finds each motor's resonant speeds", "[ShakeTune]
     CHECK_FALSE(profile->peak_speeds.empty());
     CHECK_FALSE(profile->good_speed_ranges.empty());
     CHECK(profile->symmetry_pct > 0.);
+}
+
+TEST_CASE("Kinematics recorded in a vibrations profile tell which directions are the motors'", "[ShakeTune]")
+{
+    // Recorded along both pairs of motor directions, with the CoreXY motors' resonances along 45 and 135 degrees.
+    std::vector<Measurement> measurements = synthetic_vibrations_profile(true);
+    const size_t             recorded     = measurements.size();
+    for (size_t i = 0; i < recorded; ++i) {
+        Measurement m = measurements[i];
+        m.name.replace(0, m.name.find("_00sp"), m.name.compare(0, 8, "vib_an45") == 0 ? "vib_an90" : "vib_an0");
+        measurements.push_back(std::move(m));
+    }
+    std::string error;
+    CHECK_FALSE(analyze_vibrations(measurements, DEFAULT_VIBRATIONS_MAX_FREQ, error).has_value());
+
+    // The file's own record outweighs printer settings that say otherwise.
+    measurements.front().kinematics = "corexy";
+    const auto profile = analyze_vibrations(measurements, DEFAULT_VIBRATIONS_MAX_FREQ, error, MotorKinematics::Cartesian);
+    INFO(error);
+    REQUIRE(profile.has_value());
+    CHECK(profile->kinematics == MotorKinematics::CoreXY);
+    CHECK(any_band_contains(profile->motor_bands[0], 60.));
+
+    // Kinematics the analysis doesn't know leave the choice to the settings.
+    measurements.front().kinematics = "delta";
+    const auto cartesian = analyze_vibrations(measurements, DEFAULT_VIBRATIONS_MAX_FREQ, error, MotorKinematics::Cartesian);
+    REQUIRE(cartesian.has_value());
+    CHECK(cartesian->kinematics == MotorKinematics::Cartesian);
 }
 
 namespace {

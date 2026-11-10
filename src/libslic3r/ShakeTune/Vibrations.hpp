@@ -21,11 +21,14 @@ struct Measurement
     std::string                        name;
     // time [s], acceleration x, y, z [mm/s²]
     std::vector<std::array<double, 4>> samples;
+    // Klipper's [printer] kinematics, from the "machine" record a newer Shake&Tune writes on a file's
+    // first recording; empty when the recording has none.
+    std::string                        kinematics;
 };
 
 // A .stdata file is a zstd stream of JSON lines, one {"name": ..., "samples": [[t, x, y, z], ...]}
-// object per recording; lines without "samples" are skipped. Shake&Tune keeps these next to its
-// graphs only with keep_raw_data: True.
+// object per recording, among other keys; lines without "samples" are skipped. Shake&Tune keeps these
+// next to its graphs only with keep_raw_data: True.
 bool parse_stdata(const std::string &compressed, std::vector<Measurement> &out, std::string &error);
 bool load_stdata(const std::string &path, std::vector<Measurement> &out, std::string &error);
 
@@ -104,7 +107,8 @@ VibrationsEnergy vibrations_energy(const std::vector<Measurement> &measurements,
 std::optional<VibrationsProfile> analyze_vibrations_energy(const VibrationsEnergy &energy, std::string &error,
                                                            std::optional<MotorKinematics> kinematics = std::nullopt);
 
-// vibrations_energy() followed by analyze_vibrations_energy().
+// vibrations_energy() followed by analyze_vibrations_energy(). Kinematics recorded in the file, being those of the
+// printer that made it, take the place of `kinematics`.
 std::optional<VibrationsProfile> analyze_vibrations(const std::vector<Measurement> &measurements, double max_freq,
                                                     std::string &error, std::optional<MotorKinematics> kinematics = std::nullopt);
 
