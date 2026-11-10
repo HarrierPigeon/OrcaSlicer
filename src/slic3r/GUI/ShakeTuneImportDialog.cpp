@@ -5,12 +5,15 @@
 #include <exception>
 #include <utility>
 
+#include <wx/dcbuffer.h>
 #include <wx/dcclient.h>
 #include <wx/dcgraph.h>
+#include <wx/cursor.h>
 #include <wx/filedlg.h>
 #include <wx/sizer.h>
 #include <wx/stattext.h>
 
+#include "GUI.hpp"
 #include "GUI_App.hpp"
 #include "I18N.hpp"
 #include "format.hpp"
@@ -103,101 +106,607 @@ std::optional<ShakeTune::SpeedBand> outer_wall_avoidance_range(const ShakeTune::
 
 // ---------------------------------------------------------------------------------------------------
 
-ResonanceChart::ResonanceChart(wxWindow *parent) : wxPanel(parent, wxID_ANY, wxDefaultPosition, wxDefaultSize, wxFULL_REPAINT_ON_RESIZE)
+namespace {
+
+// The view never spans less than this share of the data.
+constexpr double MIN_VIEW_SHARE = 1. / 200.;
+// Scroll steps move the view by this share of its span; a click beside a scroll bar thumb by a page.
+constexpr double SCROLL_STEP = 0.1;
+constexpr double SCROLL_PAGE = 0.9;
+// Each wheel notch zooms by this factor.
+constexpr double WHEEL_ZOOM = 0.85;
+
+const wxColour QUIET_COLOUR(0x27, 0xAE, 0x60);
+const wxColour METRIC_COLOUR(0xE9, 0x1E, 0x63);
+
+// A tick step giving about `count` ticks over `span`: 1, 2 or 5 times a power of ten.
+double tick_step(double span, double count)
 {
-    SetBackgroundColour(*wxWHITE);
-    rescale();
-    Bind(wxEVT_PAINT, &ResonanceChart::on_paint, this);
+    const double raw  = span / std::max(1., count);
+    const double mag  = std::pow(10., std::floor(std::log10(raw)));
+    const double norm = raw / mag;
+    return (norm < 1.5 ? 1. : norm < 3. ? 2. : norm < 7. ? 5. : 10.) * mag;
 }
 
-void ResonanceChart::set_profile(std::optional<ShakeTune::VibrationsProfile> profile)
+// The curve `ys`, sampled at `xs`, at x.
+double sample(const std::vector<double> &xs, const std::vector<double> &ys, double x)
 {
-    m_profile = std::move(profile);
+    if (xs.empty() || xs.size() != ys.size())
+        return 0.;
+    if (x <= xs.front())
+        return ys.front();
+    if (x >= xs.back())
+        return ys.back();
+    const size_t i = size_t(std::upper_bound(xs.begin(), xs.end(), x) - xs.begin());
+    const double t = (x - xs[i - 1]) / (xs[i] - xs[i - 1]);
+    return ys[i - 1] + t * (ys[i] - ys[i - 1]);
+}
+
+wxColour with_alpha(const wxColour &c, unsigned char alpha) { return wxColour(c.Red(), c.Green(), c.Blue(), alpha); }
+
+} // namespace
+
+ResonanceChart::ResonanceChart(wxWindow *parent)
+    : wxPanel(parent, wxID_ANY, wxDefaultPosition, wxDefaultSize, wxFULL_REPAINT_ON_RESIZE | wxWANTS_CHARS)
+{
+    SetBackgroundStyle(wxBG_STYLE_PAINT);
+    SetBackgroundColour(*wxWHITE);
+    // Shake&Tune's own metric is on the chart for comparison with its graph, but off at first.
+    m_hidden[VibrationMetric] = true;
+    rescale();
+    Bind(wxEVT_PAINT, &ResonanceChart::on_paint, this);
+    Bind(wxEVT_LEFT_DOWN, &ResonanceChart::on_left_down, this);
+    Bind(wxEVT_LEFT_UP, &ResonanceChart::on_left_up, this);
+    Bind(wxEVT_LEFT_DCLICK, [this](wxMouseEvent &event) {
+        if (m_layout.plot.Contains(event.GetPosition()))
+            set_view(full_view());
+        else
+            on_left_down(event);
+    });
+    Bind(wxEVT_MOTION, &ResonanceChart::on_motion, this);
+    Bind(wxEVT_MOUSEWHEEL, &ResonanceChart::on_wheel, this);
+    Bind(wxEVT_KEY_DOWN, &ResonanceChart::on_key, this);
+    Bind(wxEVT_LEAVE_WINDOW, [this](wxMouseEvent &event) {
+        m_hover.reset();
+        Refresh();
+        event.Skip();
+    });
+    // Losing the mouse mid-drag cancels the drag.
+    Bind(wxEVT_MOUSE_CAPTURE_LOST, [this](wxMouseCaptureLostEvent &) { end_drag(false); });
+}
+
+ResonanceChart::~ResonanceChart()
+{
+    if (HasCapture())
+        ReleaseMouse();
+}
+
+void ResonanceChart::set_profile(std::optional<ShakeTune::VibrationsProfile> profile, std::array<wxString, 2> motor_names)
+{
+    end_drag(false);
+    m_profile     = std::move(profile);
+    m_motor_names = std::move(motor_names);
+    m_view        = full_view();
     Refresh();
 }
 
-void ResonanceChart::rescale() { SetMinSize(FromDIP(wxSize(560, 220))); }
+void ResonanceChart::rescale()
+{
+    SetMinSize(FromDIP(wxSize(640, 320)));
+    Refresh();
+}
+
+bool ResonanceChart::has_series(Series s) const
+{
+    if (!m_profile || m_profile->speeds.size() < 2)
+        return false;
+    const ShakeTune::VibrationsProfile &p = *m_profile;
+    switch (s) {
+    case MotorCurveA:
+    case MotorCurveB: return p.motor_curve[s - MotorCurveA].size() == p.speeds.size();
+    case MotorBandsA:
+    case MotorBandsB: return !p.motor_bands[s - MotorBandsA].empty();
+    case QuietSpeeds: return !p.good_speed_ranges.empty();
+    case FlaggedSpeeds: return !p.peak_speeds.empty();
+    case VibrationMetric: return p.vibration_metric.size() == p.speeds.size();
+    default: return false;
+    }
+}
+
+wxString ResonanceChart::series_label(Series s) const
+{
+    switch (s) {
+    case MotorCurveA:
+    case MotorCurveB: return m_motor_names[s - MotorCurveA];
+    // TRN %1% is a stepper motor, such as "X stepper (motor A)".
+    case MotorBandsA:
+    case MotorBandsB: return format_wxstr(_L("%1% resonance bands"), m_motor_names[s - MotorBandsA]);
+    case QuietSpeeds: return _L("Quietest speeds (Shake&Tune)");
+    case FlaggedSpeeds: return _L("Vibration peaks (Shake&Tune)");
+    case VibrationMetric: return _L("Vibration metric (Shake&Tune, scaled)");
+    default: return wxEmptyString;
+    }
+}
+
+ResonanceChart::View ResonanceChart::full_view() const
+{
+    View v;
+    if (!m_profile || m_profile->speeds.size() < 2)
+        return v;
+    const ShakeTune::VibrationsProfile &p = *m_profile;
+    v.x0 = 0.;
+    v.x1 = p.speeds.back();
+    // Scaled to the motors' curves on show, or to both when neither is.
+    auto top_of = [&](bool only_visible) {
+        double top = 0.;
+        for (Series s : { MotorCurveA, MotorCurveB })
+            if (has_series(s) && (!only_visible || visible(s)))
+                for (double e : p.motor_curve[s - MotorCurveA])
+                    top = std::max(top, e);
+        return top;
+    };
+    double top = top_of(true);
+    if (!(top > 0.))
+        top = top_of(false);
+    v.y1 = (top > 0. ? top : 1.) * 1.05;
+    return v;
+}
+
+double ResonanceChart::metric_scale() const
+{
+    if (!has_series(VibrationMetric))
+        return 1.;
+    double motors = 0., metric = 0.;
+    for (const std::vector<double> &curve : m_profile->motor_curve)
+        for (double e : curve)
+            motors = std::max(motors, e);
+    for (double e : m_profile->vibration_metric)
+        metric = std::max(metric, e);
+    return metric > 0. && motors > 0. ? motors / metric : 1.;
+}
+
+void ResonanceChart::set_view(View v)
+{
+    const View full = full_view();
+    auto clamp_axis = [](double &a, double &b, double lo, double hi) {
+        const double span = std::clamp(b - a, (hi - lo) * MIN_VIEW_SHARE, hi - lo);
+        a                 = std::clamp(a, lo, hi - span);
+        b                 = a + span;
+    };
+    clamp_axis(v.x0, v.x1, full.x0, full.x1);
+    clamp_axis(v.y0, v.y1, full.y0, full.y1);
+    m_view = v;
+    Refresh();
+}
+
+void ResonanceChart::zoom(bool horizontal, double factor, double anchor)
+{
+    View    v = m_view;
+    double &a = horizontal ? v.x0 : v.y0;
+    double &b = horizontal ? v.x1 : v.y1;
+    a         = anchor - (anchor - a) * factor;
+    b         = anchor + (b - anchor) * factor;
+    set_view(v);
+}
+
+void ResonanceChart::pan(double dx_fraction, double dy_fraction)
+{
+    View         v  = m_view;
+    const double dx = (v.x1 - v.x0) * dx_fraction, dy = (v.y1 - v.y0) * dy_fraction;
+    v.x0 += dx;
+    v.x1 += dx;
+    v.y0 += dy;
+    v.y1 += dy;
+    set_view(v);
+}
+
+void ResonanceChart::toggle(Series s)
+{
+    // An energy axis showing everything keeps showing everything when the curves on show change.
+    const View old_full = full_view();
+    const bool whole_y  = m_view.y0 <= old_full.y0 && m_view.y1 >= old_full.y1;
+    m_hidden[s]         = !m_hidden[s];
+    View v              = m_view;
+    if (whole_y) {
+        const View full = full_view();
+        v.y0            = full.y0;
+        v.y1            = full.y1;
+    }
+    set_view(v);
+}
+
+wxRect ResonanceChart::thumb(bool horizontal) const
+{
+    const View   full = full_view();
+    const wxRect bar  = horizontal ? m_layout.h_bar : m_layout.v_bar;
+    const double full_span = horizontal ? full.x1 - full.x0 : full.y1 - full.y0;
+    const double span      = horizontal ? m_view.x1 - m_view.x0 : m_view.y1 - m_view.y0;
+    if (!m_profile || bar.IsEmpty() || !(full_span > 0.) || span >= full_span * 0.999)
+        return wxRect();
+    const int length = horizontal ? bar.width : bar.height;
+    const int size   = std::max(FromDIP(16), int(std::lround(span / full_span * length)));
+    // The vertical bar runs from the highest energy at the top down to zero.
+    const double start = horizontal ? (m_view.x0 - full.x0) / full_span : (full.y1 - m_view.y1) / full_span;
+    const int    pos   = std::min(length - size, int(std::lround(start * length)));
+    return horizontal ? wxRect(bar.x + pos, bar.y, size, bar.height) : wxRect(bar.x, bar.y + pos, bar.width, size);
+}
+
+ResonanceChart::Layout ResonanceChart::layout(wxDC &dc) const
+{
+    Layout       l;
+    const wxSize size   = GetClientSize();
+    const int    text_h = dc.GetTextExtent("0").y;
+    const int    gap    = FromDIP(6);
+    const int    bar    = FromDIP(8);
+
+    // Legend entries flow in rows above the plot.
+    const int swatch = FromDIP(18);
+    const int row_h  = text_h + FromDIP(4);
+    int       x = 0, y = 0;
+    for (int i = 0; i < SeriesCount; ++i) {
+        const Series s = Series(i);
+        if (!has_series(s))
+            continue;
+        const int w = swatch + gap + dc.GetTextExtent(series_label(s)).x;
+        if (x > 0 && x + w > size.x) {
+            x = 0;
+            y += row_h;
+        }
+        l.legend.emplace_back(wxRect(x, y, w, row_h), s);
+        x += w + FromDIP(16);
+    }
+    const int legend_h = l.legend.empty() ? 0 : y + row_h + gap;
+
+    const int y_axis_w = dc.GetTextExtent("000.00").x + gap;
+    const int plot_top = legend_h + text_h + gap; // the energy axis title goes above the plot
+    const int plot_bottom = size.y - bar - gap - 2 * text_h - gap;
+    l.plot   = wxRect(y_axis_w, plot_top, size.x - y_axis_w - bar - gap, plot_bottom - plot_top);
+    l.x_axis = wxRect(l.plot.x, l.plot.GetBottom() + 1, l.plot.width, 2 * text_h + gap);
+    l.y_axis = wxRect(0, l.plot.y, y_axis_w, l.plot.height);
+    l.h_bar  = wxRect(l.plot.x, l.x_axis.GetBottom() + 1, l.plot.width, bar);
+    l.v_bar  = wxRect(l.plot.GetRight() + gap, l.plot.y, bar, l.plot.height);
+    return l;
+}
 
 void ResonanceChart::on_paint(wxPaintEvent &)
 {
-    wxPaintDC pdc(this);
-    wxGCDC    dc(pdc);
-    const wxSize size = GetClientSize();
+    wxAutoBufferedPaintDC pdc(this);
+    wxGCDC                dc(pdc);
+    const wxSize          size = GetClientSize();
     dc.SetBackground(wxBrush(GetBackgroundColour()));
     dc.Clear();
 
     const bool     dark = wxGetApp().dark_mode();
     const wxColour text_colour(dark ? wxColour(0xC8, 0xC8, 0xC8) : wxColour(0x50, 0x50, 0x50));
-    const wxColour grid_colour(dark ? wxColour(0x50, 0x50, 0x50) : wxColour(0xDD, 0xDD, 0xDD));
+    const wxColour muted_colour(dark ? wxColour(0x6E, 0x6E, 0x6E) : wxColour(0xAA, 0xAA, 0xAA));
+    const wxColour grid_colour(dark ? wxColour(0x48, 0x48, 0x48) : wxColour(0xE2, 0xE2, 0xE2));
     dc.SetFont(Label::Body_12);
     dc.SetTextForeground(text_colour);
 
     if (!m_profile || m_profile->speeds.size() < 2) {
+        m_layout = Layout();
         const wxString msg = _L("No vibrations profile loaded");
         const wxSize   ext = dc.GetTextExtent(msg);
         dc.DrawText(msg, (size.x - ext.x) / 2, (size.y - ext.y) / 2);
         return;
     }
     const ShakeTune::VibrationsProfile &p = *m_profile;
-
-    const int    text_h = dc.GetTextExtent("0").y;
-    const wxRect plot(FromDIP(12), text_h + FromDIP(12), size.x - FromDIP(24), size.y - 2 * text_h - FromDIP(20));
-    if (plot.width <= 0 || plot.height <= 0)
+    m_layout                              = layout(dc);
+    const Layout &l                       = m_layout;
+    if (l.plot.width <= 0 || l.plot.height <= 0)
         return;
-    const double max_speed = p.speeds.back();
-    double       max_energy = 0.;
-    for (const std::vector<double> &curve : p.motor_curve)
-        for (double e : curve)
-            max_energy = std::max(max_energy, e);
-    if (!(max_energy > 0.))
-        max_energy = 1.;
-    auto x_of = [&](double speed) { return plot.x + int(std::lround(speed / max_speed * plot.width)); };
-    auto y_of = [&](double energy) { return plot.GetBottom() - int(std::lround(std::max(0., energy) / (max_energy * 1.05) * plot.height)); };
+    const View &v      = m_view;
+    const int   text_h = dc.GetTextExtent("0").y;
+    auto x_of = [&](double speed) { return int(std::lround(l.plot.x + (speed - v.x0) / (v.x1 - v.x0) * l.plot.width)); };
+    auto y_of = [&](double energy) { return int(std::lround(l.plot.GetBottom() - (energy - v.y0) / (v.y1 - v.y0) * l.plot.height)); };
 
-    // Speed grid and labels.
-    const double step = max_speed > 300. ? 100. : max_speed > 120. ? 25. : 10.;
-    for (double s = 0.; s <= max_speed + 1e-6; s += step) {
+    // Legend: an entry that is switched off is greyed.
+    for (const auto &[rect, s] : l.legend) {
+        const bool     on  = visible(s);
+        const wxRect   sw(rect.x, rect.y + rect.height / 2 - FromDIP(5), FromDIP(18), FromDIP(10));
+        const wxColour col = s == MotorCurveA || s == MotorBandsA ? MOTOR_COLOURS[0] :
+                             s == MotorCurveB || s == MotorBandsB ? MOTOR_COLOURS[1] :
+                             s == QuietSpeeds                     ? QUIET_COLOUR :
+                             s == VibrationMetric                 ? METRIC_COLOUR :
+                                                                    text_colour;
+        const wxColour shown = on ? col : muted_colour;
+        if (s == MotorBandsA || s == MotorBandsB || s == QuietSpeeds) {
+            dc.SetPen(*wxTRANSPARENT_PEN);
+            dc.SetBrush(wxBrush(with_alpha(shown, 90)));
+            dc.DrawRectangle(sw);
+        } else {
+            dc.SetPen(wxPen(shown, s == FlaggedSpeeds ? 1 : FromDIP(2), s == FlaggedSpeeds ? wxPENSTYLE_SHORT_DASH : wxPENSTYLE_SOLID));
+            dc.DrawLine(sw.x, sw.y + sw.height / 2, sw.GetRight(), sw.y + sw.height / 2);
+        }
+        dc.SetTextForeground(on ? text_colour : muted_colour);
+        dc.DrawText(series_label(s), sw.GetRight() + FromDIP(6), rect.y + (rect.height - text_h) / 2);
+    }
+    dc.SetTextForeground(text_colour);
+
+    // Speed axis: grid, tick labels, title.
+    const double x_step     = tick_step(v.x1 - v.x0, l.plot.width / double(FromDIP(70)));
+    const int    x_decimals = x_step < 1. ? 1 : 0;
+    for (double s = std::ceil(v.x0 / x_step) * x_step; s <= v.x1 + x_step * 1e-6; s += x_step) {
         dc.SetPen(wxPen(grid_colour, 1));
-        dc.DrawLine(x_of(s), plot.y, x_of(s), plot.GetBottom());
-        const wxString label = from_u8(number(s));
+        dc.DrawLine(x_of(s), l.plot.y, x_of(s), l.plot.GetBottom());
+        const wxString label = from_u8(number(s, x_decimals));
         const int      w     = dc.GetTextExtent(label).x;
-        dc.DrawText(label, std::clamp(x_of(s) - w / 2, 0, size.x - w), plot.GetBottom() + FromDIP(4));
+        dc.DrawText(label, std::clamp(x_of(s) - w / 2, l.plot.x - w / 2, l.plot.GetRight() - w / 2), l.x_axis.y + FromDIP(2));
     }
-    const wxString axis = _L("Speed (mm/s)");
-    dc.DrawText(axis, plot.GetRight() - dc.GetTextExtent(axis).x, plot.GetBottom() + FromDIP(4) + text_h);
+    const wxString x_title = _L("Speed (mm/s)");
+    dc.DrawText(x_title, l.plot.GetRight() - dc.GetTextExtent(x_title).x, l.x_axis.y + FromDIP(2) + text_h);
 
-    // Resonance bands, then the curves on top.
-    for (size_t m = 0; m < 2; ++m) {
-        const wxColour c = MOTOR_COLOURS[m];
-        dc.SetPen(*wxTRANSPARENT_PEN);
-        dc.SetBrush(wxBrush(wxColour(c.Red(), c.Green(), c.Blue(), 60)));
-        for (const ShakeTune::SpeedBand &b : p.motor_bands[m])
-            dc.DrawRectangle(x_of(b.lo), plot.y, std::max(1, x_of(b.hi) - x_of(b.lo)), plot.height);
+    // Energy axis: tick labels in units of a power of ten, given in the title.
+    const double y_step   = tick_step(v.y1 - v.y0, l.plot.height / double(FromDIP(40)));
+    const int    exponent = int(std::floor(std::log10(std::max(v.y1, 1e-300))));
+    const double unit     = std::pow(10., exponent);
+    const int    y_decimals = y_step / unit >= 1. ? 0 : y_step / unit >= 0.1 ? 1 : 2;
+    for (double e = std::ceil(v.y0 / y_step) * y_step; e <= v.y1 + y_step * 1e-6; e += y_step) {
+        dc.SetPen(wxPen(grid_colour, 1));
+        dc.DrawLine(l.plot.x, y_of(e), l.plot.GetRight(), y_of(e));
+        const wxString label = from_u8(Slic3r::format(y_decimals == 0 ? "%.0f" : y_decimals == 1 ? "%.1f" : "%.2f", e / unit));
+        const wxSize   ext   = dc.GetTextExtent(label);
+        dc.DrawText(label, l.y_axis.GetRight() - FromDIP(6) - ext.x, std::clamp(y_of(e) - ext.y / 2, l.plot.y - ext.y / 2, l.plot.GetBottom() - ext.y / 2));
     }
-    // Speeds Shake&Tune flags for every direction.
-    dc.SetPen(wxPen(text_colour, 1, wxPENSTYLE_SHORT_DASH));
-    for (double s : p.peak_speeds)
-        dc.DrawLine(x_of(s), plot.y, x_of(s), plot.GetBottom());
-    for (size_t m = 0; m < 2; ++m) {
-        const std::vector<double> &curve = p.motor_curve[m];
-        if (curve.size() != p.speeds.size())
-            continue;
-        std::vector<wxPoint> pts;
-        pts.reserve(curve.size());
-        for (size_t i = 0; i < curve.size(); ++i)
-            pts.emplace_back(x_of(p.speeds[i]), y_of(curve[i]));
-        dc.SetPen(wxPen(MOTOR_COLOURS[m], FromDIP(2)));
-        dc.DrawLines(int(pts.size()), pts.data());
+    // TRN Title of the chart's vertical axis; %1% is its unit, a power of ten such as "1e7".
+    dc.DrawText(format_wxstr(_L("Energy (×%1%)"), from_u8(Slic3r::format("1e%d", exponent))), 0, l.plot.y - text_h - FromDIP(6));
+
+    // The data, clipped to the plot.
+    {
+        wxDCClipper clip(dc, l.plot);
+        auto shade = [&](double lo, double hi, const wxColour &c, unsigned char alpha) {
+            dc.SetPen(*wxTRANSPARENT_PEN);
+            dc.SetBrush(wxBrush(with_alpha(c, alpha)));
+            const int x0 = std::max(x_of(lo), l.plot.x - 1), x1 = std::min(x_of(hi), l.plot.GetRight() + 1);
+            if (x1 > x0)
+                dc.DrawRectangle(x0, l.plot.y, x1 - x0, l.plot.height);
+        };
+        for (size_t m = 0; m < 2; ++m)
+            if (visible(Series(MotorBandsA + m)))
+                for (const ShakeTune::SpeedBand &b : p.motor_bands[m])
+                    shade(b.lo, b.hi, MOTOR_COLOURS[m], 60);
+        if (visible(FlaggedSpeeds)) {
+            dc.SetPen(wxPen(text_colour, 1, wxPENSTYLE_SHORT_DASH));
+            for (double s : p.peak_speeds)
+                dc.DrawLine(x_of(s), l.plot.y, x_of(s), l.plot.GetBottom());
+        }
+        auto curve = [&](const std::vector<double> &ys, const wxPen &pen) {
+            std::vector<wxPoint> pts;
+            pts.reserve(ys.size());
+            for (size_t i = 0; i < ys.size(); ++i)
+                pts.emplace_back(x_of(p.speeds[i]), y_of(ys[i]));
+            dc.SetPen(pen);
+            dc.DrawLines(int(pts.size()), pts.data());
+        };
+        if (visible(VibrationMetric)) {
+            std::vector<double> scaled = p.vibration_metric;
+            for (double &e : scaled)
+                e *= metric_scale();
+            curve(scaled, wxPen(METRIC_COLOUR, FromDIP(1), wxPENSTYLE_LONG_DASH));
+        }
+        // Shake&Tune's quietest speeds, as a strip along the bottom of the plot so the motor bands
+        // above stay readable.
+        if (visible(QuietSpeeds)) {
+            dc.SetPen(*wxTRANSPARENT_PEN);
+            dc.SetBrush(wxBrush(with_alpha(QUIET_COLOUR, 200)));
+            const int strip = FromDIP(6);
+            for (const ShakeTune::ProfileRange &r : p.good_speed_ranges) {
+                const int x0 = std::max(x_of(r.lo), l.plot.x - 1), x1 = std::min(x_of(r.hi), l.plot.GetRight() + 1);
+                if (x1 > x0)
+                    dc.DrawRectangle(x0, l.plot.GetBottom() - strip, x1 - x0, strip);
+            }
+        }
+        for (size_t m = 0; m < 2; ++m)
+            if (visible(Series(MotorCurveA + m)))
+                curve(p.motor_curve[m], wxPen(MOTOR_COLOURS[m], FromDIP(2)));
+
+        // Readout at the cursor: the speed, and each curve on show there.
+        if (m_hover && m_drag == Drag::None && l.plot.Contains(*m_hover)) {
+            const int    hx    = m_hover->x;
+            const double speed = v.x0 + double(hx - l.plot.x) / l.plot.width * (v.x1 - v.x0);
+            dc.SetPen(wxPen(muted_colour, 1));
+            dc.DrawLine(hx, l.plot.y, hx, l.plot.GetBottom());
+            std::vector<wxString> lines{ format_wxstr(_L("%1% mm/s"), from_u8(number(speed, 1))) };
+            for (size_t m = 0; m < 2; ++m) {
+                if (!visible(Series(MotorCurveA + m)))
+                    continue;
+                const double e = sample(p.speeds, p.motor_curve[m], speed);
+                dc.SetPen(wxPen(MOTOR_COLOURS[m], FromDIP(2)));
+                dc.SetBrush(wxBrush(GetBackgroundColour()));
+                dc.DrawCircle(hx, y_of(e), FromDIP(3));
+                const bool in_band = std::any_of(p.motor_bands[m].begin(), p.motor_bands[m].end(),
+                                                 [speed](const ShakeTune::SpeedBand &b) { return b.contains(speed); });
+                const wxString value = from_u8(Slic3r::format("%.3g", e));
+                // TRN %1% is a stepper motor, %2% its vibration energy at the cursor.
+                lines.push_back(in_band ? format_wxstr(_L("%1%: %2%, in a resonance band"), m_motor_names[m], value) :
+                                          format_wxstr("%1%: %2%", m_motor_names[m], value));
+            }
+            if (visible(VibrationMetric)) {
+                double peak = 0.;
+                for (double e : p.vibration_metric)
+                    peak = std::max(peak, e);
+                const double share = peak > 0. ? 100. * sample(p.speeds, p.vibration_metric, speed) / peak : 0.;
+                // TRN %1% is "Vibration metric (Shake&Tune)", %2% its value at the cursor as a share of its highest value.
+                // xgettext:no-c-format, no-boost-format
+                lines.push_back(format_wxstr(_L("%1%: %2%%% of its peak"), series_label(VibrationMetric), from_u8(number(share))));
+            }
+            int box_w = 0;
+            for (const wxString &line : lines)
+                box_w = std::max(box_w, dc.GetTextExtent(line).x);
+            const int pad = FromDIP(6);
+            wxRect    box(hx + FromDIP(12), l.plot.y + pad, box_w + 2 * pad, int(lines.size()) * text_h + 2 * pad);
+            if (box.GetRight() > l.plot.GetRight())
+                box.x = hx - FromDIP(12) - box.width;
+            dc.SetPen(wxPen(grid_colour, 1));
+            dc.SetBrush(wxBrush(with_alpha(GetBackgroundColour(), 225)));
+            dc.DrawRoundedRectangle(box, FromDIP(3));
+            for (size_t i = 0; i < lines.size(); ++i)
+                dc.DrawText(lines[i], box.x + pad, box.y + pad + int(i) * text_h);
+        }
     }
     dc.SetPen(wxPen(text_colour, 1));
-    dc.DrawLine(plot.x, plot.GetBottom(), plot.GetRight(), plot.GetBottom());
+    dc.DrawLine(l.plot.x, l.plot.GetBottom(), l.plot.GetRight(), l.plot.GetBottom());
+    dc.DrawLine(l.plot.x, l.plot.y, l.plot.x, l.plot.GetBottom());
+
+    // Scroll bars, while zoomed in on their axis.
+    for (bool horizontal : { true, false }) {
+        const wxRect t = thumb(horizontal);
+        if (t.IsEmpty())
+            continue;
+        const wxRect bar = horizontal ? l.h_bar : l.v_bar;
+        dc.SetPen(*wxTRANSPARENT_PEN);
+        dc.SetBrush(wxBrush(grid_colour));
+        dc.DrawRoundedRectangle(bar, bar.GetHeight() < bar.GetWidth() ? bar.GetHeight() / 2 : bar.GetWidth() / 2);
+        dc.SetBrush(wxBrush(m_drag == (horizontal ? Drag::HorizontalThumb : Drag::VerticalThumb) ? text_colour : muted_colour));
+        dc.DrawRoundedRectangle(t, t.GetHeight() < t.GetWidth() ? t.GetHeight() / 2 : t.GetWidth() / 2);
+    }
+}
+
+void ResonanceChart::on_left_down(wxMouseEvent &event)
+{
+    event.Skip();
+    SetFocus();
+    if (!m_profile)
+        return;
+    const wxPoint pos = event.GetPosition();
+    for (const auto &[rect, s] : m_layout.legend)
+        if (rect.Contains(pos)) {
+            toggle(s);
+            return;
+        }
+    const wxRect h = thumb(true), vt = thumb(false);
+    if (!h.IsEmpty() && h.Contains(pos))
+        m_drag = Drag::HorizontalThumb;
+    else if (!h.IsEmpty() && m_layout.h_bar.Contains(pos))
+        pan(pos.x < h.x ? -SCROLL_PAGE : SCROLL_PAGE, 0.);
+    else if (!vt.IsEmpty() && vt.Contains(pos))
+        m_drag = Drag::VerticalThumb;
+    else if (!vt.IsEmpty() && m_layout.v_bar.Contains(pos))
+        pan(0., pos.y < vt.y ? SCROLL_PAGE : -SCROLL_PAGE);
+    else if (m_layout.plot.Contains(pos))
+        m_drag = Drag::Pan;
+    if (m_drag != Drag::None) {
+        m_drag_start = pos;
+        m_drag_view  = m_view;
+        if (!HasCapture())
+            CaptureMouse();
+        Refresh();
+    }
+}
+
+void ResonanceChart::on_left_up(wxMouseEvent &event)
+{
+    event.Skip();
+    if (m_drag != Drag::None)
+        end_drag(true);
+}
+
+void ResonanceChart::end_drag(bool commit)
+{
+    if (m_drag != Drag::None && !commit)
+        m_view = m_drag_view;
+    m_drag = Drag::None;
+    if (HasCapture())
+        ReleaseMouse();
+    Refresh();
+}
+
+void ResonanceChart::on_motion(wxMouseEvent &event)
+{
+    event.Skip();
+    const wxPoint pos = event.GetPosition();
+    if (m_drag != Drag::None && !event.LeftIsDown())
+        end_drag(true);
+    if (m_drag != Drag::None) {
+        const wxPoint d    = pos - m_drag_start;
+        const View    full = full_view();
+        View          v    = m_drag_view;
+        double        dx = 0., dy = 0.;
+        switch (m_drag) {
+        case Drag::Pan:
+            dx = -double(d.x) / std::max(1, m_layout.plot.width) * (v.x1 - v.x0);
+            dy = double(d.y) / std::max(1, m_layout.plot.height) * (v.y1 - v.y0);
+            break;
+        case Drag::HorizontalThumb: dx = double(d.x) / std::max(1, m_layout.h_bar.width) * (full.x1 - full.x0); break;
+        case Drag::VerticalThumb: dy = -double(d.y) / std::max(1, m_layout.v_bar.height) * (full.y1 - full.y0); break;
+        default: break;
+        }
+        v.x0 += dx;
+        v.x1 += dx;
+        v.y0 += dy;
+        v.y1 += dy;
+        set_view(v);
+        return;
+    }
+    m_hover = pos;
+    const bool over_legend = std::any_of(m_layout.legend.begin(), m_layout.legend.end(),
+                                         [&pos](const std::pair<wxRect, Series> &item) { return item.first.Contains(pos); });
+    SetCursor(over_legend ? wxCursor(wxCURSOR_HAND) : wxNullCursor);
+    Refresh();
+}
+
+void ResonanceChart::on_wheel(wxMouseEvent &event)
+{
+    if (!m_profile || m_layout.plot.IsEmpty() || event.GetWheelDelta() == 0) {
+        event.Skip();
+        return;
+    }
+    const wxPoint pos    = event.GetPosition();
+    const Layout &l      = m_layout;
+    const double  steps  = double(event.GetWheelRotation()) / event.GetWheelDelta();
+    const double  factor = std::pow(WHEEL_ZOOM, steps);
+    const bool    sideways = event.GetWheelAxis() == wxMOUSE_WHEEL_HORIZONTAL;
+    const double  speed  = m_view.x0 + double(pos.x - l.plot.x) / l.plot.width * (m_view.x1 - m_view.x0);
+    const double  energy = m_view.y0 + double(l.plot.GetBottom() - pos.y) / l.plot.height * (m_view.y1 - m_view.y0);
+    if (l.x_axis.Contains(pos) || l.h_bar.Contains(pos)) {
+        sideways ? pan(SCROLL_STEP * steps, 0.) : zoom(true, factor, speed);
+    } else if (l.y_axis.Contains(pos) || l.v_bar.Contains(pos)) {
+        zoom(false, factor, energy);
+    } else if (l.plot.Contains(pos)) {
+        if (event.CmdDown())
+            event.ShiftDown() ? zoom(false, factor, energy) : zoom(true, factor, speed);
+        else if (sideways)
+            pan(SCROLL_STEP * steps, 0.);
+        else if (event.ShiftDown())
+            pan(-SCROLL_STEP * steps, 0.);
+        else
+            pan(0., SCROLL_STEP * steps);
+    } else
+        event.Skip();
+}
+
+void ResonanceChart::on_key(wxKeyEvent &event)
+{
+    if (!m_profile) {
+        event.Skip();
+        return;
+    }
+    const double mid_speed  = 0.5 * (m_view.x0 + m_view.x1);
+    const double mid_energy = 0.5 * (m_view.y0 + m_view.y1);
+    switch (event.GetKeyCode()) {
+    case '+':
+    case '=':
+    case WXK_NUMPAD_ADD: zoom(true, 0.8, mid_speed); break;
+    case '-':
+    case WXK_NUMPAD_SUBTRACT: zoom(true, 1.25, mid_speed); break;
+    case WXK_PAGEUP: zoom(false, 0.8, mid_energy); break;
+    case WXK_PAGEDOWN: zoom(false, 1.25, mid_energy); break;
+    case WXK_LEFT: pan(-SCROLL_STEP, 0.); break;
+    case WXK_RIGHT: pan(SCROLL_STEP, 0.); break;
+    case WXK_UP: pan(0., SCROLL_STEP); break;
+    case WXK_DOWN: pan(0., -SCROLL_STEP); break;
+    case '0':
+    case WXK_NUMPAD0:
+    case WXK_HOME: set_view(full_view()); break;
+    default: event.Skip();
+    }
 }
 
 // ---------------------------------------------------------------------------------------------------
 
 ShakeTuneImportDialog::ShakeTuneImportDialog(wxWindow *parent, const DynamicPrintConfig &printer_config)
     : DPIDialog(parent ? parent : static_cast<wxWindow *>(wxGetApp().mainframe), wxID_ANY, _L("Import from Shake&Tune"),
-                wxDefaultPosition, wxDefaultSize, wxCAPTION | wxCLOSE_BOX)
+                wxDefaultPosition, wxDefaultSize, wxCAPTION | wxCLOSE_BOX | wxRESIZE_BORDER)
     , m_printer_config(printer_config)
 {
     SetBackgroundColour(*wxWHITE);
@@ -226,7 +735,15 @@ ShakeTuneImportDialog::ShakeTuneImportDialog(wxWindow *parent, const DynamicPrin
     content->Add(m_status, 0, wxEXPAND | wxBOTTOM, FromDIP(8));
 
     m_chart = new ResonanceChart(this);
-    content->Add(m_chart, 1, wxEXPAND | wxBOTTOM, FromDIP(8));
+    content->Add(m_chart, 1, wxEXPAND | wxBOTTOM, FromDIP(4));
+    // TRN %1% is the Ctrl key's name, with "+", such as "Ctrl+" (or "⌘" on macOS).
+    auto *chart_hint = new Label(this, Label::Body_12,
+                                 format_wxstr(_L("Drag or scroll to move around: Shift+scroll moves sideways. %1%scroll zooms speed, "
+                                                 "%1%Shift+scroll zooms energy, and scrolling over an axis zooms it. Double-click "
+                                                 "resets the view. Click an entry in the legend to show or hide it."),
+                                              from_u8(shortkey_ctrl_prefix())),
+                                 LB_AUTO_WRAP);
+    content->Add(chart_hint, 0, wxEXPAND | wxBOTTOM, FromDIP(8));
 
     m_summary = new Label(this, wxEmptyString, LB_AUTO_WRAP);
     content->Add(m_summary, 0, wxEXPAND | wxBOTTOM, FromDIP(12));
@@ -469,7 +986,7 @@ void ShakeTuneImportDialog::add_row(const wxString &name, const wxString &value,
 
 void ShakeTuneImportDialog::show_profile(const ShakeTune::VibrationsProfile &p)
 {
-    m_chart->set_profile(p);
+    m_chart->set_profile(p, { motor_name(0, p.kinematics), motor_name(1, p.kinematics) });
 
     // What Shake&Tune itself reports, then what each motor adds to it.
     wxString summary;
