@@ -2187,8 +2187,8 @@ StringObjectException Print::validate(std::vector<StringObjectException> *warnin
     if (m_calib_params.mode == CalibMode::Calib_PA_Line && m_calib_params.pa_split != CalibPASplit::None) {
         if (m_config.gcode_flavor != gcfKlipper)
             return {L("The split PA line test needs the Klipper G-code flavor."), nullptr, "gcode_flavor"};
-        if (std::min(m_calib_params.start, m_calib_params.pa_split_fixed) <= 0.)
-            return {L("The split PA line test needs pressure advance values above 0.")};
+        if (std::min(m_calib_params.start, m_calib_params.pa_split_fixed) < 0.)
+            return {L("The split PA line test needs pressure advance values of 0 or more.")};
     }
 
     // IDEX/IQEX: block multi-color in non-primary parallel modes when the active

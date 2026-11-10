@@ -481,6 +481,9 @@ constexpr double split_length_long_limit = 120.;
 // stop this far short of them.
 constexpr double split_frame_margin = 5.;
 constexpr double split_tick_gap     = 1.5;
+// What the split PA line test prints for a PA of 0. Klipper stops the toolhead to turn pressure advance on or off, and
+// this much advance is none in practice: 0.0005 mm of filament at 5 mm/s.
+constexpr double split_zero_pa = 1e-4;
 } // namespace
 
 CalibPressureAdvanceLine::CalibPressureAdvanceLine(GCode* gcodegen)
@@ -651,8 +654,9 @@ std::string CalibPressureAdvanceLine::print_pa_lines(double start_x, double star
     for (int i = 0; i < num; ++i) {
         const double pa = start_pa + i * step_pa;
         // The PA for the speed-up into the fast segment and the one for the slow-down out of it.
-        const double pa_up   = m_split == CalibPASplit::VarySlowDown ? m_split_fixed_pa : pa;
-        const double pa_down = m_split == CalibPASplit::VarySpeedUp ? m_split_fixed_pa : pa;
+        const auto   split_pa = [](double value) { return std::max(value, split_zero_pa); };
+        const double pa_up    = m_split == CalibPASplit::None ? pa : split_pa(m_split == CalibPASplit::VarySlowDown ? m_split_fixed_pa : pa);
+        const double pa_down  = m_split == CalibPASplit::None ? pa : split_pa(m_split == CalibPASplit::VarySpeedUp ? m_split_fixed_pa : pa);
         gcode << writer.set_pressure_advance(pa_up);
         gcode << move_to(Vec2d(start_x, y_pos + i * m_space_y), writer);
         gcode << ";" << GCodeProcessor::reserved_tag(GCodeProcessor::ETags::Role) << "Custom\n";

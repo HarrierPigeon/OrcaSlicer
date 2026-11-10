@@ -266,13 +266,12 @@ TEST_CASE("The split PA line test switches pressure advance between two collinea
     }
 }
 
-TEST_CASE("The split PA line test needs Klipper and pressure advance values above 0", "[Calib]")
+TEST_CASE("The split PA line test needs Klipper and pressure advance values of 0 or more", "[Calib]")
 {
-    // Marlin finishes its planned moves before it changes the K factor (M900 synchronizes the planner), and Klipper stops
-    // the toolhead to turn pressure advance on or off.
+    // Marlin finishes its planned moves before it changes the K factor (M900 synchronizes the planner).
     const std::string flavor = GENERATE(std::string("klipper"), std::string("marlin2"));
-    const double      start  = GENERATE(0., 0.01);
-    const double      fixed  = GENERATE(0., 0.02);
+    const double      start  = GENERATE(-0.01, 0., 0.01);
+    const double      fixed  = GENERATE(-0.02, 0., 0.02);
     CAPTURE(flavor, start, fixed);
     Print print;
     Model model;
@@ -285,7 +284,42 @@ TEST_CASE("The split PA line test needs Klipper and pressure advance values abov
     params.pa_split       = CalibPASplit::VarySpeedUp;
     params.pa_split_fixed = fixed;
     print.set_calib_params(params);
-    CHECK(print.validate().string.empty() == (flavor == "klipper" && start > 0. && fixed > 0.));
+    CHECK(print.validate().string.empty() == (flavor == "klipper" && start >= 0. && fixed >= 0.));
+}
+
+TEST_CASE("The split PA line test prints a pressure advance of 0 as 0.0001, so that Klipper does not stop at the switch", "[Calib]")
+{
+    // Klipper stops the toolhead to turn pressure advance on or off, which would stop each line at its PA switch.
+    const CalibPASplit vary = GENERATE(CalibPASplit::VarySpeedUp, CalibPASplit::VarySlowDown);
+    CAPTURE(vary == CalibPASplit::VarySpeedUp);
+    Print print;
+    Model model;
+    Test::init_print({Test::cube(20)}, print, model, split_pa_config("klipper", 3000.));
+    Calib_Params params;
+    params.mode           = CalibMode::Calib_PA_Line;
+    params.start          = 0.;
+    params.end            = 0.02;
+    params.step           = 0.01;
+    params.pa_split       = vary;
+    params.pa_split_fixed = 0.;
+    print.set_calib_params(params);
+    REQUIRE(print.validate().string.empty());
+    const std::vector<Move> all = moves(Test::gcode(print));
+
+    // From the slow segment before each fast one to the slow segment after it, pressure advance stays on.
+    size_t lines = 0;
+    for (size_t i = 1; i + 2 < all.size(); ++i)
+        if (all[i].type == "Outer wall" && all[i - 1].tag != all[i].tag) {
+            CAPTURE(lines);
+            const double varied = params.start + lines * params.step;
+            for (const Move *move : {&all[i - 1], &all[i], &all[i + 1], &all[i + 2]})
+                CHECK(move->pa > 0.);
+            const Move &first = all[i], &second = all[i + 1];
+            CHECK_THAT(vary == CalibPASplit::VarySpeedUp ? first.pa : second.pa, Catch::Matchers::WithinAbs(std::max(varied, 1e-4), 1e-9));
+            CHECK_THAT(vary == CalibPASplit::VarySpeedUp ? second.pa : first.pa, Catch::Matchers::WithinAbs(1e-4, 1e-9));
+            ++lines;
+        }
+    CHECK(lines == 3);
 }
 
 TEST_CASE("The split PA line test has an outer wall with tick marks at the speed-up, the PA switch and the slow-down", "[Calib]")

@@ -44,7 +44,8 @@ enum class CalibState { Start = 0, Preset, Calibration, CoarseSave, FineCalibrat
 // Klipper only. Its planner ramps up at the start of a fast move and down at the end of it, so the test prints each
 // fast segment as two collinear moves and sends SET_PRESSURE_ADVANCE between them. Klipper (since v0.13, and Kalico
 // since v2026.11.00) applies a changed ADVANCE from the start of the next move without flushing its lookahead queue,
-// but stops the toolhead when the change turns pressure advance on or off, so no value may be 0. Each move's extruder
+// but stops the toolhead when the change turns pressure advance on or off, so the test prints a PA of 0 as 0.0001,
+// which is no advance in practice. Each move's extruder
 // motion uses the PA in effect when the move starts, averaged over pressure_advance_smooth_time centred on each moment:
 // the halves must cruise long enough that the ramps' smoothing windows do not reach the joint.
 enum class CalibPASplit : int { None = 0, VarySpeedUp, VarySlowDown };

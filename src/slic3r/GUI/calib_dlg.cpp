@@ -432,13 +432,10 @@ void PA_Calibration_Dlg::on_start(wxCommandEvent& event) {
             msg_dlg.ShowModal();
             return;
         }
-        if (!m_tiSplitFixedPA->GetTextCtrl()->GetValue().ToDouble(&m_params.pa_split_fixed) || m_params.pa_split_fixed <= 0 ||
-            m_params.start <= 0) {
-            MessageDialog msg_dlg(nullptr,
-                                  _L("Please input valid values:\nStart PA: > 0.0\nFixed PA: > 0.0\n\n"
-                                     "Klipper stops the toolhead whenever pressure advance is turned on or off, "
-                                     "so the split PA line test cannot use 0."),
-                                  wxEmptyString, wxICON_WARNING | wxOK);
+        if (!m_tiSplitFixedPA->GetTextCtrl()->GetValue().ToDouble(&m_params.pa_split_fixed) || m_params.pa_split_fixed < 0 ||
+            m_params.start < 0) {
+            MessageDialog msg_dlg(nullptr, _L("Please input valid values:\nStart PA: >= 0.0\nFixed PA: >= 0.0"), wxEmptyString,
+                                  wxICON_WARNING | wxOK);
             msg_dlg.ShowModal();
             return;
         }
