@@ -185,7 +185,8 @@ TEST_CASE("A .stdata file decodes into named recordings", "[ShakeTune]")
 {
     std::vector<Measurement> m;
     std::string              error;
-    // Two recordings, after a record without samples that is not one.
+    // Two recordings, after a record without samples that is not one; the first recording also
+    // carries the per-recording "parameters" a newer Shake&Tune writes, which is ignored.
     REQUIRE(load_stdata(std::string(TEST_DATA_DIR) + "/shaketune/tiny.stdata", m, error));
     REQUIRE(m.size() == 2);
     CHECK(m[0].name == "vib_an45_00sp2_00_20261108_120000");
