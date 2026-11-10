@@ -18178,7 +18178,9 @@ void Plater::calib_VFA(const Calib_Params& params)
     if (params.mode != CalibMode::Calib_VFA_Tower)
         return;
 
-    if (!add_model(false, Slic3r::resources_dir() + "/calib/vfa/vfa.drc"))
+    const size_t      model_index = params.test_model >= 0 && size_t(params.test_model) < std::size(vfa_test_models) ? size_t(params.test_model) : 0;
+    const std::string model_path  = Slic3r::resources_dir() + "/calib/vfa/" + vfa_test_models[model_index].file;
+    if (!add_model(false, model_path))
         return;
     auto print_config = &wxGetApp().preset_bundle->prints.get_edited_preset().config;
     auto filament_config = &wxGetApp().preset_bundle->filaments.get_edited_preset().config;
@@ -18229,7 +18231,7 @@ void Plater::calib_VFA(const Calib_Params& params)
 
     // Motor resonance avoidance: on the one tower, or on a second tower to the right of the first.
     const bool compare_motor_resonance = params.vfa_motor_resonance == Calib_Params::VfaMotorResonance::Compare;
-    if (compare_motor_resonance && add_model(false, Slic3r::resources_dir() + "/calib/vfa/vfa.drc") && model().objects.size() == 2) {
+    if (compare_motor_resonance && add_model(false, model_path) && model().objects.size() == 2) {
         prepare_tower(1);
         ModelObject* with = model().objects[1];
         with->config.set_key_value("motor_resonance_avoidance", new ConfigOptionEnum<MotorResonanceAvoidance>(MotorResonanceAvoidance::OuterWalls));
