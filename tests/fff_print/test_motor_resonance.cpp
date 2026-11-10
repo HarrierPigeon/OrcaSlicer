@@ -79,12 +79,17 @@ TEST_CASE("Motor resonance avoidance slows only in-scope walls whose stepper wou
     // Walls at 60 mm/s on a Cartesian printer whose X stepper resonates at 50-70 mm/s. Walls along X
     // run the X stepper at 60 (inside); walls along Y do not turn it at all. Klipper flavour with a
     // different acceleration per wall puts SET_VELOCITY_LIMIT between each travel and its wall, which
-    // must not make the avoider lose track of the position.
+    // must not make the avoider lose track of the position. The machine and volumetric limits are
+    // raised so they cap neither the accelerations nor the speeds.
     const std::string scope = GENERATE("disabled", "outer_walls", "all_walls");
     CAPTURE(scope);
     DynamicPrintConfig config = DynamicPrintConfig::full_print_config();
     config.set_deserialize_strict({
         { "gcode_flavor",               "klipper" },
+        { "machine_max_acceleration_extruding", "20000,20000" },
+        { "machine_max_acceleration_x", "20000,20000" },
+        { "machine_max_acceleration_y", "20000,20000" },
+        { "filament_max_volumetric_speed", "100" },
         { "default_acceleration",       5000 },
         { "outer_wall_acceleration",    2000 },
         { "inner_wall_acceleration",    4000 },
