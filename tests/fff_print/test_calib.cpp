@@ -16,6 +16,7 @@
 #include "libslic3r/Config.hpp"
 #include "libslic3r/Flow.hpp"
 #include "libslic3r/Model.hpp"
+#include "libslic3r/Point.hpp"
 #include "libslic3r/Print.hpp"
 #include "libslic3r/PrintConfig.hpp"
 #include "libslic3r/TriangleMesh.hpp"
@@ -27,27 +28,41 @@ using namespace Slic3r;
 
 namespace {
 
+// A move of the PA line test and the pressure advance it runs with.
 struct Move
 {
-    double feedrate; // mm/min
-    double e_per_mm;
+    std::string type; // the ";TYPE:" tag it is under
+    size_t      tag;  // which ";TYPE:" line that is
+    Vec2d       from, to;
+    double      feedrate; // mm/min
+    double      e;        // relative extrusion
+    double      pa;       // ADVANCE of the last SET_PRESSURE_ADVANCE before it
+
+    double length() const { return (to - from).norm(); }
+    bool   extrudes_xy() const { return e > 0. && length() > 0.; }
+    double e_per_mm() const { return e / length(); }
 };
 
-// Extruding moves under a ";TYPE:<type>" tag: only the first one after each tag, or all of them. The PA line test prints
-// no object, so its fast segments are the first move after each ";TYPE:Outer wall" and the box under its numbers is
-// all of ";TYPE:Bottom surface".
-std::vector<Move> extrusions_of_type(const std::string &gcode, const std::string &type, bool first_only)
+// Every G0/G1 that moves in XY or E.
+std::vector<Move> moves(const std::string &gcode)
 {
-    const std::string  tag = ";TYPE:" + type;
     std::vector<Move>  out;
     std::istringstream lines(gcode);
-    std::string        line;
+    std::string        line, type;
+    size_t             tag      = 0;
     bool               relative = false;
-    bool               armed    = false;
-    double             x = 0., y = 0., e = 0., f = 0.;
+    Vec2d              pos      = Vec2d::Zero();
+    double             e = 0., f = 0., pa = 0.;
     while (std::getline(lines, line)) {
         if (line.rfind(";TYPE:", 0) == 0) {
-            armed = line == tag;
+            type = line.substr(6);
+            ++tag;
+            continue;
+        }
+        if (line.rfind("SET_PRESSURE_ADVANCE ", 0) == 0) {
+            const size_t value = line.find(" ADVANCE=");
+            if (value != std::string::npos)
+                pa = std::stod(line.substr(value + 9));
             continue;
         }
         if (line.rfind("M83", 0) == 0)
@@ -61,13 +76,14 @@ std::vector<Move> extrusions_of_type(const std::string &gcode, const std::string
         std::istringstream words(line.substr(0, line.find(';')));
         std::string        word;
         words >> word; // the command
-        double nx = x, ny = y, ev = 0.;
+        Vec2d  to = pos;
+        double ev = 0.;
         bool   has_e = false;
         while (words >> word) {
             const double v = std::stod(word.substr(1));
             switch (word[0]) {
-            case 'X': nx = v; break;
-            case 'Y': ny = v; break;
+            case 'X': to.x() = v; break;
+            case 'Y': to.y() = v; break;
             case 'E': ev = v; has_e = true; break;
             case 'F': f = v; break;
             default: break;
@@ -78,16 +94,24 @@ std::vector<Move> extrusions_of_type(const std::string &gcode, const std::string
                 e = ev;
             continue;
         }
-        const double length = std::hypot(nx - x, ny - y);
-        if (has_e && armed && length > 0.) {
-            out.push_back({f, (relative ? ev : ev - e) / length});
-            armed = !first_only;
-        }
+        if (has_e || to != pos)
+            out.push_back({type, tag, pos, to, f, has_e ? (relative ? ev : ev - e) : 0., pa});
         if (has_e)
             e = relative ? e + ev : ev;
-        x = nx;
-        y = ny;
+        pos = to;
     }
+    return out;
+}
+
+// Extruding moves under a ";TYPE:<type>" tag: only the first one after each tag, or all of them. The PA line test prints
+// no object, so its fast segments are the first move after each ";TYPE:Outer wall" and the box under its numbers is
+// all of ";TYPE:Bottom surface".
+std::vector<Move> extrusions_of_type(const std::string &gcode, const std::string &type, bool first_only)
+{
+    std::vector<Move> out;
+    for (const Move &move : moves(gcode))
+        if (move.type == type && move.extrudes_xy() && !(first_only && !out.empty() && out.back().tag == move.tag))
+            out.push_back(move);
     return out;
 }
 
@@ -142,8 +166,121 @@ TEST_CASE("The PA line test prints with the speed and extrusion of the filament 
     const double e_per_mm     = mm3_per_mm * flow_ratio / (PI * diameter * diameter / 4.);
     for (const Move &move : segments) {
         CHECK_THAT(move.feedrate, Catch::Matchers::WithinAbs(fast_speed * 60., 1.));
-        CHECK_THAT(move.e_per_mm, Catch::Matchers::WithinRel(e_per_mm, 0.005));
+        CHECK_THAT(move.e_per_mm(), Catch::Matchers::WithinRel(e_per_mm, 0.005));
     }
     for (const Move &move : box)
-        CHECK_THAT(move.e_per_mm, Catch::Matchers::WithinRel(e_per_mm, 0.005));
+        CHECK_THAT(move.e_per_mm(), Catch::Matchers::WithinRel(e_per_mm, 0.005));
+}
+
+namespace {
+
+// A 0.4 mm nozzle on a 200 mm bed, with machine limits above the accelerations the tests use. The PA line test prints
+// its fast segments at the outer wall speed, which the filament's volumetric speed leaves at 250 mm/s.
+DynamicPrintConfig split_pa_config(const std::string &flavor, double outer_wall_acceleration)
+{
+    DynamicPrintConfig config = Test::multifilament_config(1, {
+        {"gcode_flavor", flavor},
+        {"outer_wall_acceleration", outer_wall_acceleration},
+        {"outer_wall_speed", "250"},
+        {"filament_max_volumetric_speed", "40"},
+        {"machine_max_acceleration_extruding", "20000,20000"},
+        {"machine_max_acceleration_x", "20000,20000"},
+        {"machine_max_acceleration_y", "20000,20000"},
+        {"initial_layer_print_height", "0.2"},
+        {"enable_prime_tower", 0},
+        {"skirt_loops", 0},
+        {"brim_type", "no_brim"},
+    });
+    return config;
+}
+
+} // namespace
+
+TEST_CASE("The split PA line test switches pressure advance between two collinear halves of each fast segment", "[Calib]")
+{
+    const CalibPASplit vary = GENERATE(CalibPASplit::VarySpeedUp, CalibPASplit::VarySlowDown);
+    // At 500 mm/s2 the segment 250 mm/s needs does not fit the bed and the fast speed comes down, at 1500 mm/s2 Klipper's
+    // minimum cruise ratio sets its length, and at 10000 mm/s2 the smoothing window does.
+    const double accel = GENERATE(500., 1500., 10000.);
+    CAPTURE(vary == CalibPASplit::VarySpeedUp, accel);
+    Print print;
+    Model model;
+    Test::init_print({Test::cube(20)}, print, model, split_pa_config("klipper", accel));
+    Calib_Params params;
+    params.mode           = CalibMode::Calib_PA_Line;
+    params.start          = 0.012;
+    params.end            = 0.028;
+    params.step           = 0.004;
+    params.pa_split       = vary;
+    params.pa_split_fixed = 0.02;
+    print.set_calib_params(params);
+    REQUIRE(print.validate().string.empty());
+    const std::vector<Move> all = moves(Test::gcode(print));
+
+    // Each line is a slow segment, the two halves of the fast segment under one ";TYPE:Outer wall", and a slow segment.
+    std::vector<size_t> first_halves;
+    for (size_t i = 1; i < all.size(); ++i)
+        if (all[i].type == "Outer wall" && all[i - 1].tag != all[i].tag)
+            first_halves.push_back(i);
+    const int lines = int(std::lround((params.end - params.start) / params.step)) + 1; // 0.012 to 0.028 is 5 lines
+    REQUIRE(first_halves.size() == size_t(lines));
+
+    for (int line = 0; line < lines; ++line) {
+        CAPTURE(line);
+        const double varied  = params.start + line * params.step;
+        const double pa_up   = vary == CalibPASplit::VarySpeedUp ? varied : params.pa_split_fixed;
+        const double pa_down = vary == CalibPASplit::VarySlowDown ? varied : params.pa_split_fixed;
+        const size_t i       = first_halves[line];
+        REQUIRE(i + 2 < all.size());
+        const Move &slow_in = all[i - 1], &first = all[i], &second = all[i + 1], &slow_out = all[i + 2];
+
+        // Nothing moves between the halves, which run along one line at one speed and flow.
+        REQUIRE(second.tag == first.tag);
+        REQUIRE(second.extrudes_xy());
+        CHECK_THAT((second.from - first.to).norm(), Catch::Matchers::WithinAbs(0., 1e-6));
+        CHECK_THAT((first.to - first.from).normalized().dot((second.to - second.from).normalized()), Catch::Matchers::WithinAbs(1., 1e-9));
+        CHECK_THAT(second.feedrate, Catch::Matchers::WithinAbs(first.feedrate, 1e-9));
+        CHECK_THAT(second.e_per_mm(), Catch::Matchers::WithinRel(first.e_per_mm(), 1e-6));
+
+        // The speed-up PA is set before the line and the slow-down PA at the joint, so Klipper applies it from the second half.
+        CHECK_THAT(slow_in.pa, Catch::Matchers::WithinAbs(pa_up, 1e-6));
+        CHECK_THAT(first.pa, Catch::Matchers::WithinAbs(pa_up, 1e-6));
+        CHECK_THAT(second.pa, Catch::Matchers::WithinAbs(pa_down, 1e-6));
+        CHECK_THAT(slow_out.pa, Catch::Matchers::WithinAbs(pa_down, 1e-6));
+
+        // The joint is in the middle of the cruise. Klipper ramps between the slow and the fast speed at the start of the
+        // first half and at the end of the second, and smooths each move's PA over a window of 0.04 s by default, centred:
+        // the windows of the ramps and of the joint stay apart when each half cruises for at least that long.
+        CHECK_THAT(second.length(), Catch::Matchers::WithinAbs(first.length(), 1e-6));
+        const double fast = first.feedrate / 60., slow = slow_in.feedrate / 60.;
+        const double ramp = (fast * fast - slow * slow) / (2. * accel);
+        for (const Move *half : {&first, &second}) {
+            CHECK(half->length() - ramp >= 0.04 * fast);
+            // Klipper's default minimum_cruise_ratio of 0.5 lets the segment reach the fast speed only when it cruises
+            // for half its length.
+            CHECK(half->length() >= 2. * ramp);
+        }
+    }
+}
+
+TEST_CASE("The split PA line test needs Klipper and pressure advance values above 0", "[Calib]")
+{
+    // Marlin finishes its planned moves before it changes the K factor (M900 synchronizes the planner), and Klipper stops
+    // the toolhead to turn pressure advance on or off.
+    const std::string flavor = GENERATE(std::string("klipper"), std::string("marlin2"));
+    const double      start  = GENERATE(0., 0.01);
+    const double      fixed  = GENERATE(0., 0.02);
+    CAPTURE(flavor, start, fixed);
+    Print print;
+    Model model;
+    Test::init_print({Test::cube(20)}, print, model, split_pa_config(flavor, 3000.));
+    Calib_Params params;
+    params.mode           = CalibMode::Calib_PA_Line;
+    params.start          = start;
+    params.end            = 0.05;
+    params.step           = 0.01;
+    params.pa_split       = CalibPASplit::VarySpeedUp;
+    params.pa_split_fixed = fixed;
+    print.set_calib_params(params);
+    CHECK(print.validate().string.empty() == (flavor == "klipper" && start > 0. && fixed > 0.));
 }
