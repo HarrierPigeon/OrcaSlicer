@@ -346,8 +346,11 @@ double correlation(const std::vector<double> &a, const std::vector<double> &b)
 
 // --- Per-motor resonance bands (not in Shake&Tune) -------------------------------------------------
 
-// A motor peak is worth avoiding when its prominence is at least this share of the loudest energy
-// either motor reaches, so a quiet motor's bumps don't count...
+// A motor peak is worth avoiding when its prominence is at least this share of the most prominent
+// peak of either motor, so a quiet motor's bumps don't count. Prominence rather than height: at high
+// speeds the measured moves are mostly acceleration, and their energy climbs steadily with speed
+// without forming a resonance; measured against that climb, real resonances at lower speeds would
+// be dropped...
 constexpr double MOTOR_PEAK_MIN_PROMINENCE = 0.25;
 // ...and when it rises at least this far above its own surroundings (here: to twice their level),
 // so a curve with no resonance at all, only a loudest point, gets no band.
@@ -439,6 +442,10 @@ bool parse_stdata(const std::string &compressed, std::vector<Measurement> &out, 
             continue;
         try {
             const nlohmann::json j = nlohmann::json::parse(line.begin(), line.end());
+            // Records without samples (such as test parameters a newer Shake&Tune may add) are
+            // not recordings.
+            if (!j.is_object() || !j.contains("samples"))
+                continue;
             Measurement          m;
             m.name = j.at("name").get<std::string>();
             const nlohmann::json &samples = j.at("samples");
@@ -717,12 +724,20 @@ std::optional<VibrationsProfile> analyze_vibrations_energy(const VibrationsEnerg
         for (size_t k = 0; k < n_speeds; ++k)
             curve[k] = interpolate_on_speeds(p.measured_speeds, p.motor_energy[m], p.speeds[k]);
     }
-    const double loudest = std::max(max_of(p.motor_curve[0]), max_of(p.motor_curve[1]));
+    std::array<std::vector<std::pair<size_t, double>>, 2> candidates; // (index, prominence)
+    double                                                most_prominent = 0.;
     for (size_t m = 0; m < 2; ++m) {
         const std::vector<double> &curve = p.motor_curve[m];
         for (size_t i : detect_peaks(curve, PEAKS_DETECTION_THRESHOLD * max_of(curve), PEAKS_RELATIVE_HEIGHT_THRESHOLD, 10, 10)) {
             const double prominence = peak_prominence(curve, i);
-            if (prominence < MOTOR_PEAK_MIN_PROMINENCE * loudest || prominence < MOTOR_PEAK_MIN_RELATIVE_PROMINENCE * curve[i])
+            candidates[m].emplace_back(i, prominence);
+            most_prominent = std::max(most_prominent, prominence);
+        }
+    }
+    for (size_t m = 0; m < 2; ++m) {
+        const std::vector<double> &curve = p.motor_curve[m];
+        for (const auto &[i, prominence] : candidates[m]) {
+            if (prominence < MOTOR_PEAK_MIN_PROMINENCE * most_prominent || prominence < MOTOR_PEAK_MIN_RELATIVE_PROMINENCE * curve[i])
                 continue;
             p.motor_peak_speeds[m].push_back(p.speeds[i]);
             p.motor_bands[m].push_back(band_around_peak(p.speeds, curve, i, step));

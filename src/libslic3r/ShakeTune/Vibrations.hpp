@@ -24,7 +24,8 @@ struct Measurement
 };
 
 // A .stdata file is a zstd stream of JSON lines, one {"name": ..., "samples": [[t, x, y, z], ...]}
-// object per recording. Shake&Tune keeps these next to its graphs only with keep_raw_data: True.
+// object per recording; lines without "samples" are skipped. Shake&Tune keeps these next to its
+// graphs only with keep_raw_data: True.
 bool parse_stdata(const std::string &compressed, std::vector<Measurement> &out, std::string &error);
 bool load_stdata(const std::string &path, std::vector<Measurement> &out, std::string &error);
 

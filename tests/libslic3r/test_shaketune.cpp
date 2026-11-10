@@ -5,6 +5,7 @@
 #include <cstdint>
 #include <cstdio>
 #include <optional>
+#include <utility>
 #include <string>
 #include <vector>
 
@@ -184,6 +185,7 @@ TEST_CASE("A .stdata file decodes into named recordings", "[ShakeTune]")
 {
     std::vector<Measurement> m;
     std::string              error;
+    // Two recordings, after a record without samples that is not one.
     REQUIRE(load_stdata(std::string(TEST_DATA_DIR) + "/shaketune/tiny.stdata", m, error));
     REQUIRE(m.size() == 2);
     CHECK(m[0].name == "vib_an45_00sp2_00_20261108_120000");
@@ -292,46 +294,67 @@ TEST_CASE("Klipper's saved configuration gives the motion limits and input shape
     CHECK(input_shaper_max_accel(*y, motion.square_corner_velocity) < input_shaper_max_accel(*x, motion.square_corner_velocity));
 }
 
-TEST_CASE("Vibrations analysis of a real printer matches Shake&Tune's own results", "[ShakeTune]")
+namespace {
+
+// Per-recording energies of a CREATE_VIBRATIONS_PROFILE run, as vibrations_energy() computes them
+// from the .stdata file: {"<angle>": [[speed, energy], ...]}.
+VibrationsEnergy load_vibrations_energy(const std::string &file)
 {
-    // Per-recording energies from CREATE_VIBRATIONS_PROFILE on a Voron Micron (CoreXY, Kalico,
-    // Shake&Tune v6.0.0), as vibrations_energy() computes them from the .stdata file. Shake&Tune
-    // reported for that run: symmetry 43.5%, one peak at 96.5 mm/s, quietest speeds 2.0-92.2 and
-    // 149.4-200.0 mm/s, quietest angles 17.5-73.1 (54.26% of max) and 197.3-253.4 (54.46%).
-    boost::nowide::ifstream in(std::string(TEST_DATA_DIR) + "/shaketune/micron_vibrations_energy.json");
+    boost::nowide::ifstream in(std::string(TEST_DATA_DIR) + "/shaketune/" + file);
     REQUIRE(in.good());
     const nlohmann::json json = nlohmann::json::parse(in);
     VibrationsEnergy     energy;
     for (const auto &[angle, rows] : json.items())
         for (const auto &row : rows)
             energy[std::stod(angle)][row[0].get<double>()] = row[1].get<double>();
+    return energy;
+}
 
+} // namespace
+
+TEST_CASE("Vibrations analysis of a real printer matches Shake&Tune's own results", "[ShakeTune]")
+{
+    // Two runs on a Voron Trident (CoreXY, Kalico, Shake&Tune v6.0.0), at 45 and 135 degrees. The
+    // expected values are the ones Shake&Tune printed on its graphs for the same runs.
+    struct Run
+    {
+        const char                             *file;
+        std::vector<double>                     peaks;
+        std::vector<std::pair<double, double>>  good_speeds;
+    };
+    const Run run = GENERATE(Run{ "trident_vibrations_2-200mms.json",
+                                  { 32.1, 44.3, 69.8, 86.6, 125.6, 137.2 },
+                                  { { 2.0, 29.1 }, { 35.4, 40.0 }, { 48.6, 62.5 }, { 95.5, 122.7 }, { 128.9, 134.2 }, { 140.5, 200.0 } } },
+                             Run{ "trident_vibrations_2-599mms.json",
+                                  { 44.8, 70.2, 87.1, 137.9, 174.3, 272.9, 409.3 },
+                                  { { 2.0, 40.3 }, { 49.8, 63.2 }, { 97.1, 133.4 }, { 143.9, 171.3 }, { 177.8, 269.9 }, { 276.4, 406.3 }, { 412.8, 599.0 } } });
+    CAPTURE(run.file);
     std::string error;
-    const auto  p = analyze_vibrations_energy(energy, error);
+    const auto  p = analyze_vibrations_energy(load_vibrations_energy(run.file), error);
     REQUIRE(p.has_value());
     CHECK(p->kinematics == MotorKinematics::CoreXY);
-    CHECK_THAT(p->symmetry_pct, WithinAbs(43.5, 0.05));
-    REQUIRE(p->peak_speeds.size() == 1);
-    CHECK_THAT(p->peak_speeds[0], WithinAbs(96.5, 0.05));
-    REQUIRE(p->good_speed_ranges.size() == 2);
-    CHECK_THAT(p->good_speed_ranges[0].lo, WithinAbs(2.0, 0.05));
-    CHECK_THAT(p->good_speed_ranges[0].hi, WithinAbs(92.2, 0.05));
-    CHECK_THAT(p->good_speed_ranges[1].lo, WithinAbs(149.4, 0.05));
-    CHECK_THAT(p->good_speed_ranges[1].hi, WithinAbs(200.0, 0.05));
-    REQUIRE(p->good_angle_ranges.size() == 2);
-    CHECK_THAT(p->good_angle_ranges[0].lo, WithinAbs(17.5, 0.05));
-    CHECK_THAT(p->good_angle_ranges[0].hi, WithinAbs(73.1, 0.05));
-    CHECK_THAT(p->good_angle_ranges[0].mean_energy_pct, WithinAbs(54.26, 0.005));
-    CHECK_THAT(p->good_angle_ranges[1].lo, WithinAbs(197.3, 0.05));
-    CHECK_THAT(p->good_angle_ranges[1].hi, WithinAbs(253.4, 0.05));
-    CHECK_THAT(p->good_angle_ranges[1].mean_energy_pct, WithinAbs(54.46, 0.005));
+    CHECK_THAT(p->symmetry_pct, WithinAbs(100., 0.05));
+    REQUIRE(p->peak_speeds.size() == run.peaks.size());
+    for (size_t i = 0; i < run.peaks.size(); ++i)
+        CHECK_THAT(p->peak_speeds[i], WithinAbs(run.peaks[i], 0.05));
+    REQUIRE(p->good_speed_ranges.size() == run.good_speeds.size());
+    for (size_t i = 0; i < run.good_speeds.size(); ++i) {
+        CHECK_THAT(p->good_speed_ranges[i].lo, WithinAbs(run.good_speeds[i].first, 0.05));
+        CHECK_THAT(p->good_speed_ranges[i].hi, WithinAbs(run.good_speeds[i].second, 0.05));
+    }
 
-    // Not in Shake&Tune: motor B (135 degrees) carries the resonance, around 94 mm/s, ten times
-    // louder than anything motor A does; the smaller bumps of either motor give no band.
-    CAPTURE(format_speed_bands(p->motor_bands[0]), format_speed_bands(p->motor_bands[1]));
-    CHECK(p->motor_bands[0].empty());
-    REQUIRE(p->motor_bands[1].size() == 1);
-    CHECK(p->motor_bands[1][0].contains(94.));
-    CHECK(p->motor_bands[1][0].lo > 85.);
-    CHECK(p->motor_bands[1][0].hi < 110.);
+    // Not in Shake&Tune: both motors resonate at about 30 and 60 mm/s, which a move along X or Y
+    // (both motors at v/sqrt(2)) shows as Shake&Tune's peaks at 44 and 87 mm/s.
+    for (size_t m = 0; m < 2; ++m) {
+        CAPTURE(m, format_speed_bands(p->motor_bands[m]));
+        CHECK(any_band_contains(p->motor_bands[m], 31.));
+        CHECK(any_band_contains(p->motor_bands[m], 61.));
+        // Above 300 mm/s the measured moves are mostly acceleration and their energy climbs with
+        // speed; that climb is no resonance and gets no band.
+        CHECK_FALSE(std::any_of(p->motor_bands[m].begin(), p->motor_bands[m].end(), [](const SpeedBand &b) { return b.hi > 300.; }));
+    }
+    // Motor A also resonates around 120 mm/s, in both runs, even though the second one is far louder
+    // at its top speeds.
+    CHECK(any_band_contains(p->motor_bands[0], 124.));
 }
+

@@ -29,13 +29,18 @@ G-code export step.
 
 ## Analysis (`libslic3r/ShakeTune/`)
 
-- `Vibrations`: reads a `.stdata` file (a zstd stream of JSON lines, one recording per line; zstd
-  comes from the copy c-blosc bundles) and runs Shake&Tune's machine vibrations analysis, translated
+- `Vibrations`: reads a `.stdata` file (a zstd stream of JSON lines, one recording per line, and
+  lines without samples skipped so Shake&Tune can add records of test parameters; zstd comes from
+  the copy c-blosc bundles) and runs Shake&Tune's machine vibrations analysis, translated
   from its Python with credit: each recording's PSD (Klipper's Welch estimate), the energy per motor
   and speed, the projection of both motors onto every direction, the vibration metric, its peaks,
   the quiet speed and direction ranges and the symmetry. On top of that, each motor's own energy
-  curve gets the same peak detection, and the band around each peak is its half-prominence width,
-  never narrower than one measured speed step either side. The analysis also runs from the
+  curve gets the same peak detection. A peak gets a band only if its prominence is at least a
+  quarter of the most prominent peak of either motor and half its own height. Prominence rather
+  than height, because at high speeds the measured moves are mostly acceleration and their energy
+  climbs steadily with speed: measured against that climb, real resonances lower down would be
+  dropped. The band around each peak is its half-prominence width, never narrower than one
+  measured speed step either side. The analysis also runs from the
   per-recording energies alone (`analyze_vibrations_energy`), which is how real printer data is
   kept in the tests.
 - `InputShaperLimits`: Klipper's shaper definitions and its smoothing model; the max acceleration
