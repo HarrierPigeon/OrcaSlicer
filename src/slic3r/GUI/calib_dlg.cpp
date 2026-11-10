@@ -139,6 +139,27 @@ bool is_belt_printer_selected()
     return false;
 }
 
+bool is_klipper_selected()
+{
+    if (auto* preset_bundle = wxGetApp().preset_bundle) {
+        const auto* opt = preset_bundle->printers.get_edited_preset().config.option<ConfigOptionEnum<GCodeFlavor>>("gcode_flavor");
+        return opt != nullptr && opt->value == gcfKlipper;
+    }
+    return false;
+}
+
+// The filament's pressure advance, 0 when there is none.
+double edited_filament_pa()
+{
+    if (auto* preset_bundle = wxGetApp().preset_bundle)
+        if (const auto* opt = preset_bundle->filaments.get_edited_preset().config.option<ConfigOptionFloats>("pressure_advance"))
+            return opt->values.empty() ? 0. : opt->values.front();
+    return 0.;
+}
+
+// The method radio button of the split PA line test.
+constexpr int pa_split_method = 3;
+
 }
 
 PA_Calibration_Dlg::PA_Calibration_Dlg(wxWindow* parent, wxWindowID id, Plater* plater)
@@ -163,7 +184,7 @@ PA_Calibration_Dlg::PA_Calibration_Dlg(wxWindow* parent, wxWindowID id, Plater* 
     auto labeled_box_method = new LabeledStaticBox(this, _L("Method"));
     auto method_box = new wxStaticBoxSizer(labeled_box_method, wxHORIZONTAL);
 
-	m_rbMethod = new RadioGroup(this, { _L("PA Tower"), _L("PA Line"), _L("PA Pattern") }, wxHORIZONTAL);
+	m_rbMethod = new RadioGroup(this, { _L("PA Tower"), _L("PA Line"), _L("PA Pattern"), _L("Split PA Line") }, wxHORIZONTAL);
     method_box->Add(m_rbMethod, 0, wxALL | wxEXPAND, FromDIP(4));
     v_sizer->Add(method_box, 0, wxTOP | wxRIGHT | wxLEFT | wxEXPAND, FromDIP(10));
 
@@ -174,8 +195,12 @@ PA_Calibration_Dlg::PA_Calibration_Dlg(wxWindow* parent, wxWindowID id, Plater* 
     wxString sp_accel_str    = _L("Accelerations: ");
     wxString sp_speed_str    = _L("Speeds: ");
     wxString cb_print_no_str = _L("Print numbers");
+    // TRN Split PA Line test: which of the two pressure advance values changes from line to line.
+    wxString split_vary_str  = _L("Varied PA: ");
+    wxString split_fixed_str = _L("Fixed PA: ");
 
-    int text_max = GetTextMax(this, std::vector<wxString>{start_pa_str, end_pa_str, PA_step_str, sp_accel_str, sp_speed_str, cb_print_no_str});
+    int text_max = GetTextMax(this, std::vector<wxString>{start_pa_str, end_pa_str, PA_step_str, sp_accel_str, sp_speed_str, cb_print_no_str,
+                                                          split_vary_str, split_fixed_str});
 
     auto st_size = wxSize(text_max, -1);
     auto ti_size = FromDIP(wxSize(120, -1));
@@ -246,6 +271,30 @@ PA_Calibration_Dlg::PA_Calibration_Dlg(wxWindow* parent, wxWindowID id, Plater* 
     sp_speed_sizer->Add(m_tiBMSpeeds , 0, wxALL | wxALIGN_CENTER_VERTICAL, FromDIP(2));
     settings_sizer->Add(sp_speed_sizer, 0, wxLEFT, FromDIP(3));
 
+    // Split PA line: the PA that varies from Start PA to End PA, and the other one
+    auto split_vary_sizer = new wxBoxSizer(wxHORIZONTAL);
+    auto split_vary_text  = new wxStaticText(this, wxID_ANY, split_vary_str, wxDefaultPosition, st_size, wxALIGN_LEFT);
+    // TRN Split PA Line test: the pressure advance used as the toolhead speeds up into a fast line and as it slows down out of it.
+    m_rbSplitVary = new RadioGroup(this, {_L("Speed-up"), _L("Slow-down")}, wxHORIZONTAL);
+    const wxString split_vary_tip = _L("The pressure advance that changes from line to line, from Start PA to End PA: "
+                                       "the one for the speed-up into each fast segment, or the one for the slow-down out of it.");
+    split_vary_text->SetToolTip(split_vary_tip);
+    m_rbSplitVary->SetRadioTooltip(0, split_vary_tip);
+    m_rbSplitVary->SetRadioTooltip(1, split_vary_tip);
+    split_vary_sizer->Add(split_vary_text, 0, wxALL | wxALIGN_CENTER_VERTICAL, FromDIP(2));
+    split_vary_sizer->Add(m_rbSplitVary  , 0, wxALL | wxALIGN_CENTER_VERTICAL, FromDIP(2));
+    settings_sizer->Add(split_vary_sizer, 0, wxLEFT, FromDIP(3));
+
+    auto split_fixed_sizer = new wxBoxSizer(wxHORIZONTAL);
+    auto split_fixed_text  = new wxStaticText(this, wxID_ANY, split_fixed_str, wxDefaultPosition, st_size, wxALIGN_LEFT);
+    m_tiSplitFixedPA = new TextInput(this, "", "", "", wxDefaultPosition, ti_size, wxTE_PROCESS_ENTER);
+    m_tiSplitFixedPA->GetTextCtrl()->SetValidator(wxTextValidator(wxFILTER_NUMERIC));
+    m_tiSplitFixedPA->SetToolTip(_L("The pressure advance for the other transition, on every line. Defaults to the filament's pressure advance."));
+    split_fixed_text->SetToolTip(m_tiSplitFixedPA->GetToolTipText());
+    split_fixed_sizer->Add(split_fixed_text, 0, wxALL | wxALIGN_CENTER_VERTICAL, FromDIP(2));
+    split_fixed_sizer->Add(m_tiSplitFixedPA, 0, wxALL | wxALIGN_CENTER_VERTICAL, FromDIP(2));
+    settings_sizer->Add(split_fixed_sizer, 0, wxLEFT | wxBOTTOM, FromDIP(3));
+
     v_sizer->Add(settings_sizer, 0, wxTOP | wxRIGHT | wxLEFT | wxEXPAND, FromDIP(10));
     v_sizer->AddSpacer(FromDIP(5));
 
@@ -312,6 +361,23 @@ void PA_Calibration_Dlg::reset_params() {
             m_tiBMAccels->Enable(true);
             m_tiBMSpeeds->Enable(true);
             break;
+        case pa_split_method: {
+            m_params.mode = CalibMode::Calib_PA_Line;
+            // The fixed PA is the filament's, and the varied one goes up to 10 steps either side of it, staying above 0.
+            const double step        = isDDE ? 0.002 : 0.02;
+            const double filament_pa = edited_filament_pa();
+            const double fixed       = filament_pa > 0. ? filament_pa : (isDDE ? 0.05 : 0.5);
+            const int    steps_below = std::min(10, int(std::ceil(fixed / step - 1e-6)) - 1);
+            m_tiStartPA->GetTextCtrl()->SetValue(wxString::FromDouble(fixed - steps_below * step));
+            m_tiEndPA->GetTextCtrl()->SetValue(wxString::FromDouble(fixed + 10 * step));
+            m_tiPAStep->GetTextCtrl()->SetValue(wxString::FromDouble(step));
+            m_tiSplitFixedPA->GetTextCtrl()->SetValue(wxString::FromDouble(fixed));
+            m_cbPrintNum->SetValue(true);
+            m_cbPrintNum->Enable(true);
+            m_tiBMAccels->Enable(false);
+            m_tiBMSpeeds->Enable(false);
+            break;
+        }
         default:
             m_params.mode = CalibMode::Calib_PA_Tower;
             m_tiEndPA->GetTextCtrl()->SetValue(wxString::FromDouble(0.1));
@@ -322,8 +388,10 @@ void PA_Calibration_Dlg::reset_params() {
             m_tiBMSpeeds->Enable(false);
             break;
     }
+    m_rbSplitVary->Enable(method == pa_split_method);
+    m_tiSplitFixedPA->Enable(method == pa_split_method);
 
-    if (!isDDE) {
+    if (!isDDE && method != pa_split_method) {
         m_tiEndPA->GetTextCtrl()->SetValue(wxString::FromDouble(1.0));
 
         if (m_params.mode == CalibMode::Calib_PA_Pattern) {
@@ -347,6 +415,7 @@ void PA_Calibration_Dlg::on_start(wxCommandEvent& event) {
 
     switch (m_rbMethod->GetSelection()) {
         case 1:
+        case pa_split_method:
             m_params.mode = CalibMode::Calib_PA_Line;
             break;
         case 2:
@@ -354,6 +423,26 @@ void PA_Calibration_Dlg::on_start(wxCommandEvent& event) {
             break;
         default:
             m_params.mode = CalibMode::Calib_PA_Tower;
+    }
+
+    m_params.pa_split = CalibPASplit::None;
+    if (m_rbMethod->GetSelection() == pa_split_method) {
+        if (!is_klipper_selected()) {
+            MessageDialog msg_dlg(nullptr, _L("The split PA line test needs the Klipper G-code flavor."), wxEmptyString, wxICON_WARNING | wxOK);
+            msg_dlg.ShowModal();
+            return;
+        }
+        if (!m_tiSplitFixedPA->GetTextCtrl()->GetValue().ToDouble(&m_params.pa_split_fixed) || m_params.pa_split_fixed <= 0 ||
+            m_params.start <= 0) {
+            MessageDialog msg_dlg(nullptr,
+                                  _L("Please input valid values:\nStart PA: > 0.0\nFixed PA: > 0.0\n\n"
+                                     "Klipper stops the toolhead whenever pressure advance is turned on or off, "
+                                     "so the split PA line test cannot use 0."),
+                                  wxEmptyString, wxICON_WARNING | wxOK);
+            msg_dlg.ShowModal();
+            return;
+        }
+        m_params.pa_split = m_rbSplitVary->GetSelection() == 0 ? CalibPASplit::VarySpeedUp : CalibPASplit::VarySlowDown;
     }
 
     // ORCA-Belt: backstop in case the selection slipped past the UI guards.
@@ -393,6 +482,8 @@ void PA_Calibration_Dlg::on_method_changed(wxCommandEvent& event) {
     // ORCA-Belt: only the PA Tower method is enabled on belt printers so far.
     if (is_belt_printer_selected() && m_rbMethod->GetSelection() != 0)
         m_rbMethod->SetSelection(0, true);
+    else if (!is_klipper_selected() && m_rbMethod->GetSelection() == pa_split_method)
+        m_rbMethod->SetSelection(1, true);
     PA_Calibration_Dlg::reset_params();
     event.Skip();
 }
@@ -410,9 +501,20 @@ void PA_Calibration_Dlg::on_show(wxShowEvent& event) {
         const wxString tip = _L("Not enabled yet on belt printers — use the PA Tower method instead.");
         m_rbMethod->SetRadioTooltip(1, tip);
         m_rbMethod->SetRadioTooltip(2, tip);
+        m_rbMethod->SetRadioTooltip(pa_split_method, tip);
     } else {
         m_rbMethod->SetRadioTooltip(1, wxEmptyString);
         m_rbMethod->SetRadioTooltip(2, wxEmptyString);
+        if (is_klipper_selected())
+            m_rbMethod->SetRadioTooltip(pa_split_method,
+                                        _L("A PA line test with one pressure advance for the speed-up into each fast segment and another "
+                                           "for the slow-down out of it, switched in the middle of the segment. "
+                                           "Needs Klipper v0.13.0 or Kalico v2026.11.00 or later, which change pressure advance without stopping."));
+        else {
+            if (m_rbMethod->GetSelection() == pa_split_method)
+                m_rbMethod->SetSelection(1);
+            m_rbMethod->SetRadioTooltip(pa_split_method, _L("The split PA line test needs the Klipper G-code flavor."));
+        }
     }
     PA_Calibration_Dlg::reset_params();
 }
