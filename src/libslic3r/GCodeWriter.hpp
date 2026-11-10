@@ -68,6 +68,11 @@ public:
     std::string set_chamber_temperature(int temperature, bool wait = false);
     std::string set_print_acceleration(unsigned int acceleration)   { return set_acceleration_internal(Acceleration::Print, acceleration); }
     std::string set_travel_acceleration(unsigned int acceleration)  { return set_acceleration_internal(Acceleration::Travel, acceleration); }
+    // The print acceleration last set (0 before any), and the machine limit it is clamped to (0 for none).
+    unsigned int print_acceleration() const { return m_last_acceleration; }
+    unsigned int max_print_acceleration() const;
+    // The command that sets the print acceleration, without clamping it or recording it as set.
+    std::string print_acceleration_command(unsigned int acceleration) const { return acceleration_command(Acceleration::Print, acceleration); }
     std::string set_jerk_xy(double jerk);
     // Orca: set acceleration and jerk in one command for Klipper
     std::string set_accel_and_jerk(unsigned int acceleration, double jerk);
@@ -312,6 +317,7 @@ private:
     bool spiral_lift_fits_printable_area(const Vec2d &center, double radius) const;
     std::string _retract(double length, double restart_extra, const std::string &comment);
     std::string set_acceleration_internal(Acceleration type, unsigned int acceleration);
+    std::string acceleration_command(Acceleration type, unsigned int acceleration) const;
 
 };
 

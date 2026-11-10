@@ -441,8 +441,15 @@ std::string GCodeWriter::set_acceleration_internal(Acceleration type, unsigned i
         return std::string();
 
     last_value = acceleration;
+    return acceleration_command(type, acceleration);
+}
 
-    const std::string value = std::to_string(acceleration);
+unsigned int GCodeWriter::max_print_acceleration() const { return EXTRUDER_LIMIT(m_max_acceleration); }
+
+std::string GCodeWriter::acceleration_command(Acceleration type, unsigned int acceleration) const
+{
+    const bool        separate_travel = type == Acceleration::Travel && supports_separate_travel_acceleration(this->config.gcode_flavor);
+    const std::string value           = std::to_string(acceleration);
     std::string       gcode;
     if (FLAVOR_IS(gcfRepetier)) {
         gcode += separate_travel ? "M202 X" : "M201 X";
