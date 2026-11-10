@@ -1,6 +1,7 @@
 #pragma once
 
 #include <array>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -34,10 +35,18 @@ void        normalize_speed_bands(SpeedBands &bands);
 // Follows Shake&Tune's projection: Cartesian |cos|, |sin|; CoreXY |cos+sin|/sqrt2, |cos-sin|/sqrt2.
 std::array<double, 2> motor_speed_factors(MotorKinematics kinematics, double dx, double dy);
 
+// Whether neither motor runs inside one of its bands at toolhead speed `speed` along (dx, dy).
+bool clears_resonance_bands(MotorKinematics kinematics, const std::array<SpeedBands, 2> &bands, double speed, double dx, double dy);
+
 // The fastest toolhead speed, no faster than `speed`, at which neither motor runs inside one of its
 // bands for a move along (dx, dy). A speed that already clears the bands is returned unchanged, and
 // so is one that could only be cleared by dropping below `min_ratio * speed`.
 double resonance_safe_speed(MotorKinematics kinematics, const std::array<SpeedBands, 2> &bands,
                             double speed, double dx, double dy, double min_ratio = 0.5);
+
+// The slowest toolhead speed, no slower than `speed` and no faster than `max_speed`, at which
+// neither motor runs inside one of its bands for a move along (dx, dy); nullopt if there is none.
+std::optional<double> resonance_safe_speed_above(MotorKinematics kinematics, const std::array<SpeedBands, 2> &bands,
+                                                 double speed, double dx, double dy, double max_speed);
 
 } // namespace Slic3r::ShakeTune

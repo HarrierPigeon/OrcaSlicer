@@ -678,6 +678,12 @@ static t_config_enum_values s_keys_map_MotorResonanceAvoidance {
 };
 CONFIG_OPTION_ENUM_DEFINE_STATIC_MAPS(MotorResonanceAvoidance)
 
+static t_config_enum_values s_keys_map_MotorResonanceSpeedChange {
+    {"slow_down", int(MotorResonanceSpeedChange::SlowDown)},
+    {"nearest",   int(MotorResonanceSpeedChange::Nearest)}
+};
+CONFIG_OPTION_ENUM_DEFINE_STATIC_MAPS(MotorResonanceSpeedChange)
+
 static t_config_enum_values s_keys_map_PerimeterGeneratorType{
     { "classic", int(PerimeterGeneratorType::Classic) },
     { "arachne", int(PerimeterGeneratorType::Arachne) }
@@ -2736,6 +2742,23 @@ void PrintConfigDef::init_fff_params()
     def->enum_labels = { L("Disabled"), L("Outer walls"), L("All walls"), L("All extrusions") };
     def->mode = comAdvanced;
     def->set_default_value(new ConfigOptionEnum<MotorResonanceAvoidance>(MotorResonanceAvoidance::Disabled));
+
+    def = this->add("motor_resonance_speed_change", coEnum);
+    def->label = L("Resonance speed change");
+    def->category = L("Speed");
+    def->tooltip = L("How \"Avoid motor resonances\" changes a speed that runs a stepper inside one of its resonant ranges.\n"
+                     "Slow down: always to the fastest speed below the range.\n"
+                     "Nearest quiet speed: to the quiet speed below or above the range, whichever is nearer, decided once per "
+                     "layer for each kind of extrusion so they all print at a consistent speed. A speed above the range is "
+                     "only used when every move that would otherwise hold its speed can reach it and hold it for at least "
+                     "half its length, raising the acceleration up to the printer's maximum if needed; when the extrusion "
+                     "was slowed for cooling or an overhang, would break the filament's maximum volumetric speed, or would "
+                     "make the layer quicker than the minimum layer time, it slows down instead.");
+    def->enum_keys_map = &ConfigOptionEnum<MotorResonanceSpeedChange>::get_enum_values();
+    def->enum_values = { "slow_down", "nearest" };
+    def->enum_labels = { L("Slow down"), L("Nearest quiet speed") };
+    def->mode = comAdvanced;
+    def->set_default_value(new ConfigOptionEnum<MotorResonanceSpeedChange>(MotorResonanceSpeedChange::SlowDown));
 
     def = this->add("small_perimeter_speed", coFloatsOrPercents);
     def->label = L("Small perimeters");

@@ -3718,9 +3718,21 @@ void GCode::_do_export(Print& print, GCodeOutputStream &file, ThumbnailsGenerato
         if (ShakeTune::parse_speed_bands(print.config().motor_resonance_bands_x.value, bands[0]) &&
             ShakeTune::parse_speed_bands(print.config().motor_resonance_bands_y.value, bands[1]) &&
             !(bands[0].empty() && bands[1].empty())) {
-            const auto kinematics = print.config().motor_resonance_kinematics.value == MotorResonanceKinematics::CoreXY ?
-                                        ShakeTune::MotorKinematics::CoreXY : ShakeTune::MotorKinematics::Cartesian;
-            m_motor_resonance_avoider = std::make_unique<MotorResonanceAvoider>(kinematics, std::move(bands));
+            MotorResonanceAvoider::Config avoider;
+            avoider.kinematics = print.config().motor_resonance_kinematics.value == MotorResonanceKinematics::CoreXY ?
+                                     ShakeTune::MotorKinematics::CoreXY : ShakeTune::MotorKinematics::Cartesian;
+            avoider.bands = std::move(bands);
+            // Orca sends machine_max_jerk_x to Klipper as its square corner velocity.
+            const std::vector<double> &jerk = print.config().machine_max_jerk_x.values;
+            avoider.square_corner_velocity  = !jerk.empty() && jerk.front() > 0. ? jerk.front() : 5.;
+            // The longest minimum layer time of the filaments that slow down to keep it.
+            for (unsigned int id : print.extruders())
+                if (print.config().slow_down_for_layer_cooling.get_at(id))
+                    avoider.min_layer_time = std::max(avoider.min_layer_time, print.config().slow_down_layer_time.get_at(id));
+            avoider.acceleration_command = [writer = &m_writer](unsigned int acceleration) {
+                return writer->print_acceleration_command(acceleration);
+            };
+            m_motor_resonance_avoider = std::make_unique<MotorResonanceAvoider>(std::move(avoider));
         }
     }
 
@@ -9981,7 +9993,15 @@ std::string GCode::_extrude_piece(const ExtrusionPath &path, const std::string &
         }
     }
     if (motor_resonance_bracket) {
-        gcode += MotorResonanceAvoider::START_MARKER;
+        MotorResonanceAvoider::PathLimits limits;
+        limits.mode             = m_config.motor_resonance_speed_change.value == MotorResonanceSpeedChange::Nearest ?
+                                      MotorResonanceAvoider::Mode::Nearest : MotorResonanceAvoider::Mode::SlowDown;
+        limits.role             = int(path.role());
+        limits.speed            = speed;
+        limits.max_speed        = filament_max_volumetric_speed > 0. && _mm3_per_mm > 0. ? filament_max_volumetric_speed / _mm3_per_mm : 0.;
+        limits.acceleration     = m_writer.print_acceleration();
+        limits.max_acceleration = m_writer.max_print_acceleration();
+        gcode += MotorResonanceAvoider::start_marker(limits);
         gcode += '\n';
     }
 

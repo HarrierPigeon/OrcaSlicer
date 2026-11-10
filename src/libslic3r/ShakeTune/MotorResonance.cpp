@@ -106,19 +106,32 @@ std::array<double, 2> motor_speed_factors(MotorKinematics kinematics, double dx,
     return { std::abs(c), std::abs(s) };
 }
 
+namespace {
+
+// Whether neither motor runs inside one of its bands at toolhead speed v.
+bool clears_bands(const std::array<SpeedBands, 2> &bands, const std::array<double, 2> &factor, double v)
+{
+    for (size_t m = 0; m < 2; ++m)
+        for (const SpeedBand &b : bands[m])
+            if (b.contains(v * factor[m]))
+                return false;
+    return true;
+}
+
+} // namespace
+
+bool clears_resonance_bands(MotorKinematics kinematics, const std::array<SpeedBands, 2> &bands, double speed, double dx, double dy)
+{
+    return clears_bands(bands, motor_speed_factors(kinematics, dx, dy), speed);
+}
+
 double resonance_safe_speed(MotorKinematics kinematics, const std::array<SpeedBands, 2> &bands,
                             double speed, double dx, double dy, double min_ratio)
 {
     if (!(speed > 0.))
         return speed;
     const std::array<double, 2> factor = motor_speed_factors(kinematics, dx, dy);
-    auto clear = [&](double v) {
-        for (size_t m = 0; m < 2; ++m)
-            for (const SpeedBand &b : bands[m])
-                if (b.contains(v * factor[m]))
-                    return false;
-        return true;
-    };
+    auto clear = [&](double v) { return clears_bands(bands, factor, v); };
     if (clear(speed))
         return speed;
     // The speed only has to drop to the lower edge of whichever band a motor sits in, so the
@@ -141,6 +154,32 @@ double resonance_safe_speed(MotorKinematics kinematics, const std::array<SpeedBa
         if (clear(v))
             return v;
     return speed;
+}
+
+std::optional<double> resonance_safe_speed_above(MotorKinematics kinematics, const std::array<SpeedBands, 2> &bands,
+                                                 double speed, double dx, double dy, double max_speed)
+{
+    if (!(speed > 0.))
+        return std::nullopt;
+    const std::array<double, 2> factor = motor_speed_factors(kinematics, dx, dy);
+    if (clears_bands(bands, factor, speed))
+        return speed;
+    // Mirror of resonance_safe_speed(): the candidates are the bands' upper edges.
+    std::vector<double> candidates;
+    for (size_t m = 0; m < 2; ++m) {
+        if (factor[m] <= 1e-9)
+            continue;
+        for (const SpeedBand &b : bands[m]) {
+            const double v = b.hi / factor[m] + 1e-6;
+            if (v > speed && v <= max_speed)
+                candidates.push_back(v);
+        }
+    }
+    std::sort(candidates.begin(), candidates.end());
+    for (double v : candidates)
+        if (clears_bands(bands, factor, v))
+            return v;
+    return std::nullopt;
 }
 
 } // namespace Slic3r::ShakeTune

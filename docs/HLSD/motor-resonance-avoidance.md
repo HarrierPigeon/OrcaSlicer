@@ -20,9 +20,10 @@ the older outer-wall `resonance_avoidance`.
   move's direction maps onto the two steppers) and `motor_resonance_bands_x` / `_y`, text such as
   `45-52, 96-104`. A band's speed is Shake&Tune's motor speed: the toolhead speed of a move along
   that motor's own direction. The X stepper is motor A on a CoreXY, as in Klipper.
-- Process (`PrintRegionConfig`): `motor_resonance_avoidance` picks what is slowed: outer walls,
-  all walls or all extrusions. It is a region setting so an object can override it, which the VFA
-  comparison relies on.
+- Process (`PrintRegionConfig`): `motor_resonance_avoidance` picks what is changed: outer walls,
+  all walls or all extrusions. `motor_resonance_speed_change` picks how: always slow down below the
+  band, or go to the nearest quiet speed, which may be above it. Both are region settings so an
+  object can override them, which the VFA comparison relies on.
 
 `Print::validate` rejects band text that does not parse. Changing any of these only invalidates the
 G-code export step.
@@ -58,11 +59,32 @@ G-code export step.
 Speeds are only final after the `CoolingBuffer`, which rescales feedrates to meet the minimum
 layer time and could put a motor back into a band. So the avoider is a pipeline stage after cooling
 and before adaptive pressure advance, which reads feedrates. `GCode::_extrude_piece` brackets the moves of
-each path whose role the region's scope covers with `;_MOTOR_RESONANCE_START` / `_END`. Between them
-the avoider rewrites the feedrate of each G1 extrusion move from the move's direction, writes the
-original feedrate back on the next move that relies on it, and drops the markers. Arcs, travel,
-retraction and moves outside a bracket keep their speed. With no bands the avoider is not created
-and no markers are written.
+each path whose role the region's scope covers with `;_MOTOR_RESONANCE_START` / `_END`. The start
+marker carries what the path allows: the speed change mode, its role, the speed it was generated at,
+the speed the filament's volumetric limit allows, and its acceleration with the machine limit above
+it. The avoider reads a whole layer before writing it. A G1 extrusion move whose speed puts a motor
+inside a band, given the move's direction, is changed:
+
+- Slow down: to the fastest speed below the band, never below half the speed.
+- Nearest quiet speed: decided once per layer for each role, so a feature keeps one consistent
+  speed relationship across the layer instead of moves flipping between above and below. All the
+  moves go above their bands when that is nearer on average (weighted by length) and feasible,
+  otherwise all go below. Feasible means every move that holds its current speed for at least half
+  its length can also hold the faster one, under a trapezoidal planner that starts and ends the path
+  at rest and takes corners at Klipper's junction speed for the square corner velocity (Orca sends
+  `machine_max_jerk_x` as that). If the path's acceleration is not enough, the lowest one that is,
+  rounded up to 100 mm/s² and no higher than the machine limit, is set at the start of the path and
+  the original restored at its end; the writer's own clamped value is what the marker carries, so
+  restoring it keeps the writer's view of the firmware right. Moves are never sped up when they no
+  longer run at the speed they were generated at (slowed for cooling or an overhang), when the faster
+  speed breaks the volumetric limit, or when it would make the layer quicker than the longest minimum
+  layer time of the filaments that slow down for it. So layers slowed for cooling still keep out of
+  the bands, by going slower.
+
+Moves too short to hold their speed do not decide, since the planner never lets them run at it;
+they follow the decision. The avoider writes the original feedrate back on the next move that relies
+on it and drops the markers. Arcs, travel, retraction and moves outside a bracket keep their speed.
+With no bands the avoider is not created and no markers are written.
 
 ## Import (`GUI/ShakeTuneImportDialog`)
 

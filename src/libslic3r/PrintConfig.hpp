@@ -595,6 +595,13 @@ enum class MotorResonanceAvoidance : unsigned char {
     AllExtrusions
 };
 
+// How a speed inside a resonant band is changed: always down below the band, or to whichever
+// quiet speed is nearer, above the band when the printer can accelerate to it.
+enum class MotorResonanceSpeedChange : unsigned char {
+    SlowDown,
+    Nearest
+};
+
 // BBS
 enum ZHopType {
     zhtAuto = 0,
@@ -839,6 +846,7 @@ CONFIG_OPTION_ENUM_DECLARE_STATIC_MAPS(SkirtType)
 CONFIG_OPTION_ENUM_DECLARE_STATIC_MAPS(InputShaperType)
 CONFIG_OPTION_ENUM_DECLARE_STATIC_MAPS(MotorResonanceKinematics)
 CONFIG_OPTION_ENUM_DECLARE_STATIC_MAPS(MotorResonanceAvoidance)
+CONFIG_OPTION_ENUM_DECLARE_STATIC_MAPS(MotorResonanceSpeedChange)
 CONFIG_OPTION_ENUM_DECLARE_STATIC_MAPS(DraftShield)
 CONFIG_OPTION_ENUM_DECLARE_STATIC_MAPS(ForwardCompatibilitySubstitutionRule)
 CONFIG_OPTION_ENUM_DECLARE_STATIC_MAPS(GCodeThumbnailsFormat)
@@ -1494,6 +1502,7 @@ PRINT_CONFIG_CLASS_DEFINE(
     ((ConfigOptionFloatOrPercent,       outer_wall_line_width))
     ((ConfigOptionFloatsNullable,       outer_wall_speed))
     ((ConfigOptionEnum<MotorResonanceAvoidance>, motor_resonance_avoidance))
+    ((ConfigOptionEnum<MotorResonanceSpeedChange>, motor_resonance_speed_change))
     ((ConfigOptionFloat,                infill_direction))
     ((ConfigOptionFloat,                solid_infill_direction))
     ((ConfigOptionFloat,                top_layer_direction))
