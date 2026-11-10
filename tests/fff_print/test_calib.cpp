@@ -13,6 +13,7 @@
 #include <catch2/matchers/catch_matchers.hpp>
 #include <catch2/matchers/catch_matchers_floating_point.hpp>
 
+#include "libslic3r/BoundingBox.hpp"
 #include "libslic3r/Config.hpp"
 #include "libslic3r/Flow.hpp"
 #include "libslic3r/Model.hpp"
@@ -254,11 +255,13 @@ TEST_CASE("The split PA line test switches pressure advance between two collinea
         CHECK_THAT(second.length(), Catch::Matchers::WithinAbs(first.length(), 1e-6));
         const double fast = first.feedrate / 60., slow = slow_in.feedrate / 60.;
         const double ramp = (fast * fast - slow * slow) / (2. * accel);
+        // The G-code gives positions to the micrometre, so a half sized exactly to a bound may come out that much short.
+        const double gcode_resolution = 1e-3;
         for (const Move *half : {&first, &second}) {
-            CHECK(half->length() - ramp >= 0.04 * fast);
+            CHECK(half->length() - ramp >= 0.04 * fast - gcode_resolution);
             // Klipper's default minimum_cruise_ratio of 0.5 lets the segment reach the fast speed only when it cruises
             // for half its length.
-            CHECK(half->length() >= 2. * ramp);
+            CHECK(half->length() >= 2. * ramp - gcode_resolution);
         }
     }
 }
@@ -283,4 +286,69 @@ TEST_CASE("The split PA line test needs Klipper and pressure advance values abov
     params.pa_split_fixed = fixed;
     print.set_calib_params(params);
     CHECK(print.validate().string.empty() == (flavor == "klipper" && start > 0. && fixed > 0.));
+}
+
+TEST_CASE("The split PA line test has an outer wall with tick marks at the speed-up, the PA switch and the slow-down", "[Calib]")
+{
+    const bool numbers = GENERATE(false, true);
+    CAPTURE(numbers);
+    Print print;
+    Model model;
+    Test::init_print({Test::cube(20)}, print, model, split_pa_config("klipper", 3000.));
+    Calib_Params params;
+    params.mode           = CalibMode::Calib_PA_Line;
+    params.start          = 0.012;
+    params.end            = 0.028;
+    params.step           = 0.004;
+    params.print_numbers  = numbers;
+    params.pa_split       = CalibPASplit::VarySlowDown;
+    params.pa_split_fixed = 0.02;
+    print.set_calib_params(params);
+    const std::vector<Move> all = moves(Test::gcode(print));
+
+    // The two halves of each line's fast segment.
+    const std::vector<Move> halves = extrusions_of_type(Test::gcode(print), "Outer wall", false);
+    REQUIRE(halves.size() == 10);
+    const double first_y = halves.front().from.y(), last_y = halves.back().from.y();
+    const double speed_up_x = halves.front().from.x(), switch_x = halves.front().to.x(), slow_down_x = halves[1].to.x();
+    const double anchor_x   = speed_up_x - 20.; // the slow segments are 20 mm long and start at the anchor line
+
+    std::vector<Move> extrusions;
+    BoundingBoxf      extents;
+    for (const Move &move : all)
+        if (move.extrudes_xy()) {
+            extrusions.push_back(move);
+            extents.merge(move.from);
+            extents.merge(move.to);
+        }
+    const auto extruded = [&extrusions](const Vec2d &from, const Vec2d &to) {
+        return std::any_of(extrusions.begin(), extrusions.end(),
+                           [&](const Move &move) { return (move.from - from).norm() < 1e-3 && (move.to - to).norm() < 1e-3; });
+    };
+
+    // The wall runs around everything the test extrudes, numbers included.
+    const Vec2d min = extents.min, max = extents.max;
+    CHECK(extruded(min, Vec2d(max.x(), min.y())));
+    CHECK(extruded(Vec2d(max.x(), min.y()), max));
+    CHECK(extruded(max, Vec2d(min.x(), max.y())));
+    CHECK(extruded(Vec2d(min.x(), max.y()), min));
+    // It touches the anchor line on the left, which the lines start from, and runs clear of the first and last line.
+    CHECK(anchor_x - min.x() > 0.);
+    CHECK(anchor_x - min.x() <= 0.6);
+    CHECK(first_y - min.y() > 3.);
+    CHECK(max.y() - last_y > 3.);
+
+    // At each transition a tick reaches from the wall towards the first line and another towards the last one. Each
+    // stops clear of the line, which is 0.6 mm wide for this 0.4 mm nozzle.
+    for (const double x : {speed_up_x, switch_x, slow_down_x}) {
+        CAPTURE(x);
+        const auto ticks = [&](double wall_y, double line_y) {
+            return std::count_if(extrusions.begin(), extrusions.end(), [&](const Move &move) {
+                return std::abs(move.from.x() - x) < 1e-6 && std::abs(move.to.x() - x) < 1e-6 && std::abs(move.from.y() - wall_y) < 1e-6 &&
+                       std::abs(move.to.y() - wall_y) < std::abs(line_y - wall_y) && std::abs(move.to.y() - line_y) > 1.;
+            });
+        };
+        CHECK(ticks(min.y(), first_y) == 1);
+        CHECK(ticks(max.y(), last_y) == 1);
+    }
 }

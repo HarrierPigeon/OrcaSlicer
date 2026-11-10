@@ -472,6 +472,17 @@ std::string CalibPressureAdvance::draw_box(GCodeWriter &writer, double min_x, do
 
     return gcode.str();
 }
+namespace {
+// Klipper's default pressure_advance_smooth_time.
+constexpr double klipper_pa_smooth_time = 0.04;
+// Enough for 500 mm/s at 20000 mm/s².
+constexpr double split_length_long_limit = 120.;
+// The split PA line test's outer wall runs this far below the first line and above the last one, and its tick marks
+// stop this far short of them.
+constexpr double split_frame_margin = 5.;
+constexpr double split_tick_gap     = 1.5;
+} // namespace
+
 CalibPressureAdvanceLine::CalibPressureAdvanceLine(GCode* gcodegen)
     : CalibPressureAdvance(gcodegen->config()), mp_gcodegen(gcodegen)
 {
@@ -494,6 +505,9 @@ std::string CalibPressureAdvanceLine::generate_test(double start_pa /*= 0*/, dou
     const auto  w         = bed_ext.size().x();
     const auto  h         = bed_ext.size().y();
     count                 = std::min(count, int((h - 10) / m_space_y));
+    // The split test's outer wall must stay on the bed as well.
+    if (m_split != CalibPASplit::None)
+        count = std::min(count, int((h - 2 * split_frame_margin - m_line_width) / m_space_y));
 
     m_length_long = 40 + std::min(w - 120.0, 0.0);
     if (m_split != CalibPASplit::None)
@@ -520,9 +534,12 @@ BoundingBoxf CalibPressureAdvanceLine::print_extents(const BoundingBoxf &bed_ext
     double start_x       = adjusted_bed.min.x() + (bed_width - 2 * m_length_short - line_long - 20.0) / 2.0;
     double box_width     = m_draw_numbers ? (number_spacing() * 8) : 0.0;   // 3.0 * 8 = 24 mm
 
+    // The split test's outer wall adds a line on either side.
+    const double frame_width = m_split == CalibPASplit::None ? 0. : m_line_width;
+
     BoundingBoxf extent;
-    extent.min.x() = start_x;
-    extent.max.x() = start_x + total_line_len + m_line_width + box_width;
+    extent.min.x() = start_x - frame_width;
+    extent.max.x() = start_x + total_line_len + m_line_width + box_width + frame_width;
 
     // Y bounds are the full bed (the caller will inset them by -25)
     extent.min.y() = adjusted_bed.min.y();
@@ -533,19 +550,12 @@ BoundingBoxf CalibPressureAdvanceLine::print_extents(const BoundingBoxf &bed_ext
 
 bool CalibPressureAdvanceLine::is_delta() const { return mp_gcodegen->config().printable_area.values.size() > 4; }
 
-namespace {
-// Klipper's default pressure_advance_smooth_time.
-constexpr double klipper_pa_smooth_time = 0.04;
-// Enough for 500 mm/s at 20000 mm/s².
-constexpr double split_length_long_limit = 120.;
-} // namespace
-
-// The longest fast segment the split PA line test fits on a bed this wide, numbers included.
+// The longest fast segment the split PA line test fits on a bed this wide, numbers and outer wall included.
 double CalibPressureAdvanceLine::split_max_length_long(double bed_width) const
 {
     // generate_test() centres the lines and their 10 mm margins on the bed, and the numbers box follows the lines.
     const double box_width = number_spacing() * 8;
-    return std::min(split_length_long_limit, bed_width - 2 * m_length_short - 2 * (m_line_width + box_width) + 10);
+    return std::min(split_length_long_limit, bed_width - 2 * m_length_short - 2 * (2 * m_line_width + box_width) + 10);
 }
 
 // Sizes the split PA line test's fast segment for the speeds and the acceleration it prints with (see print_pa_lines()).
@@ -603,6 +613,40 @@ std::string CalibPressureAdvanceLine::print_pa_lines(double start_x, double star
     gcode << move_to(Vec2d(prime_x, y_pos + (num) * m_space_y), writer);
     gcode << writer.set_speed(slow);
     gcode << writer.extrude_to_xy(Vec2d(prime_x, y_pos), e_per_mm * m_space_y * num * 1.2);
+
+    if (m_split != CalibPASplit::None) {
+        // A second wall around the whole test, touching the anchor lines and the box under the numbers, so that the test
+        // comes off the bed in one piece. Tick marks reach from it towards the first and the last line at the speed-up,
+        // the PA switch and the slow-down, stopping short of the lines so as not to change how they print there.
+        const double spacing = m_line_width - m_height_layer * (1. - M_PI / 4.); // touching lines, as draw_box() spaces them
+        const double lines_end_x = start_x + 2 * m_length_short + m_length_long;
+        const double y_last  = y_pos + (num - 1) * m_space_y;
+        const double frame_min_x = start_x - spacing;
+        const double frame_max_x = (m_draw_numbers ? lines_end_x + m_line_width + number_spacing() * 8 : lines_end_x) + spacing;
+        const double frame_min_y = y_pos - split_frame_margin;
+        const double frame_max_y = y_last + split_frame_margin;
+        gcode << move_to(Vec2d(frame_min_x, frame_min_y), writer);
+        gcode << writer.set_speed(fast);
+        Vec2d corner_from(frame_min_x, frame_min_y);
+        for (const Vec2d &corner : {Vec2d(frame_max_x, frame_min_y), Vec2d(frame_max_x, frame_max_y), Vec2d(frame_min_x, frame_max_y),
+                                    Vec2d(frame_min_x, frame_min_y)}) {
+            gcode << writer.extrude_to_xy(corner, e_per_mm * (corner - corner_from).norm());
+            corner_from = corner;
+        }
+
+        const double tick_length = split_frame_margin - split_tick_gap;
+        const double ticks_x[]   = {start_x + m_length_short, start_x + m_length_short + m_length_long / 2,
+                                    start_x + m_length_short + m_length_long};
+        gcode << writer.set_speed(slow);
+        // Below the first line from left to right, then above the last one from right to left.
+        for (int tick = 0; tick < 6; ++tick) {
+            const bool   below = tick < 3;
+            const double x     = ticks_x[below ? tick : 5 - tick];
+            const double y     = below ? frame_min_y : frame_max_y;
+            gcode << move_to(Vec2d(x, y), writer);
+            gcode << writer.extrude_to_xy(Vec2d(x, below ? y + tick_length : y - tick_length), thin_e_per_mm * tick_length);
+        }
+    }
 
     for (int i = 0; i < num; ++i) {
         const double pa = start_pa + i * step_pa;
