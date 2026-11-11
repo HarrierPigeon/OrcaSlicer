@@ -1,0 +1,131 @@
+{
+	"type": "machine",
+	"name": "Creality CR-30 0.4 nozzle",
+	"inherits": "fdm_creality_common",
+	"from": "system",
+	"setting_id": "FyDHR6KU4MK8k8wU",
+	"instantiation": "true",
+	"printer_model": "Creality CR-30",
+	"printer_variant": "0.4",
+	"nozzle_diameter": [
+		"0.4"
+	],
+	"printer_extruder_id": [
+		"1"
+	],
+	"printer_extruder_variant": [
+		"Direct Drive Standard"
+	],
+	"printable_area": [
+		"0x0",
+		"200x0",
+		"200x500",
+		"0x500"
+	],
+	"printable_height": "170",
+	"belt_printer": "1",
+	"belt_printer_infinite_y": "1",
+	"belt_slice_rotation": "x",
+	"belt_slice_rotation_angle": "45",
+	"build_plate_tilt_x": "45",
+	"gcode_remap_x": "rev_x",
+	"gcode_remap_y": "pos_z",
+	"gcode_remap_z": "pos_y",
+	"best_object_pos": "0.5,0.05",
+	"single_extruder_multi_material": "0",
+	"purge_in_prime_tower": "0",
+	"travel_slope": [
+		"3"
+	],
+	"retract_lift_enforce": [
+		"All Surfaces"
+	],
+	"z_hop": [
+		"0"
+	],
+	"nozzle_type": [
+		"brass"
+	],
+	"auxiliary_fan": "1",
+	"emit_machine_limits_to_gcode": "1",
+	"thumbnails": [
+		"48x48/PNG",
+		"300x300/PNG"
+	],
+	"default_filament_profile": [
+		"Generic PLA @Creality CR-30 0.4 nozzle"
+	],
+	"default_print_profile": "0.20mm Standard @Creality CR-30 0.4 nozzle",
+	"machine_max_speed_x": [
+		"800",
+		"800"
+	],
+	"machine_max_speed_y": [
+		"800",
+		"800"
+	],
+	"machine_max_speed_z": [
+		"30",
+		"30"
+	],
+	"machine_max_speed_e": [
+		"100",
+		"100"
+	],
+	"machine_max_acceleration_x": [
+		"3000",
+		"3000"
+	],
+	"machine_max_acceleration_y": [
+		"3000",
+		"3000"
+	],
+	"machine_max_acceleration_z": [
+		"500",
+		"500"
+	],
+	"machine_max_acceleration_e": [
+		"3000",
+		"3000"
+	],
+	"machine_max_acceleration_extruding": [
+		"3000",
+		"3000"
+	],
+	"machine_max_acceleration_retracting": [
+		"1000",
+		"1000"
+	],
+	"machine_max_acceleration_travel": [
+		"3000",
+		"3000"
+	],
+	"machine_max_jerk_x": [
+		"20",
+		"20"
+	],
+	"machine_max_jerk_y": [
+		"20",
+		"20"
+	],
+	"machine_max_jerk_z": [
+		"5",
+		"5"
+	],
+	"machine_max_jerk_e": [
+		"10",
+		"10"
+	],
+	"retraction_length": [
+		"0.8"
+	],
+	"retraction_speed": [
+		"40"
+	],
+	"wipe_distance": [
+		"2"
+	],
+	"machine_start_gcode": "; === Creality CR-30 3DPrintMill belt start (adapted from stock PrintMill g-code) ===\n; Machine axes: X=lateral  Y=nozzle gap above belt  Z=belt advance\nG90 ; absolute positioning\nM82 ; absolute extrusion\nG21 ; metric values\nM104 S[nozzle_temperature_initial_layer] ; start heating hotend\nM140 S[hot_plate_temp_initial_layer] ; start heating belt\nG28 X Y ; home X and gantry (Y)\nG92 Z0 E0 ; zero belt and extruder\nG1 Y2 F2000 ; move gantry off the belt\nG28 X0 F2000 ; home X\nG1 X200 Z5 F4000 ; move X to centre, advance belt slightly\n; --- sensorless belt probe: drop Y motor current so the nozzle stalls on contact ---\nM908 P5 S10 ; Y1 motor current off\nM908 P1 S10 ; Y2 motor current off\nG1 Y20 F3000 ; move gantry up\nM400 ; wait for moves to finish\nM908 P5 S25 ; Y1 motor current very low\nM908 P1 S25 ; Y2 motor current very low\nG1 Y0 F500 ; lower gantry until nozzle touches belt\nM400 ; wait for moves to finish\nM908 P5 S140 ; Y1 motor current back to normal\nM908 P1 S140 ; Y2 motor current back to normal\nG92 Y0 ; belt contact = Y0 (first-layer datum)\nM190 S[hot_plate_temp_initial_layer] ; wait for belt temp\nM109 S[nozzle_temperature_initial_layer] ; wait for hotend temp\n; --- purge across the belt, advancing Z between passes ---\nG1 Y2 F2000 ; gantry off the belt\nG1 F15000 ; high feedrate\nG1 X200 Y1 E10 ; extrude 10mm and move to the side\nG1 Z10 E12 F500\nG1 X0 E32\nG1 Z20 E34\nG1 X200 E54\nG1 Z30 E56 F500\nG1 X0 E76\nG1 Z40 E78\nG1 X200 E98\nG1 X0 Z40.2 E120\nG92 E0 Z0 ; zero extruder and belt - print starts here\nG1 E-4 F3900 ; retract 4mm at 65mm/s",
+	"machine_end_gcode": "; === Creality CR-30 belt end (stock PrintMill g-code) ===\nG92 E0 ; zero extruder\nG1 E-6 F1800 ; retract 6mm\nG92 Z0 ; zero belt\nG1 Z15 F1000 ; advance belt 15mm before the next product\nG92 Z0 ; zero belt again\nM104 S0 ; hotend heater off\nM140 S0 ; belt heater off\nM106 S0 ; part cooling fan off\nM106 P1 S0 ; rear/aux fan off\nG92 Z0\nG1 Z20 F1000 ; advance belt to release the part\nG28 X0 F2000 ; home X only (never G28 all - rewinds the belt)\nG1 Y10 F2000 ; lift gantry clear\nM18 ; disable all steppers",
+	"machine_pause_gcode": "M25 ;pause print"
+}
