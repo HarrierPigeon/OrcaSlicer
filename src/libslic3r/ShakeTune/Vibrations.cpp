@@ -619,24 +619,23 @@ std::optional<VibrationsProfile> analyze_vibrations_energy(const VibrationsEnerg
     else
         p.motor_angles = { 0., 90. };
 
-    // The speeds the motors were measured at. Recordings along other directions may use other speeds.
-    std::set<double> speed_set;
-    for (const double angle : p.motor_angles)
-        for (const auto &kv : energy.at(angle))
-            speed_set.insert(kv.first);
-    p.measured_speeds.assign(speed_set.begin(), speed_set.end());
+    // The speeds both motors were measured at. Shake&Tune measures them at the same speeds, but recordings along other
+    // directions may use other speeds, and a file of motor speed pairs (MOTOR_A=/MOTOR_B=) holds at most a few
+    // recordings along either motor's direction, at speeds of their own.
+    const std::map<double, double> &second_motor = energy.at(p.motor_angles[1]);
+    for (const auto &kv : energy.at(p.motor_angles[0]))
+        if (second_motor.count(kv.first))
+            p.measured_speeds.push_back(kv.first);
     const size_t n_measured = p.measured_speeds.size();
     if (n_measured < 2) {
-        error = "the vibrations profile needs recordings at two speeds at least";
+        error = "the vibrations profile needs recordings at the same two speeds at least along both motor directions";
         return std::nullopt;
     }
     for (size_t m = 0; m < 2; ++m) {
         const std::map<double, double> &by_speed = energy.at(p.motor_angles[m]);
         p.motor_energy[m].resize(n_measured);
-        for (size_t i = 0; i < n_measured; ++i) {
-            auto it              = by_speed.find(p.measured_speeds[i]);
-            p.motor_energy[m][i] = it == by_speed.end() ? 0. : it->second;
-        }
+        for (size_t i = 0; i < n_measured; ++i)
+            p.motor_energy[m][i] = by_speed.at(p.measured_speeds[i]);
     }
 
     // _compute_dir_speed_spectrogram(): project both motors' energy onto every direction of travel.

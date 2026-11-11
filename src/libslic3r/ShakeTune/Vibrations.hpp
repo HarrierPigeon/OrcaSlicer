@@ -63,7 +63,7 @@ struct VibrationsProfile
     // Directions the two motors were measured along: 0/90 (Cartesian, CoreXZ) or 45/135 (CoreXY).
     std::array<double, 2> motor_angles{ 0., 90. };
 
-    // The raw measurement grid: vibration energy of each motor at each speed it was driven at.
+    // The raw measurement grid: vibration energy of each motor at the speeds both were driven at.
     std::vector<double>                measured_speeds;
     std::array<std::vector<double>, 2> motor_energy;
 

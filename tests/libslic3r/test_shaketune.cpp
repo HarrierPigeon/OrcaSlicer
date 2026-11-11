@@ -179,6 +179,10 @@ TEST_CASE("Vibrations recording names give the angle and speed", "[ShakeTune]")
     CHECK_THAT(speed, WithinAbs(120., 1e-9));
     REQUIRE(parse_vibrations_measurement_name("vib_an135_00sp2_50", angle, speed));
     CHECK_THAT(speed, WithinAbs(2.5, 1e-9));
+    // A point of a motor speed pairs file (MOTOR_A=/MOTOR_B=): an angle of its own, and an index.
+    REQUIRE(parse_vibrations_measurement_name("vib_an70_46sp32_89_pt0", angle, speed));
+    CHECK_THAT(angle, WithinAbs(70.46, 1e-9));
+    CHECK_THAT(speed, WithinAbs(32.89, 1e-9));
     CHECK_FALSE(parse_vibrations_measurement_name("inputshaper_X_20261108", angle, speed));
 }
 
@@ -382,6 +386,20 @@ TEST_CASE("A vibrations profile recorded along more directions than the motors' 
 
     // Settings that disagree with the recordings give way to them when the recordings cover one pair only.
     matches(analyze_vibrations_energy(motors, error, MotorKinematics::Cartesian));
+
+    // A speed only one motor was measured at is left out, rather than read as silence from the other.
+    VibrationsEnergy uneven = motors;
+    uneven[45.][motors.at(45.).rbegin()->first + 10.] = 1e9;
+    matches(analyze_vibrations_energy(uneven, error));
+
+    // Motor speed pairs (MOTOR_A=/MOTOR_B=) away from the motor directions are no vibrations profile.
+    VibrationsEnergy pairs;
+    pairs[70.46][32.89] = 1.;
+    pairs[19.54][32.89] = 2.;
+    pairs[63.43][44.72] = 3.;
+    error.clear();
+    CHECK_FALSE(analyze_vibrations_energy(pairs, error).has_value());
+    CHECK(error.find("motor directions") != std::string::npos);
 }
 
 TEST_CASE("Vibrations analysis of a real printer matches Shake&Tune's own results", "[ShakeTune]")
