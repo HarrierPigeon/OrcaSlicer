@@ -10,6 +10,7 @@
 #include <string>
 #include <vector>
 
+#include "libslic3r/libslic3r.h"
 #include "libslic3r/ShakeTune/InputShaperLimits.hpp"
 #include "libslic3r/ShakeTune/KlipperReport.hpp"
 #include "libslic3r/ShakeTune/MotorResonance.hpp"
@@ -23,8 +24,6 @@ using namespace Slic3r::ShakeTune;
 using Catch::Matchers::WithinAbs;
 
 namespace {
-
-constexpr double PI = 3.14159265358979323846;
 
 bool any_band_contains(const SpeedBands &bands, double speed)
 {
