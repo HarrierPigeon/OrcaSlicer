@@ -283,6 +283,7 @@ struct PresetItem
     int          order{ INT_MAX };  // position on the settings pages; rows on no page sort last
     int          extruder_id{ 0 };  // extruder of a per-extruder page row, else 0
     bool         has_icon{ false }; // a value is too long to show, so the row has a compare button
+    bool         locked{ false };   // always kept: the saved preset has no value to go back to
 };
 
 

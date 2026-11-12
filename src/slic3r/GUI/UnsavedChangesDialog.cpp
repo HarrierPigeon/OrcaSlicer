@@ -921,10 +921,20 @@ inline int UnsavedChangesDialog::ShowModal()
     auto choise     = wxGetApp().app_config->get(choise_key);
     long result = 0;
     if ((m_buttons & REMEMBER_CHOISE) && !choise.empty() && wxString(choise).ToLong(&result) && (1 << result) & (m_buttons | DONT_SAVE)) {
+        // Only a choice this dialog offers as a button can be made for the user.
         const Action remembered = Action(result);
-        // A remembered Save would otherwise skip the unresolved-plugin warning in save(). Show the
-        // dialog when the presets being saved need it; remembered Transfer/Discard keep the shortcut.
-        if (remembered != Action::Save || !selected_save_needs_plugin_warning()) {
+        const bool   available  = remembered == Action::Discard ||
+                                  (remembered == Action::Save && m_save_btn) ||
+                                  (remembered == Action::Transfer && m_transfer_btn);
+        // A remembered Save shows the dialog when the presets being saved need the unresolved-plugin
+        // warning; remembered Transfer/Discard keep the shortcut.
+        if (available && (remembered != Action::Save || !selected_save_needs_plugin_warning())) {
+            // The same preparation as a click: Save and Keep need the preset names (without them
+            // nothing is saved and the changes are then discarded), and a name the user does not
+            // supply cancels.
+            if ((remembered == Action::Save || (remembered == Action::Transfer && ActionButtons::KEEP & m_buttons)) &&
+                !save(m_dependent_presets, remembered == Action::Save))
+                return wxID_CANCEL;
             m_exit_action = remembered;
             return 0;
         }
@@ -1218,16 +1228,15 @@ void UnsavedChangesDialog::build(Preset::Type type, PresetCollection *dependent_
         }
     }
 
-    /* ScalableButton *cancel_btn = new ScalableButton(this, wxID_CANCEL, "cross", _L("Cancel"), wxDefaultSize, wxDefaultPosition, wxBORDER_DEFAULT, true, 24);
-      buttons->Add(cancel_btn, 1, wxLEFT | wxRIGHT, 5);
-      cancel_btn->SetFont(btn_font);*/
-    /* m_cancel_btn = new Button(this, _L("Cancel"));
-     m_cancel_btn->SetTextColor(wxColour(107, 107, 107));
-     m_cancel_btn->Bind(wxEVT_LEFT_DOWN, [this](wxEvent &) { this->EndModal(wxID_CANCEL); });
-     m_cancel_btn->SetMinSize(UNSAVE_CHANGE_DIALOG_BUTTON_SIZE);
-     m_cancel_btn->SetCornerRadius(12);
-     m_sizer_button->Add(m_cancel_btn, 0, wxLEFT, 5);
-     m_sizer_button->Add(0,0,0,wxRIGHT,20);*/
+    // "Cancel" button: back to where things were, like closing the window. The copy dialog is a
+    // yes / no question and has none.
+    if (!is_copy) {
+        m_cancel_btn = new Button(this, _L("Cancel"));
+        m_cancel_btn->SetStyle(ButtonStyle::Regular, ButtonType::Choice);
+        m_cancel_btn->SetToolTip(_L("Go back without doing anything: nothing is saved, transferred or discarded."));
+        m_cancel_btn->Bind(wxEVT_BUTTON, [this](wxEvent &) { EndModal(wxID_CANCEL); });
+        m_sizer_button->Add(m_cancel_btn, 0, wxLEFT, FromDIP(ButtonProps::ChoiceButtonGap()));
+    }
 
     if (!m_app_config_key.empty()) {}
 
@@ -1692,10 +1701,11 @@ void UnsavedChangesDialog::update_list(SyncExtruderParams *params)
         if (params)
             row_all = add_label(panel_left, left_sizer, label, UNSAVE_CHANGE_DIALOG_OPTION_INDENT);
         else {
-            // The change's own box. Extruder count has none: the per-extruder values follow it.
+            // The change's own box. Extruder count has none: the per-extruder values follow it. Nor
+            // has a change the saved preset has no value to go back to.
             auto check = new ::CheckBox(panel_left);
             add_check_and_label(left_sizer, check, label, UNSAVE_CHANGE_DIALOG_OPTION_INDENT);
-            if (data.opt_key == "extruders_count")
+            if (data.opt_key == "extruders_count" || data.locked)
                 check->Hide();
             else {
                 check->SetValue(true);
@@ -2008,6 +2018,12 @@ void UnsavedChangesDialog::update_tree(Preset::Type type, PresetCollection* pres
             PresetItem pi = {type, opt_key, category, option.group_local, label, get_string_value(opt_key, old_config), get_string_value(opt_key, new_config)};
             pi.has_icon = value_clips(pi.old_value) || value_clips(pi.new_value);
             pi.extruder_id = row_extruder_id;
+            // Leaving a change out puts the saved value back, which needs one: an option the saved
+            // preset lacks, or one value of a vector it has empty, is always kept.
+            const std::string   pure_key = get_pure_opt_key(opt_key);
+            const ConfigOption *saved    = old_config.option(pure_key);
+            const auto         *vector   = dynamic_cast<const ConfigOptionVectorBase *>(saved);
+            pi.locked = saved == nullptr || (pure_key != opt_key && vector && vector->empty());
             m_presetitems.push_back(pi);
 
         }
@@ -2022,7 +2038,7 @@ void UnsavedChangesDialog::on_dpi_changed(const wxRect& suggested_rect)
     int em = em_unit();
 
     //msw_buttons_rescale(this, em, { wxID_CANCEL, m_move_btn_id, m_continue_btn_id });
-    for (auto btn : {m_transfer_btn, m_discard_btn, m_save_btn})
+    for (auto btn : {m_transfer_btn, m_discard_btn, m_save_btn, m_cancel_btn})
         if (btn) btn->Rescale();
 
     //m_cancel_btn->SetMinSize(UNSAVE_CHANGE_DIALOG_BUTTON_SIZE);
