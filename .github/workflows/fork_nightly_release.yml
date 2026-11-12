@@ -1,0 +1,140 @@
+# Publishes a fork's main as the rolling "nightly-builds" pre-release.
+#
+# Upstream's build jobs deploy to that release themselves, but only in
+# OrcaSlicer/OrcaSlicer. In a fork this workflow does it instead: once
+# "Build all" has finished green on main, it copies that run's app packages
+# onto the release and moves the nightly-builds tag to the commit they were
+# built from. Upstream's workflows are left alone, so a fork that is rebuilt
+# on top of upstream every night never conflicts with them here.
+name: Fork nightly release
+
+on:
+  workflow_run:
+    workflows: ["Build all"]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      run_id:
+        description: 'Build all run to publish; empty for the latest green push or dispatch run on main'
+        required: false
+        type: string
+
+permissions:
+  actions: read
+  contents: write
+
+concurrency:
+  group: fork-nightly-release
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    # A scheduled Build all skips every job in a fork and still ends green,
+    # so only push and dispatch runs have packages to publish.
+    if: >-
+      github.repository != 'OrcaSlicer/OrcaSlicer' &&
+      (github.event_name == 'workflow_dispatch' ||
+       (github.event.workflow_run.conclusion == 'success' &&
+        (github.event.workflow_run.event == 'push' || github.event.workflow_run.event == 'workflow_dispatch') &&
+        github.event.workflow_run.head_repository.full_name == github.repository))
+    runs-on: ubuntu-24.04
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      RELEASE_TAG: nightly-builds
+    steps:
+      - name: Find the build
+        id: run
+        env:
+          RUN_ID: ${{ github.event.workflow_run.id || inputs.run_id }}
+        run: |
+          if [ -z "$RUN_ID" ]; then
+            RUN_ID=$(gh run list --workflow build_all.yml --branch main --status success --limit 50 \
+              --json databaseId,event \
+              --jq '[.[] | select(.event == "push" or .event == "workflow_dispatch")][0].databaseId // empty')
+            [ -n "$RUN_ID" ] || { echo "::error::No green Build all run on main to publish"; exit 1; }
+          fi
+          run=$(gh api "repos/$GH_REPO/actions/runs/$RUN_ID")
+          branch=$(jq -r .head_branch <<<"$run")
+          [ "$branch" = main ] || { echo "::error::Run $RUN_ID built $branch, not main"; exit 1; }
+          echo "Publishing run $RUN_ID ($(jq -r .conclusion <<<"$run")) of $(jq -r .head_sha <<<"$run")"
+          {
+            echo "id=$RUN_ID"
+            echo "sha=$(jq -r .head_sha <<<"$run")"
+            echo "url=$(jq -r .html_url <<<"$run")"
+          } >> "$GITHUB_OUTPUT"
+
+      # The merge list in the notes comes from main's first-parent history.
+      - name: Check out the built commit
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ steps.run.outputs.sha }}
+          fetch-depth: 50
+          sparse-checkout: .github
+
+      # The build names its packages with the version from version.inc; the
+      # release names them "nightly" instead, so links to them stay put.
+      - name: Collect the app packages
+        env:
+          RUN_ID: ${{ steps.run.outputs.id }}
+        run: |
+          ver=V$(grep 'set(SoftFever_VERSION' version.inc | cut -d '"' -f2)
+          gh run download "$RUN_ID" --dir "$RUNNER_TEMP/dl" \
+            -p 'OrcaSlicer_Linux_ubuntu_*' -p 'OrcaSlicer_Windows_*' \
+            -p 'OrcaSlicer_Mac_universal_*' -p 'OrcaSlicer-Linux-flatpak_*'
+          out=$RUNNER_TEMP/out
+          mkdir -p "$out"
+          for dir in "$RUNNER_TEMP"/dl/*/; do
+            name=$(basename "$dir")
+            case $name in
+              OrcaSlicer_Windows_MSIX_*) ;;  # Store packages; they don't sideload unsigned
+              *_portable) (cd "$dir" && zip -qr9 "$out/${name/"_$ver"/_nightly}.zip" .) ;;
+              *)
+                for f in "$dir"*; do
+                  base=$(basename "$f")
+                  cp "$f" "$out/${base/"_$ver"/_nightly}"
+                done
+                ;;
+            esac
+          done
+          ls -l "$out"
+          [ -n "$(ls -A "$out")" ] || { echo "::error::Run $RUN_ID uploaded no app packages"; exit 1; }
+
+      - name: Publish the release
+        env:
+          SHA: ${{ steps.run.outputs.sha }}
+          RUN_URL: ${{ steps.run.outputs.url }}
+        run: |
+          notes=$RUNNER_TEMP/notes.md
+          # The integration rebuild titles its merges "Merge <branch> @ <sha> into fork/main",
+          # on top of an upstream commit.
+          log=$(git log --first-parent --format='%h %s' -n 50 "$SHA")
+          {
+            echo "Built $(date -u +'%Y-%m-%d') from this fork's \`main\` at $SHA ([Build all run]($RUN_URL))."
+            echo
+            echo "\`main\` is upstream OrcaSlicer with these branches merged, in order:"
+            echo
+            awk '/ into fork\/main$/ { sub(/^[0-9a-f]+ Merge /, ""); sub(/ into fork\/main$/, ""); print "- " $0; next } { exit }' <<<"$log" | tac
+            echo
+            echo "Upstream base: $(awk '!/ into fork\/main$/ { print; exit }' <<<"$log")"
+            echo
+            echo "Unsigned. On macOS, clear the quarantine flag (xattr -dr com.apple.quarantine) before the first launch."
+          } > "$notes"
+          cat "$notes"
+
+          if ! gh release view "$RELEASE_TAG" > /dev/null 2>&1; then
+            gh release create "$RELEASE_TAG" --prerelease --title "Nightly build" --target "$SHA" --notes-file "$notes"
+          fi
+          # deploy.sh replaces an asset atomically: it uploads under a temporary name, then renames.
+          for f in "$RUNNER_TEMP"/out/*; do
+            ASSET_PATH=$f ASSET_NAME=$(basename "$f") CONTENT_TYPE=application/octet-stream \
+              bash .github/actions/deploy-nightly/deploy.sh
+          done
+          # Packages this build didn't produce would otherwise sit beside it, built from an older commit.
+          gh release view "$RELEASE_TAG" --json assets --jq '.assets[].name' | while read -r asset; do
+            case $asset in *.partial-*) continue ;; esac
+            [ -e "$RUNNER_TEMP/out/$asset" ] || gh release delete-asset "$RELEASE_TAG" "$asset" --yes
+          done
+          gh api -X PATCH "repos/$GH_REPO/git/refs/tags/$RELEASE_TAG" -f sha="$SHA" -F force=true > /dev/null
+          gh release edit "$RELEASE_TAG" --prerelease --notes-file "$notes"
