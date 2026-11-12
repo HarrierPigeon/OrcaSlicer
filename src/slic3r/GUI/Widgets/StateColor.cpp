@@ -142,6 +142,39 @@ wxColour StateColor::SetLightness(const wxColour& color, double lightness) {
     return wxColour(r_int, g_int, b_int);
 }
 
+double StateColor::ContrastRatio(const wxColour& a, const wxColour& b)
+{
+    auto lum = [](const wxColour& c) {
+        auto f = [](double v) { v /= 255.0; return v <= 0.03928 ? v / 12.92 : std::pow((v + 0.055) / 1.055, 2.4); };
+        return 0.2126 * f(c.Red()) + 0.7152 * f(c.Green()) + 0.0722 * f(c.Blue());
+    };
+    const double la = lum(a), lb = lum(b);
+    return (std::max(la, lb) + 0.05) / (std::min(la, lb) + 0.05);
+}
+
+wxColour StateColor::EnsureContrast(const wxColour& text, const wxColour& bg, double min_ratio)
+{
+    if (ContrastRatio(text, bg) >= min_ratio)
+        return text;
+    // Lightness is not luminance: a mid grey can read better against white than black. Try the
+    // likely direction first, then the other, and fall back to whichever of black and white reads
+    // best.
+    const bool dark_first = GetLightness(bg) > 50.0;
+    for (const bool go_dark : { dark_first, !dark_first }) {
+        double l = GetLightness(text);
+        for (int i = 0; i < 20; ++i) {
+            l += go_dark ? -5.0 : 5.0;
+            if (l < 0.0 || l > 100.0)
+                break;
+            const wxColour c = SetLightness(text, l);
+            if (ContrastRatio(c, bg) >= min_ratio)
+                return c;
+        }
+    }
+    const wxColour black(0, 0, 0), white(255, 255, 255);
+    return ContrastRatio(black, bg) >= ContrastRatio(white, bg) ? black : white;
+}
+
 wxColour StateColor::LightenDarkenColor(const wxColour& color, int amount) {
     auto [l, a, b_lab] = GetLAB(color);
 

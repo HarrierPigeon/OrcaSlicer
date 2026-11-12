@@ -30,6 +30,10 @@ public:
     static std::tuple<double, double, double> GetLAB(const wxColour& color);
     static double GetLightness(const wxColour& color);
     static wxColour SetLightness(const wxColour& color, double lightness);
+    // WCAG 2 contrast ratio of two colours, from 1 (same luminance) to 21 (black on white).
+    static double ContrastRatio(const wxColour& a, const wxColour& b);
+    // `text`, or the nearest lighter or darker shade of it that reaches `min_ratio` against `bg`.
+    static wxColour EnsureContrast(const wxColour& text, const wxColour& bg, double min_ratio);
     static wxColour LightenDarkenColor(const wxColour& color, int amount);
     static double GetColorDifference(const wxColour& c1, const wxColour& c2);
     static double LAB_Delta_E(const wxColour& c1, const wxColour& c2);

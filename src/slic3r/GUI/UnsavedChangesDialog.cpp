@@ -23,6 +23,7 @@
 #include "slic3r/GUI/Widgets/StateColor.hpp"
 #include "slic3r/GUI/Widgets/Button.hpp"
 #include "slic3r/GUI/SettingsIndex.hpp"
+#include "slic3r/GUI/SettingsDiffTable.hpp"
 #include <set>
 #include <iterator>
 #include <string>
@@ -619,6 +620,17 @@ void DiffModel::Clear()
 static const Preset::Type PRESET_TYPE_ORDER[] = {
     Preset::TYPE_PRINTER, Preset::TYPE_FILAMENT, Preset::TYPE_SLA_MATERIAL, Preset::TYPE_PRINT, Preset::TYPE_SLA_PRINT };
 
+// The heading of a preset type's changes when several types are listed at once.
+static wxString preset_type_heading(Preset::Type type)
+{
+    switch (type) {
+    case Preset::TYPE_PRINT:    return _L("Process settings");
+    case Preset::TYPE_FILAMENT: return _L("Material settings");
+    case Preset::TYPE_PRINTER:  return _L("Printer settings");
+    default:                    return wxString();
+    }
+}
+
 static int preset_type_rank(Preset::Type type)
 {
     return int(std::find(std::begin(PRESET_TYPE_ORDER), std::end(PRESET_TYPE_ORDER), type) - std::begin(PRESET_TYPE_ORDER));
@@ -848,17 +860,15 @@ static std::string none{"none"};
 #define UNSAVE_CHANGE_DIALOG_ACTION_LINE_SIZE wxSize(FromDIP(490), -1)
 #define UNSAVE_CHANGE_DIALOG_FIRST_VALUE_WIDTH FromDIP(190)
 #define UNSAVE_CHANGE_DIALOG_VALUE_WIDTH FromDIP(150)
-#define UNSAVE_CHANGE_DIALOG_VALUE_TEXT_WIDTH (UNSAVE_CHANGE_DIALOG_VALUE_WIDTH - FromDIP(10))
 #define UNSAVE_CHANGE_DIALOG_CATEGORY_INDENT FromDIP(23)
 #define UNSAVE_CHANGE_DIALOG_GROUP_INDENT FromDIP(37)
 #define UNSAVE_CHANGE_DIALOG_OPTION_INDENT FromDIP(51)
-#define UNSAVE_CHANGE_DIALOG_ICON_WIDTH FromDIP(24)
 #define UNSAVE_CHANGE_DIALOG_ITEM_HEIGHT FromDIP(24)
 #define UNSAVE_CHANGE_DIALOG_SYNC_CELL_PADDING FromDIP(8)
-#define UNSAVE_CHANGE_DIALOG_TYPE_INDENT FromDIP(8)
 // A row's checkbox and the gap after it
-#define UNSAVE_CHANGE_DIALOG_CHECK_WIDTH FromDIP(22)
 #define UNSAVE_CHANGE_DIALOG_BUTTON_SIZE wxSize(FromDIP(70), FromDIP(24))
+#define UNSAVE_CHANGE_DIALOG_WIDTH FromDIP(880)
+#define UNSAVE_CHANGE_DIALOG_ACTION_LINE_WIDTH FromDIP(700)
 
 #define THUMB_COLOR wxColor(196, 196, 196)
 #define GREY900 wxColour(38, 46, 48)
@@ -874,7 +884,7 @@ UnsavedChangesDialog::UnsavedChangesDialog(const wxString &caption, const wxStri
                 caption + ": " + _L("unsaved changes"),
                 wxDefaultPosition,
                 wxDefaultSize,
-                wxCAPTION | wxCLOSE_BOX)
+                wxCAPTION | wxCLOSE_BOX | wxRESIZE_BORDER)
     , m_app_config_key(app_config_key)
     , m_buttons(act_buttons)
 {
@@ -905,7 +915,7 @@ UnsavedChangesDialog::UnsavedChangesDialog(Preset::Type type, PresetCollection *
                 _L("Transfer or discard changes"),
                 wxDefaultPosition,
                 wxDefaultSize,
-                wxCAPTION | wxCLOSE_BOX)
+                wxCAPTION | wxCLOSE_BOX | wxRESIZE_BORDER)
 {
     if (new_selected_preset.empty() || no_transfer)
         m_buttons &= ~ActionButtons::TRANSFER;
@@ -962,48 +972,28 @@ void UnsavedChangesDialog::build(Preset::Type type, PresetCollection *dependent_
     else
         update_tree(type, dependent_presets);
 
-    // The sync dialog has a value column per extruder, each fitted to its content once the table is built.
-    const int value_columns = params ? int(params->titles.size()) : 2;
-    m_value_width           = params ? wxDefaultCoord : UNSAVE_CHANGE_DIALOG_VALUE_WIDTH;
+    // The sync dialog has a value column per extruder, each fitted to its content once the table is built. The
+    // unsaved changes are a SettingsDiffTable, which sizes itself.
+    const int value_columns = params ? int(params->titles.size()) : 0;
+    m_value_width           = wxDefaultCoord;
     if (params) {
         m_sync_columns.assign(value_columns + 1, {});
         m_first_value_width = m_content_width = wxDefaultCoord;
-    } else {
-        auto row_width = [this](const wxString &text, const wxFont &font, int indent) {
-            int w = 0, h = 0;
-            GetTextExtent(text, &w, &h, nullptr, nullptr, &font);
-            return indent + w + FromDIP(16);
-        };
-        // Category headers span the row, so they widen the dialog rather than the label column.
-        m_first_value_width = UNSAVE_CHANGE_DIALOG_FIRST_VALUE_WIDTH;
-        int category_width  = 0;
-        for (const PresetItem &pi : m_presetitems) {
-            const int option_w = row_width(pi.option_name, ::Label::Body_13, UNSAVE_CHANGE_DIALOG_OPTION_INDENT) + (pi.has_icon ? UNSAVE_CHANGE_DIALOG_ICON_WIDTH : 0);
-            m_first_value_width = std::max({m_first_value_width, option_w, row_width(pi.group_name, ::Label::Head_13, UNSAVE_CHANGE_DIALOG_GROUP_INDENT)});
-            category_width      = std::max(category_width, row_width(pi.category_name, ::Label::Head_13, UNSAVE_CHANGE_DIALOG_CATEGORY_INDENT));
-        }
-        // Every row has its box before the label.
-        m_first_value_width = std::min(m_first_value_width + UNSAVE_CHANGE_DIALOG_CHECK_WIDTH, FromDIP(420));
-        category_width += UNSAVE_CHANGE_DIALOG_CHECK_WIDTH;
-        m_content_width     = std::min(std::max(m_first_value_width + 2 * UNSAVE_CHANGE_DIALOG_VALUE_WIDTH, category_width), FromDIP(760));
-    }
+    } else
+        m_content_width = UNSAVE_CHANGE_DIALOG_ACTION_LINE_WIDTH;
 
-    // update_list() gives every category, group and option one ITEM_HEIGHT row, and every type one outside the sync
-    // dialog, so this is the exact list height.
-    std::set<int>      row_types;
+    // update_list() gives every category, group and option of the sync dialog one ITEM_HEIGHT row, so this is the
+    // exact list height.
     std::set<wxString> row_cats, row_grps;
     for (const PresetItem &pi : m_presetitems) {
-        row_types.insert(int(pi.type));
         row_cats.insert(preset_item_cat_key(pi));
         row_grps.insert(preset_item_grp_key(pi));
     }
-    const int  row_count       = int((params ? 0 : row_types.size()) + row_cats.size() + row_grps.size() + m_presetitems.size());
-    const bool needs_scrollbar = row_count * UNSAVE_CHANGE_DIALOG_ITEM_HEIGHT > UNSAVE_CHANGE_DIALOG_SCROLL_WINDOW_SIZE.GetHeight();
+    const int  row_count       = int(row_cats.size() + row_grps.size() + m_presetitems.size());
+    const bool needs_scrollbar = params && row_count * UNSAVE_CHANGE_DIALOG_ITEM_HEIGHT > UNSAVE_CHANGE_DIALOG_SCROLL_WINDOW_SIZE.GetHeight();
 
     // Overlay scrollbars report a width of 0 and take no space.
     const int scrollbar_w = needs_scrollbar ? std::max(0, wxSystemSettings::GetMetric(wxSYS_VSCROLL_X, this)) : 0;
-    if (!params)
-        m_content_width += scrollbar_w;
 
     wxBoxSizer *m_sizer_main = new wxBoxSizer(wxVERTICAL);
 
@@ -1022,100 +1012,98 @@ void UnsavedChangesDialog::build(Preset::Type type, PresetCollection *dependent_
 
     m_sizer_main->Add(0, 0, 0, wxTOP, 12);
 
-    m_panel_tab = new wxPanel(this, wxID_ANY, wxDefaultPosition, wxSize(m_content_width, -1), wxTAB_TRAVERSAL);
-    m_panel_tab->SetBackgroundColour(wxColour("#D9D9D9"));
-    wxBoxSizer *m_sizer_tab = new wxBoxSizer(wxVERTICAL);
-
-    m_table_top = new wxPanel(m_panel_tab, wxID_ANY, wxDefaultPosition, wxDefaultSize, wxTAB_TRAVERSAL);
-    m_table_top->SetBackgroundColour(wxColour("#D9D9D9"));
-
-    wxBoxSizer *m_sizer_top = new wxBoxSizer(wxHORIZONTAL);
-
-    // m_sizer_top->Add(0, 0, 0, wxLEFT, UNSAVE_CHANGE_DIALOG_FIRST_VALUE_WIDTH);
-    auto        m_panel_temp   = new wxPanel(m_table_top, wxID_ANY, wxDefaultPosition, wxSize(m_first_value_width, -1), wxTAB_TRAVERSAL);
-    wxBoxSizer *top_title_temp_v = new wxBoxSizer(wxVERTICAL);
-    if (!params)
-        top_title_temp_v->SetMinSize(wxSize(UNSAVE_CHANGE_DIALOG_VALUE_WIDTH, -1));
-    wxBoxSizer *top_title_temp_h = new wxBoxSizer(wxHORIZONTAL);
-
-    // Tick-all boxes of the header: every change or copy (column -1), or in the sync dialog every copy to one column.
     std::vector<std::pair<size_t, int>> header_checks;
-    auto add_header_check = [this, &header_checks](wxPanel *panel, wxBoxSizer *sizer, int column) {
-        panel->SetBackgroundColour(wxColour("#D9D9D9"));
-        const size_t k = add_all_check(panel);
-        header_checks.emplace_back(k, column);
-        sizer->Add(m_all_checks[k].first, 0, wxALIGN_CENTER | wxRIGHT | wxRESERVE_SPACE_EVEN_IF_HIDDEN, FromDIP(4));
-    };
-    add_header_check(m_panel_temp, top_title_temp_h, -1);
-    static_temp_title            = new wxStaticText(m_panel_temp, wxID_ANY, _L("Settings"), wxDefaultPosition, wxDefaultSize, 0);
-    static_temp_title->SetFont(::Label::Body_13);
-    static_temp_title->Wrap(-1);
-    static_temp_title->SetForegroundColour(wxColour("#363636"));
-    top_title_temp_h->Add(static_temp_title, 0, wxALIGN_CENTER | wxBOTTOM | wxTOP, 5);
-    // The corner box sits above the boxes of the outermost rows: the categories in the sync dialog, else the preset types.
-    top_title_temp_v->Add(top_title_temp_h, 1, wxLEFT, params ? UNSAVE_CHANGE_DIALOG_CATEGORY_INDENT : UNSAVE_CHANGE_DIALOG_TYPE_INDENT);
-    m_panel_temp->SetSizer(top_title_temp_v);
-    m_panel_temp->Layout();
-    m_sizer_top->Add(m_panel_temp, 1, wxALIGN_CENTER, 0);
-    if (params)
+    if (!params) {
+        // The changed settings, as a diff to pick from.
+        m_diff_table = new SettingsDiffTable(this);
+        m_sizer_main->Add(m_diff_table, 1, wxEXPAND | wxLEFT | wxRIGHT, 20);
+    } else {
+        m_panel_tab = new wxPanel(this, wxID_ANY, wxDefaultPosition, wxSize(m_content_width, -1), wxTAB_TRAVERSAL);
+        m_panel_tab->SetBackgroundColour(wxColour("#D9D9D9"));
+        wxBoxSizer *m_sizer_tab = new wxBoxSizer(wxVERTICAL);
+
+        m_table_top = new wxPanel(m_panel_tab, wxID_ANY, wxDefaultPosition, wxDefaultSize, wxTAB_TRAVERSAL);
+        m_table_top->SetBackgroundColour(wxColour("#D9D9D9"));
+
+        wxBoxSizer *m_sizer_top = new wxBoxSizer(wxHORIZONTAL);
+
+        // m_sizer_top->Add(0, 0, 0, wxLEFT, UNSAVE_CHANGE_DIALOG_FIRST_VALUE_WIDTH);
+        auto        m_panel_temp   = new wxPanel(m_table_top, wxID_ANY, wxDefaultPosition, wxSize(m_first_value_width, -1), wxTAB_TRAVERSAL);
+        wxBoxSizer *top_title_temp_v = new wxBoxSizer(wxVERTICAL);
+        wxBoxSizer *top_title_temp_h = new wxBoxSizer(wxHORIZONTAL);
+
+        // Tick-all boxes of the header: every copy (column -1), or every copy to one column.
+        auto add_header_check = [this, &header_checks](wxPanel *panel, wxBoxSizer *sizer, int column) {
+            panel->SetBackgroundColour(wxColour("#D9D9D9"));
+            const size_t k = add_all_check(panel);
+            header_checks.emplace_back(k, column);
+            sizer->Add(m_all_checks[k].first, 0, wxALIGN_CENTER | wxRIGHT | wxRESERVE_SPACE_EVEN_IF_HIDDEN, FromDIP(4));
+        };
+        add_header_check(m_panel_temp, top_title_temp_h, -1);
+        static_temp_title            = new wxStaticText(m_panel_temp, wxID_ANY, _L("Settings"), wxDefaultPosition, wxDefaultSize, 0);
+        static_temp_title->SetFont(::Label::Body_13);
+        static_temp_title->Wrap(-1);
+        static_temp_title->SetForegroundColour(wxColour("#363636"));
+        top_title_temp_h->Add(static_temp_title, 0, wxALIGN_CENTER | wxBOTTOM | wxTOP, 5);
+        // The corner box sits above the boxes of the outermost rows, the categories.
+        top_title_temp_v->Add(top_title_temp_h, 1, wxLEFT, UNSAVE_CHANGE_DIALOG_CATEGORY_INDENT);
+        m_panel_temp->SetSizer(top_title_temp_v);
+        m_panel_temp->Layout();
+        m_sizer_top->Add(m_panel_temp, 1, wxALIGN_CENTER, 0);
         m_sync_columns[0].push_back(m_panel_temp);
 
-    auto add_title = [this, m_sizer_top, params, &add_header_check](const wxString &label, bool highlight, int column) {
-        // The first separator keeps its default width, except in the sync dialog, which aligns its header with the rows.
-        auto separator = new wxPanel(m_table_top, wxID_ANY, wxDefaultPosition, !params && m_sizer_top->GetItemCount() == 1 ? wxDefaultSize : wxSize(1, -1), wxTAB_TRAVERSAL);
-        separator->SetBackgroundColour(wxColour(172, 172, 172));
-        m_sizer_top->Add(separator, 0, wxBOTTOM | wxEXPAND | wxTOP, 2);
+        auto add_title = [this, m_sizer_top, &add_header_check](const wxString &label, bool highlight, int column) {
+            // The header lines up with the rows.
+            auto separator = new wxPanel(m_table_top, wxID_ANY, wxDefaultPosition, wxSize(1, -1), wxTAB_TRAVERSAL);
+            separator->SetBackgroundColour(wxColour(172, 172, 172));
+            m_sizer_top->Add(separator, 0, wxBOTTOM | wxEXPAND | wxTOP, 2);
 
-        auto panel   = new wxPanel(m_table_top, wxID_ANY, wxDefaultPosition, wxSize(m_value_width, -1), wxTAB_TRAVERSAL);
-        auto sizer_v = new wxBoxSizer(wxVERTICAL);
-        auto sizer_h = new wxBoxSizer(wxHORIZONTAL);
-        if (column >= 0)
-            add_header_check(panel, sizer_h, column);
-        auto title   = new wxStaticText(panel, wxID_ANY, label, wxDefaultPosition, wxDefaultSize, 0);
-        title->SetFont(::Label::Body_13);
-        title->Wrap(-1);
-        title->SetForegroundColour(highlight ? wxGetApp().get_label_clr_modified() : wxColour("#363636"));
-        sizer_h->Add(title, 0, wxALIGN_CENTER | wxBOTTOM | wxTOP, 5);
-        sizer_v->Add(sizer_h, 1, params ? wxLEFT : wxALIGN_CENTER, params ? UNSAVE_CHANGE_DIALOG_SYNC_CELL_PADDING : 0);
-        panel->SetSizer(sizer_v);
-        panel->Layout();
-        m_sizer_top->Add(panel, 0, wxALIGN_CENTER, 0);
-        return title;
-    };
-    if (params) {
+            auto panel   = new wxPanel(m_table_top, wxID_ANY, wxDefaultPosition, wxSize(m_value_width, -1), wxTAB_TRAVERSAL);
+            auto sizer_v = new wxBoxSizer(wxVERTICAL);
+            auto sizer_h = new wxBoxSizer(wxHORIZONTAL);
+            if (column >= 0)
+                add_header_check(panel, sizer_h, column);
+            auto title   = new wxStaticText(panel, wxID_ANY, label, wxDefaultPosition, wxDefaultSize, 0);
+            title->SetFont(::Label::Body_13);
+            title->Wrap(-1);
+            title->SetForegroundColour(highlight ? wxGetApp().get_label_clr_modified() : wxColour("#363636"));
+            sizer_h->Add(title, 0, wxALIGN_CENTER | wxBOTTOM | wxTOP, 5);
+            sizer_v->Add(sizer_h, 1, wxLEFT, UNSAVE_CHANGE_DIALOG_SYNC_CELL_PADDING);
+            panel->SetSizer(sizer_v);
+            panel->Layout();
+            m_sizer_top->Add(panel, 0, wxALIGN_CENTER, 0);
+            return title;
+        };
         // With a single target its column box would repeat the one ticking every copy.
         for (int i = 0; i < value_columns; ++i)
             m_sync_columns[i + 1].push_back(
                 add_title(params->titles[i], i == params->source, value_columns > 2 && i != params->source ? i : -1)->GetParent());
-    } else {
-        static_oldv_title = add_title(_L("Old Value"), false, -1);
-        static_newv_title = add_title(_L("New Value"), false, -1);
+
+        if (scrollbar_w > 0) {
+            // Extend the header over the scrollbar so New Value lines up with its rows.
+            auto title_block_gutter = new wxPanel(m_table_top, wxID_ANY, wxDefaultPosition, wxSize(1, -1), wxTAB_TRAVERSAL);
+            title_block_gutter->SetBackgroundColour(wxColour(172, 172, 172));
+            m_sizer_top->Add(title_block_gutter, 0, wxBOTTOM | wxEXPAND | wxTOP, 2);
+            m_sizer_top->AddSpacer(scrollbar_w - 1);
+        }
+
+        m_table_top->SetSizer(m_sizer_top);
+        m_table_top->Layout();
+        m_sizer_top->Fit(m_table_top);
+        m_sizer_tab->Add(m_table_top, 1, 0, 0);
+
+        m_scrolledWindow = new wxScrolledWindow(m_panel_tab, wxID_ANY, wxDefaultPosition, wxSize(m_content_width, UNSAVE_CHANGE_DIALOG_SCROLL_WINDOW_SIZE.y),  wxNO_BORDER|wxVSCROLL);
+        m_scrolledWindow->SetScrollRate(0, FromDIP(20));
+        m_scrolledWindow->SetBackgroundColour(GREY200);
+        m_sizer_bottom = new wxBoxSizer(wxVERTICAL);
+        m_sizer_bottom->Add(m_scrolledWindow, 1, wxEXPAND, 0);
+        m_sizer_tab->Add(m_sizer_bottom, 0, wxEXPAND, 0);
+
+        m_panel_tab->SetSizer(m_sizer_tab);
+        m_panel_tab->Layout();
+        m_sizer_tab->Fit(m_panel_tab);
+        m_sizer_main->Add(m_panel_tab, 0, wxEXPAND | wxLEFT | wxRIGHT, 20);
     }
-
-    if (scrollbar_w > 0) {
-        // Extend the header over the scrollbar so New Value lines up with its rows.
-        auto title_block_gutter = new wxPanel(m_table_top, wxID_ANY, wxDefaultPosition, wxSize(1, -1), wxTAB_TRAVERSAL);
-        title_block_gutter->SetBackgroundColour(wxColour(172, 172, 172));
-        m_sizer_top->Add(title_block_gutter, 0, wxBOTTOM | wxEXPAND | wxTOP, 2);
-        m_sizer_top->AddSpacer(scrollbar_w - 1);
-    }
-
-    m_table_top->SetSizer(m_sizer_top);
-    m_table_top->Layout();
-    m_sizer_top->Fit(m_table_top);
-    m_sizer_tab->Add(m_table_top, 1, 0, 0);
-
-    m_scrolledWindow = new wxScrolledWindow(m_panel_tab, wxID_ANY, wxDefaultPosition, wxSize(m_content_width, UNSAVE_CHANGE_DIALOG_SCROLL_WINDOW_SIZE.y),  wxNO_BORDER|wxVSCROLL);
-    m_scrolledWindow->SetScrollRate(0, FromDIP(20));
-    m_scrolledWindow->SetBackgroundColour(GREY200);
-    m_sizer_bottom = new wxBoxSizer(wxVERTICAL);
-    m_sizer_bottom->Add(m_scrolledWindow, 1, wxEXPAND, 0);
-    m_sizer_tab->Add(m_sizer_bottom, 0, wxEXPAND, 0);
-
-    m_panel_tab->SetSizer(m_sizer_tab);
-    m_panel_tab->Layout();
-    m_sizer_tab->Fit(m_panel_tab);
-    m_sizer_main->Add(m_panel_tab, 0, wxEXPAND | wxLEFT | wxRIGHT, 20);
 
     m_sizer_main->Add(0, 0, 0, wxTOP, 9);
 
@@ -1238,11 +1226,20 @@ void UnsavedChangesDialog::build(Preset::Type type, PresetCollection *dependent_
         m_sizer_button->Add(m_cancel_btn, 0, wxLEFT, FromDIP(ButtonProps::ChoiceButtonGap()));
     }
 
+    if (m_diff_table)
+        // Saving or transferring nothing is what Discard is for.
+        m_diff_table->set_on_change([this] {
+            for (Button *btn : {m_save_btn, m_transfer_btn})
+                if (btn)
+                    btn->Enable(m_diff_table->included_count() > 0);
+        });
+
     if (!m_app_config_key.empty()) {}
 
     m_sizer_button->Add(0, 0, 0, wxRIGHT, 20);
     m_sizer_main->Add(m_sizer_button, 0, wxEXPAND | wxTOP, 6);
-    m_sizer_main->Add(0, 0, 1, wxTOP, 18);
+    // The table takes the room a resized dialog gives; the sync dialog's list keeps its height.
+    m_sizer_main->Add(0, 0, m_diff_table ? 0 : 1, wxTOP, 18);
 
     if (params) {
         m_action_line->SetLabel(header);
@@ -1270,9 +1267,6 @@ void UnsavedChangesDialog::build(Preset::Type type, PresetCollection *dependent_
         for (const auto &[check, opt_key, index, check_column] : m_sync_checks)
             if (column < 0 || column == check_column)
                 m_all_checks[k].second.push_back(check);
-        if (column < 0)
-            for (const auto &option : m_option_checks)
-                m_all_checks[k].second.push_back(std::get<0>(option));
     }
     // A box over a single one would only repeat it.
     for (const auto &[all, cells] : m_all_checks)
@@ -1286,6 +1280,16 @@ void UnsavedChangesDialog::build(Preset::Type type, PresetCollection *dependent_
     SetSizerAndFit(m_sizer_main);
     Layout();
     Fit();
+    if (m_diff_table) {
+        // The fitted size is the smallest usable one. Open large enough to show the changes without scrolling, as
+        // far as the screen allows.
+        wxSize size = GetSize();
+        size.x = std::max(size.x, UNSAVE_CHANGE_DIALOG_WIDTH);
+        size.y += m_diff_table->preferred_height() - m_diff_table->GetMinSize().y;
+        const wxSize screen = wxGetClientDisplayRect().GetSize();
+        size.DecTo(wxSize(screen.x * 9 / 10, screen.y * 9 / 10));
+        SetSize(size);
+    }
     // Centre(wxBOTH);
 }
 
@@ -1538,18 +1542,9 @@ void UnsavedChangesDialog::update(Preset::Type type, PresetCollection* dependent
     update_list();
 }
 
-bool UnsavedChangesDialog::value_clips(const wxString &value) const
-{
-    if (value.find('\n') != wxString::npos)
-        return true;
-    int w = 0, h = 0;
-    GetTextExtent(value, &w, &h, nullptr, nullptr, &::Label::Body_13);
-    return w > UNSAVE_CHANGE_DIALOG_VALUE_TEXT_WIDTH;
-}
-
 void UnsavedChangesDialog::update_list(SyncExtruderParams *params)
 {
-    if (!m_scrolledWindow) {
+    if (!m_scrolledWindow && !m_diff_table) {
         Layout();
         Fit();
         return;
@@ -1582,50 +1577,43 @@ void UnsavedChangesDialog::update_list(SyncExtruderParams *params)
                          return a.order < b.order;
                      });
 
-    auto value_tooltip = [](const wxString &full) {
-        const size_t cap = 500;  // a whole g-code block is unreadable in a tooltip
-        return full.length() <= cap ? full : full.Left(cap) + "...\n\n" + _L("Click the compare button to see the full value.");
-    };
+    if (m_diff_table) {
+        // Several presets are listed at once when a project is created, loaded or closed: each gets a heading.
+        std::set<Preset::Type> types;
+        for (const PresetItem &pi : m_presetitems)
+            types.insert(pi.type);
+        std::vector<SettingsDiffItem> items;
+        items.reserve(m_presetitems.size());
+        for (const PresetItem &pi : m_presetitems) {
+            SettingsDiffItem item;
+            item.preset        = types.size() > 1 ? preset_type_heading(pi.type) : wxString();
+            item.category      = pi.category_name;
+            item.group         = pi.group_name;
+            item.label         = pi.option_name;
+            item.new_value     = pi.new_value;
+            item.current_value = pi.old_value;
+            // A changed extruder count resizes every per-extruder option: it cannot be left out on its own.
+            item.locked = pi.locked || pi.opt_key == "extruders_count";
+            items.emplace_back(std::move(item));
+        }
+        m_diff_table->set_items(std::move(items));
+        return;
+    }
 
-    // A width of wxDefaultCoord keeps the label's natural width, which the sync dialog's fitted columns use.
-    auto make_label = [](wxWindow *parent, const wxString &text, const wxFont &font, int width, const wxColour &colour,
-                         const wxString &tooltip = wxString(), long style = wxST_ELLIPSIZE_END) {
-        const bool natural = width == wxDefaultCoord;
-        auto t = new wxStaticText(parent, wxID_ANY, text, wxDefaultPosition, natural ? wxDefaultSize : wxSize(std::max(0, width), -1), style);
+    // The sync dialog's labels keep their natural width, which its fitted columns use.
+    auto make_label = [](wxWindow *parent, const wxString &text, const wxFont &font, const wxColour &colour) {
+        auto t = new wxStaticText(parent, wxID_ANY, text, wxDefaultPosition, wxDefaultSize, wxST_ELLIPSIZE_END);
         t->SetFont(font);
         t->SetForegroundColour(colour);
-        t->SetToolTip(tooltip.IsEmpty() && !natural && t->GetTextExtent(text).GetWidth() > width ? text : tooltip);
         return t;
     };
 
-    // A box before a line's label: one change's own, or one ticking every change (or, in the sync dialog, copy) under it.
-    auto add_check_and_label = [this](wxSizer *sizer, ::CheckBox *check, wxStaticText *text, int indent) {
-        sizer->Add(check, 0, wxALIGN_CENTER_VERTICAL | wxLEFT | wxRESERVE_SPACE_EVEN_IF_HIDDEN, indent);
-        sizer->Add(text, 0, wxALIGN_CENTER_VERTICAL | wxLEFT, FromDIP(4));
-    };
-    auto add_label = [this, &add_check_and_label](wxWindow *parent, wxSizer *sizer, wxStaticText *text, int indent) -> size_t {
+    // A box before a line's label, ticking every copy under it.
+    auto add_label = [this](wxWindow *parent, wxSizer *sizer, wxStaticText *text, int indent) -> size_t {
         const size_t k = add_all_check(parent);
-        add_check_and_label(sizer, m_all_checks[k].first, text, indent);
+        sizer->Add(m_all_checks[k].first, 0, wxALIGN_CENTER_VERTICAL | wxLEFT | wxRESERVE_SPACE_EVEN_IF_HIDDEN, indent);
+        sizer->Add(text, 0, wxALIGN_CENTER_VERTICAL | wxLEFT, FromDIP(4));
         return k;
-    };
-    // The label width of a line, or the natural one in the sync dialog.
-    auto label_width = [params](int width) { return params ? wxDefaultCoord : width; };
-
-    auto make_value_col = [&](wxWindow *parent, wxString value, bool modified, bool may_clip) {
-        auto panel = new wxPanel(parent, wxID_ANY, wxDefaultPosition, wxSize(UNSAVE_CHANGE_DIALOG_VALUE_WIDTH, -1), wxTAB_TRAVERSAL);
-        auto sizer = new wxBoxSizer(wxVERTICAL);
-        // Before flattening, so g-code newlines survive in the tooltip.
-        const wxString tooltip = (may_clip && value_clips(value)) ? value_tooltip(value) : wxString();
-        value.Replace("\n", " ");
-        value.Replace("\r", " ");
-        value.Trim(false);
-        auto text = make_label(panel, value, ::Label::Body_13, UNSAVE_CHANGE_DIALOG_VALUE_TEXT_WIDTH,
-                               modified ? wxGetApp().get_label_clr_modified() : GREY700, tooltip,
-                               wxST_ELLIPSIZE_END | wxALIGN_CENTRE_HORIZONTAL);
-        sizer->Add(text, 0, wxALIGN_CENTER | wxLEFT | wxRIGHT, 5);
-        panel->SetSizer(sizer);
-        panel->Layout();
-        return panel;
     };
 
     auto m_listsizer = new wxBoxSizer(wxVERTICAL);
@@ -1636,33 +1624,11 @@ void UnsavedChangesDialog::update_list(SyncExtruderParams *params)
         m_listsizer->Add(panel, 0, wxEXPAND, 0);
     };
 
-    // Other preset types get no header, and so no box.
-    static constexpr size_t no_box = size_t(-1);
-    auto emit_type_header = [&](Preset::Type type) -> size_t {
-        wxString label;
-        switch (type) {
-        case Preset::TYPE_PRINT:    label = _L("Process settings"); break;
-        case Preset::TYPE_FILAMENT: label = _L("Material settings"); break;
-        case Preset::TYPE_PRINTER:  label = _L("Printer settings"); break;
-        default: return no_box;
-        }
-        auto panel = new wxPanel(m_scrolledWindow, wxID_ANY, wxDefaultPosition, wxSize(-1, UNSAVE_CHANGE_DIALOG_ITEM_HEIGHT), wxTAB_TRAVERSAL);
-        panel->SetBackgroundColour(GREY400);
-        auto sizer = new wxBoxSizer(wxHORIZONTAL);
-        const size_t all = add_label(panel, sizer, make_label(panel, label, ::Label::Head_16,
-                                     m_content_width - UNSAVE_CHANGE_DIALOG_TYPE_INDENT - FromDIP(8) - UNSAVE_CHANGE_DIALOG_CHECK_WIDTH, GREY900),
-                                     UNSAVE_CHANGE_DIALOG_TYPE_INDENT);
-        finish_row(panel, sizer);
-        return all;
-    };
-
     auto emit_category = [&](const wxString &category_name) {
         auto panel = new wxPanel(m_scrolledWindow, wxID_ANY, wxDefaultPosition, wxSize(-1, UNSAVE_CHANGE_DIALOG_ITEM_HEIGHT), wxTAB_TRAVERSAL);
         panel->SetBackgroundColour(GREY300);
         auto sizer = new wxBoxSizer(wxHORIZONTAL);
-        const size_t all = add_label(panel, sizer, make_label(panel, category_name, ::Label::Head_13,
-                                     label_width(m_content_width - UNSAVE_CHANGE_DIALOG_CATEGORY_INDENT - FromDIP(8) - UNSAVE_CHANGE_DIALOG_CHECK_WIDTH), GREY900),
-                                     UNSAVE_CHANGE_DIALOG_CATEGORY_INDENT);
+        const size_t all = add_label(panel, sizer, make_label(panel, category_name, ::Label::Head_13, GREY900), UNSAVE_CHANGE_DIALOG_CATEGORY_INDENT);
         finish_row(panel, sizer);
         return all;
     };
@@ -1674,19 +1640,16 @@ void UnsavedChangesDialog::update_list(SyncExtruderParams *params)
         auto panel_left = new wxPanel(panel, wxID_ANY, wxDefaultPosition, wxSize(m_first_value_width, -1), wxTAB_TRAVERSAL);
         panel_left->SetBackgroundColour(GREY200);
         auto left_sizer = new wxBoxSizer(wxHORIZONTAL);
-        const size_t all = add_label(panel_left, left_sizer, make_label(panel_left, group_name, ::Label::Head_13,
-                                     label_width(m_first_value_width - UNSAVE_CHANGE_DIALOG_GROUP_INDENT - FromDIP(8) - UNSAVE_CHANGE_DIALOG_CHECK_WIDTH), GREY700),
-                                     UNSAVE_CHANGE_DIALOG_GROUP_INDENT);
+        const size_t all = add_label(panel_left, left_sizer, make_label(panel_left, group_name, ::Label::Head_13, GREY700), UNSAVE_CHANGE_DIALOG_GROUP_INDENT);
         panel_left->SetSizer(left_sizer);
         panel_left->Layout();
         sizer->Add(panel_left, 0, wxALIGN_CENTER, 0);
-        if (params)
-            m_sync_columns[0].push_back(panel_left);
+        m_sync_columns[0].push_back(panel_left);
         finish_row(panel, sizer);
         return all;
     };
 
-    auto emit_option = [&](const PresetItem &data, size_t type_all, size_t category_all, size_t group_all) {
+    auto emit_option = [&](const PresetItem &data, size_t category_all, size_t group_all) {
         auto panel = new wxWindow(m_scrolledWindow, -1, wxDefaultPosition, wxSize(-1, UNSAVE_CHANGE_DIALOG_ITEM_HEIGHT));
         panel->SetBackgroundColour(GREY200);
         auto sizer = new wxBoxSizer(wxHORIZONTAL);
@@ -1694,90 +1657,51 @@ void UnsavedChangesDialog::update_list(SyncExtruderParams *params)
         auto panel_left = new wxPanel(panel, wxID_ANY, wxDefaultPosition, wxSize(m_first_value_width, -1), wxTAB_TRAVERSAL);
         panel_left->SetBackgroundColour(GREY200);
         auto left_sizer = new wxBoxSizer(wxHORIZONTAL);
-        const int text_w = m_first_value_width - UNSAVE_CHANGE_DIALOG_OPTION_INDENT - FromDIP(8) - UNSAVE_CHANGE_DIALOG_CHECK_WIDTH -
-                           (data.has_icon ? UNSAVE_CHANGE_DIALOG_ICON_WIDTH : 0);
-        auto label = make_label(panel_left, data.option_name, ::Label::Body_13, label_width(text_w), GREY700);
-        size_t row_all = 0;
-        if (params)
-            row_all = add_label(panel_left, left_sizer, label, UNSAVE_CHANGE_DIALOG_OPTION_INDENT);
-        else {
-            // The change's own box. Extruder count has none: the per-extruder values follow it. Nor
-            // has a change the saved preset has no value to go back to.
-            auto check = new ::CheckBox(panel_left);
-            add_check_and_label(left_sizer, check, label, UNSAVE_CHANGE_DIALOG_OPTION_INDENT);
-            if (data.opt_key == "extruders_count" || data.locked)
-                check->Hide();
-            else {
-                check->SetValue(true);
-                check->Bind(wxEVT_TOGGLEBUTTON, [this](wxCommandEvent &e) { update_all_checks(); e.Skip(); });
-                m_option_checks.emplace_back(check, data.type, data.opt_key);
-                for (size_t k : {type_all, category_all, group_all})
-                    if (k != no_box)
-                        m_all_checks[k].second.push_back(check);
-            }
-        }
-        if (data.has_icon) {
-            auto compare_btn = new Button(panel_left, "", "compare", 0, 16);
-            compare_btn->SetStyle(ButtonStyle::Regular, ButtonType::Icon);
-            compare_btn->SetPaddingSize(FromDIP(wxSize(1, 1)));
-            compare_btn->SetMinSize(FromDIP(wxSize(20, 20)));
-            compare_btn->SetSize(FromDIP(wxSize(20, 20)));
-            compare_btn->SetCanFocus(false);
-            compare_btn->SetToolTip(_L("Compare the full values"));
-            compare_btn->Bind(wxEVT_BUTTON, [this, data](wxCommandEvent &) {
-                FullCompareDialog(data.option_name, data.old_value, data.new_value,
-                                  static_oldv_title->GetLabel(), static_newv_title->GetLabel()).ShowModal();
-            });
-            left_sizer->Add(compare_btn, 0, wxLEFT | wxALIGN_CENTER_VERTICAL, FromDIP(4));
-        }
+        const size_t row_all = add_label(panel_left, left_sizer, make_label(panel_left, data.option_name, ::Label::Body_13, GREY700),
+                                         UNSAVE_CHANGE_DIALOG_OPTION_INDENT);
         panel_left->SetSizer(left_sizer);
         panel_left->Layout();
         sizer->Add(panel_left, 0, wxALIGN_CENTER, 0);
 
-        if (params) {
-            m_sync_columns[0].push_back(panel_left);
-            // A target whose value differs from the source gets a checkbox for copying it.
-            DynamicPrintConfig value_config;
-            value_config.set_key_value(data.opt_key, params->config->option(data.opt_key)->clone());
-            const auto  values    = dynamic_cast<const ConfigOptionVectorBase *>(params->config->option(data.opt_key))->vserialize();
-            const auto &positions = params->positions.at(data.opt_key);
-            const int   from      = positions.index[params->source];
-            for (int i = 0; i < int(params->titles.size()); ++i) {
-                // A column without a value of this option, e.g. an extruder without its nozzle variant, stays empty.
-                const int index   = positions.index[i];
-                bool      differs = false;
-                for (int s = 0; index >= 0 && s < positions.stride; ++s)
-                    differs |= values[from + s] != values[index + s];
+        m_sync_columns[0].push_back(panel_left);
+        // A target whose value differs from the source gets a checkbox for copying it.
+        DynamicPrintConfig value_config;
+        value_config.set_key_value(data.opt_key, params->config->option(data.opt_key)->clone());
+        const auto  values    = dynamic_cast<const ConfigOptionVectorBase *>(params->config->option(data.opt_key))->vserialize();
+        const auto &positions = params->positions.at(data.opt_key);
+        const int   from      = positions.index[params->source];
+        for (int i = 0; i < int(params->titles.size()); ++i) {
+            // A column without a value of this option, e.g. an extruder without its nozzle variant, stays empty.
+            const int index   = positions.index[i];
+            bool      differs = false;
+            for (int s = 0; index >= 0 && s < positions.stride; ++s)
+                differs |= values[from + s] != values[index + s];
 
-                auto cell = new wxPanel(panel, wxID_ANY, wxDefaultPosition, wxDefaultSize, wxTAB_TRAVERSAL);
-                cell->SetBackgroundColour(GREY200);
-                m_sync_columns[i + 1].push_back(cell);
-                auto cell_sizer = new wxBoxSizer(wxHORIZONTAL);
-                cell_sizer->AddSpacer(UNSAVE_CHANGE_DIALOG_SYNC_CELL_PADDING);
-                if (i != params->source) {
-                    // A target that already has the value keeps the box's space, so its column stays aligned.
-                    auto check = new ::CheckBox(cell);
-                    cell_sizer->Add(check, 0, wxALIGN_CENTER_VERTICAL | wxRIGHT | wxRESERVE_SPACE_EVEN_IF_HIDDEN, FromDIP(4));
-                    if (differs) {
-                        check->SetValue(true);
-                        check->Bind(wxEVT_TOGGLEBUTTON, [this](wxCommandEvent &e) { update_all_checks(); e.Skip(); });
-                        m_sync_checks.emplace_back(check, data.opt_key, index, i);
-                        for (size_t k : {category_all, group_all, row_all})
-                            m_all_checks[k].second.push_back(check);
-                    } else
-                        check->Hide();
-                }
-                if (index >= 0)
-                    cell_sizer->Add(make_label(cell, get_string_value(data.opt_key + "#" + std::to_string(index), value_config), ::Label::Body_13,
-                                               wxDefaultCoord, i == params->source ? wxGetApp().get_label_clr_modified() : GREY700),
-                                    0, wxALIGN_CENTER_VERTICAL);
-                cell->SetSizer(cell_sizer);
-                cell->Layout();
-                sizer->Add(cell, 0, wxALIGN_CENTER, 0);
+            auto cell = new wxPanel(panel, wxID_ANY, wxDefaultPosition, wxDefaultSize, wxTAB_TRAVERSAL);
+            cell->SetBackgroundColour(GREY200);
+            m_sync_columns[i + 1].push_back(cell);
+            auto cell_sizer = new wxBoxSizer(wxHORIZONTAL);
+            cell_sizer->AddSpacer(UNSAVE_CHANGE_DIALOG_SYNC_CELL_PADDING);
+            if (i != params->source) {
+                // A target that already has the value keeps the box's space, so its column stays aligned.
+                auto check = new ::CheckBox(cell);
+                cell_sizer->Add(check, 0, wxALIGN_CENTER_VERTICAL | wxRIGHT | wxRESERVE_SPACE_EVEN_IF_HIDDEN, FromDIP(4));
+                if (differs) {
+                    check->SetValue(true);
+                    check->Bind(wxEVT_TOGGLEBUTTON, [this](wxCommandEvent &e) { update_all_checks(); e.Skip(); });
+                    m_sync_checks.emplace_back(check, data.opt_key, index, i);
+                    for (size_t k : {category_all, group_all, row_all})
+                        m_all_checks[k].second.push_back(check);
+                } else
+                    check->Hide();
             }
-        } else {
-            sizer->Add(make_value_col(panel, data.old_value, false, data.has_icon), 0, wxALIGN_CENTER, 0);
-            sizer->Add(make_value_col(panel, data.new_value, false, data.has_icon), 0, wxALIGN_CENTER, 0);
+            if (index >= 0)
+                cell_sizer->Add(make_label(cell, get_string_value(data.opt_key + "#" + std::to_string(index), value_config), ::Label::Body_13,
+                                           i == params->source ? wxGetApp().get_label_clr_modified() : GREY700),
+                                0, wxALIGN_CENTER_VERTICAL);
+            cell->SetSizer(cell_sizer);
+            cell->Layout();
+            sizer->Add(cell, 0, wxALIGN_CENTER, 0);
         }
 
         finish_row(panel, sizer);
@@ -1803,21 +1727,15 @@ void UnsavedChangesDialog::update_list(SyncExtruderParams *params)
         group.first->second.push_back(pi);
     }
 
-    Preset::Type shown_type = Preset::TYPE_INVALID;
-    size_t       type_all   = 0;
+    // The sync dialog copies within one tab, so it needs no type header.
     for (const wxString &ckey : section_order) {
         const Section &section = sections.at(ckey);
-        // The sync dialog copies within one tab, so it needs no type header.
-        if (section.type != shown_type && !params) {
-            shown_type = section.type;
-            type_all   = emit_type_header(section.type);
-        }
         const size_t category_all = emit_category(section.name);
         for (const wxString &gkey : section.group_keys) {
             const std::vector<PresetItem> &rows = rows_by_group.at(gkey);
             const size_t group_all = emit_group(rows.front().group_name);
             for (const PresetItem &pi : rows)
-                emit_option(pi, type_all, category_all, group_all);
+                emit_option(pi, category_all, group_all);
         }
     }
 
@@ -1875,13 +1793,12 @@ size_t UnsavedChangesDialog::add_all_check(wxWindow *parent)
 std::vector<std::string> UnsavedChangesDialog::options_by_selection(const Preset::Type *type, bool selected) const
 {
     std::vector<std::string> options;
-    for (const PresetItem &item : m_presetitems) {
+    for (size_t i = 0; i < m_presetitems.size(); ++i) {
+        const PresetItem &item = m_presetitems[i];
         if (type != nullptr && item.type != *type)
             continue;
-        auto check = std::find_if(m_option_checks.begin(), m_option_checks.end(), [&item](const auto &option) {
-            return std::get<1>(option) == item.type && std::get<2>(option) == item.opt_key;
-        });
-        if ((check == m_option_checks.end() || std::get<0>(*check)->GetValue()) == selected)
+        // The table lists the items in m_presetitems' order. Without it (the sync dialog) every row is selected.
+        if ((m_diff_table == nullptr || m_diff_table->included(i)) == selected)
             options.push_back(item.opt_key);
     }
     return options;
@@ -2016,7 +1933,6 @@ void UnsavedChangesDialog::update_tree(Preset::Type type, PresetCollection* pres
             //PresetItem pi = {opt_key, type, 1983};
             //m_presetitems.push_back()
             PresetItem pi = {type, opt_key, category, option.group_local, label, get_string_value(opt_key, old_config), get_string_value(opt_key, new_config)};
-            pi.has_icon = value_clips(pi.old_value) || value_clips(pi.new_value);
             pi.extruder_id = row_extruder_id;
             // Leaving a change out puts the saved value back, which needs one: an option the saved
             // preset lacks, or one value of a vector it has empty, is always kept.
@@ -2046,7 +1962,12 @@ void UnsavedChangesDialog::on_dpi_changed(const wxRect& suggested_rect)
     SetMinSize(size);
     //m_tree->Rescale(em);
 
-    Fit();
+    if (m_diff_table) {
+        m_diff_table->rescale();
+        // The dialog is resizable: a size the user chose stays.
+        Layout();
+    } else
+        Fit();
     Refresh();
 }
 

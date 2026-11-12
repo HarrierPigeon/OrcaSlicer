@@ -46,6 +46,7 @@ wxDECLARE_EVENT(EVT_DIFF_DIALOG_TRANSFER, SimpleEvent);
 class ModelNode;
 class PresetComboBox;
 class MainFrame;
+class SettingsDiffTable;
 using ModelNodePtrArray = std::vector<std::unique_ptr<ModelNode>>;
 
 // On all of 3 different platforms Bitmap+Text icon column looks different
@@ -282,7 +283,6 @@ struct PresetItem
     wxString     new_value;
     int          order{ INT_MAX };  // position on the settings pages; rows on no page sort last
     int          extruder_id{ 0 };  // extruder of a per-extruder page row, else 0
-    bool         has_icon{ false }; // a value is too long to show, so the row has a compare button
     bool         locked{ false };   // always kept: the saved preset has no value to go back to
 };
 
@@ -294,8 +294,6 @@ protected:
     wxPanel *     m_panel_tab;
     wxPanel *     m_table_top;
     wxStaticText *static_temp_title;
-    wxStaticText *static_oldv_title { nullptr };
-    wxStaticText *static_newv_title { nullptr };
     wxBoxSizer *  m_sizer_bottom;
     int           m_value_width { 0 };
 
@@ -306,7 +304,9 @@ protected:
     Button*                 m_cancel_btn    { nullptr };
     wxStaticText*           m_action_line   { nullptr };
     wxStaticText*           m_info_line     { nullptr };
-    wxScrolledWindow*       m_scrolledWindow{ nullptr };
+    wxScrolledWindow*       m_scrolledWindow{ nullptr }; // the sync dialog's list
+    // The unsaved changes, as a diff to pick which of them are saved or transferred.
+    SettingsDiffTable*      m_diff_table    { nullptr };
 
     int                     m_first_value_width { 0 };
     int                     m_content_width     { 0 };
@@ -344,13 +344,12 @@ public:
 private:
     std::vector<PresetItem> m_presetitems;
     std::vector<std::tuple<::CheckBox *, std::string, int, int>> m_sync_checks; // checkbox, option, value position and column of each copy
-    std::vector<std::tuple<::CheckBox *, Preset::Type, std::string>> m_option_checks; // checkbox, preset type and option of each change
     std::vector<std::pair<::CheckBox *, std::vector<::CheckBox *>>> m_all_checks; // a box ticking several changes or copies, and those
     std::vector<std::vector<wxWindow *>> m_sync_columns; // the label column, then one per extruder; the header window first
     size_t add_all_check(wxWindow *parent);
     void   update_all_checks();
-    // The options of the changed rows of the type (any type for nullptr) whose box is ticked, or not. A row without
-    // a box is always selected.
+    // The options of the changed rows of the type (any type for nullptr) included in the save or transfer, or not.
+    // A key may carry a "#<index>" suffix: one value of a per-extruder option.
     std::vector<std::string> options_by_selection(const Preset::Type *type, bool selected) const;
     // preset names which are modified in SavePresetDialog and related types
     std::vector<PresetData>  names_and_types;
@@ -397,7 +396,6 @@ public:
     void        build(Preset::Type type, PresetCollection *dependent_presets, const std::string &new_selected_preset, const wxString &header = "");
     void update(Preset::Type type, PresetCollection* dependent_presets, const std::string& new_selected_preset, const wxString& header);
     void update_list(SyncExtruderParams *params = nullptr);
-    bool value_clips(const wxString &value) const;
     void        update_tree(Preset::Type type, PresetCollection *presets);
     void        update_tree(Preset::Type type, DynamicConfig *config);
     void show_info_line(Action action, std::string preset_name = "");
