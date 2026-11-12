@@ -1,10 +1,14 @@
 #include <catch2/catch_all.hpp>
 
+#include <boost/filesystem.hpp>
+
 #include <algorithm>
 #include <array>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <cstdlib>
+#include <initializer_list>
 #include <functional>
 #include "libslic3r/Fill/FillBase.hpp"
 #include "libslic3r/Polyline.hpp"
@@ -46,6 +50,7 @@
 #include "libslic3r/Print.hpp"
 #include "libslic3r/PrintConfig.hpp"
 #include "libslic3r/SVG.hpp"
+#include "libslic3r/Utils.hpp"
 #include "libslic3r/libslic3r.h"
 
 #include "test_helpers.hpp"
@@ -2776,4 +2781,101 @@ TEST_CASE("Gap fill of a fill that keeps its order prints after the extrusions i
     INFO(pattern << " on " << Slic3r::Test::mesh_names.at(mesh));
     REQUIRE(gap_fills > 0);
     CHECK(before == 0);
+}
+
+namespace {
+
+// Sparse infill extruded on one layer, in mm.
+double svg_sparse_infill_length(const Layer &layer)
+{
+    double len = 0.;
+    for (const LayerRegion *region : layer.regions())
+        for (const ExtrusionEntity *entity : region->fills.flatten().entities)
+            if (entity->role() == erInternalInfill)
+                len += unscaled<double>(entity->length());
+    return len;
+}
+
+DynamicPrintConfig svg_infill_config(std::initializer_list<ConfigBase::SetDeserializeItem> extra)
+{
+    DynamicPrintConfig config = DynamicPrintConfig::full_print_config();
+    config.set_deserialize_strict({
+        { "sparse_infill_density", "15%" },
+        { "wall_loops",            "2" },
+        { "top_shell_layers",      "2" },
+        { "bottom_shell_layers",   "2" },
+        // Unrelated validate() requirement of the stock test config (relative E addressing).
+        { "layer_change_gcode",    "G92 E0" },
+    });
+    config.set_deserialize_strict(extra);
+    return config;
+}
+
+// Every layer strictly between the shells must carry sparse infill.
+void require_sparse_infill_on_interior_layers(const Print &print)
+{
+    const PrintObject *object = print.objects().front();
+    REQUIRE(object->layers().size() > 6);
+    for (size_t i = 3; i + 3 < object->layers().size(); ++i) {
+        INFO("layer " << i << " z=" << object->layers()[i]->print_z);
+        REQUIRE(svg_sparse_infill_length(*object->layers()[i]) > 10.);
+    }
+}
+
+// The bundled SVG art lives in the source tree's resources/.
+struct ResourcesDirGuard
+{
+    std::string previous;
+    ResourcesDirGuard() : previous(resources_dir()) {
+        set_resources_dir((boost::filesystem::path(TEST_DATA_DIR) / ".." / ".." / "resources").string());
+    }
+    ~ResourcesDirGuard() { set_resources_dir(previous); }
+};
+
+} // namespace
+
+TEST_CASE("Catfill slices a cube with sparse infill at about the requested density", "[Fill][FillSvg]") {
+    ResourcesDirGuard resources;
+    Print print;
+    Model model;
+    Test::init_print({ Test::cube(30.) }, print, model, svg_infill_config({ { "sparse_infill_pattern", "catfill" } }));
+    print.process();
+    require_sparse_infill_on_interior_layers(print);
+    // The automatic scale realizes roughly the requested 15% density: the interior square is
+    // about 27 x 27 mm per layer, so lines * 0.45 mm / area should be near 0.15.
+    const PrintObject *object = print.objects().front();
+    const double fraction = svg_sparse_infill_length(*object->layers()[object->layers().size() / 2]) * 0.45 / (27. * 27.);
+    REQUIRE(fraction > 0.08);
+    REQUIRE(fraction < 0.25);
+}
+
+TEST_CASE("Custom (SVG) slices a user file and honours the SVG infill scale", "[Fill][FillSvg]") {
+    ResourcesDirGuard resources;
+    // generic_string(): the path goes through set_deserialize_strict, which C-unescapes string values,
+    // so a native Windows path would lose its backslashes.
+    const std::string svg = (boost::filesystem::path(TEST_DATA_DIR) / "catsfill2.svg").generic_string();
+    auto slice = [&](const char *scale) {
+        Print print;
+        Model model;
+        Test::init_print({ Test::cube(30.) }, print, model,
+                         svg_infill_config({ { "sparse_infill_pattern", "svg" },
+                                             { "sparse_infill_svg_path", svg },
+                                             { "sparse_infill_svg_scale", scale } }));
+        print.process();
+        // The setting must reach the region config the Filler reads.
+        REQUIRE_THAT(print.objects().front()->printing_region(0).config().sparse_infill_svg_scale.value,
+                     Catch::Matchers::WithinAbs(std::atof(scale), 1e-9));
+        require_sparse_infill_on_interior_layers(print);
+        double len = 0.;
+        for (const Layer *layer : print.objects().front()->layers())
+            len += svg_sparse_infill_length(*layer);
+        return len;
+    };
+    const double automatic = slice("0");
+    const double small     = slice("5");   // the 193 mm pattern cell at 5% = 9.6 mm tiles
+    const double large     = slice("20");  // 38.6 mm tiles
+    REQUIRE(automatic > 0.);
+    // Larger tiles put fewer lines into the 30 mm cube (only part of the drawing lands in it).
+    REQUIRE(small > 1.5 * large);
+    REQUIRE(large > 0.);
 }

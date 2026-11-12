@@ -18459,6 +18459,12 @@ void Plater::Calib_Cornering(const Calib_Params& params)
 
 BuildVolume_Type Plater::get_build_volume_type() const { return p->bed.get_build_volume_type(); }
 
+void Plater::set_svg_infill_preview(const Polylines &lines)
+{
+    if (GLCanvas3D *canvas = get_view3D_canvas3D(); canvas != nullptr)
+        canvas->set_svg_infill_preview(lines, 0.2);
+}
+
 void Plater::import_zip_archive()
 {
     wxString input_file;

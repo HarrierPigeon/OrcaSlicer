@@ -3,6 +3,7 @@
 
 #include "libslic3r/Config.hpp"
 #include "libslic3r/PrintConfig.hpp"
+#include "libslic3r/Polyline.hpp"
 #include <cstddef>
 #include <map>
 #include "libslic3r/Technologies.hpp"
@@ -396,6 +397,9 @@ public:
     void add_file();
     // Returns false when no object was added (e.g. the user cancelled the load dialog).
     bool add_model(bool imperial_units = false, std::string fname = "");
+    // SVG infill art tiled over the current plate at print scale (3D view overlay); an empty list
+    // clears it. Fed by the Process tab while its SVG settings are on screen.
+    void set_svg_infill_preview(const Polylines &lines);
     void import_zip_archive();
     void import_sl1_archive();
     void extract_config_from_project();

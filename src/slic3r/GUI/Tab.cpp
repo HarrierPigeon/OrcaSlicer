@@ -6,6 +6,10 @@
 #include "libslic3r/PrintConfig.hpp"
 #include "libslic3r/BeltTransform.hpp"
 #include "libslic3r/FilamentMixer.hpp"
+#include "libslic3r/ClipperUtils.hpp"
+#include "libslic3r/Fill/FillSvg.hpp"
+#include "libslic3r/Flow.hpp"
+#include "libslic3r/Geometry.hpp"
 #include "libslic3r/Utils.hpp"
 #include "libslic3r/Model.hpp"
 #include "libslic3r/PublishSettings.hpp"
@@ -3184,10 +3188,45 @@ void TabPrint::build()
         optgroup->append_single_option_line("sparse_infill_density", "strength_settings_infill#sparse-infill-density");
         optgroup->append_single_option_line("fill_multiline", "strength_settings_infill#fill-multiline");
         optgroup->append_single_option_line("sparse_infill_pattern", "strength_settings_infill#sparse-infill-pattern");
+        // Custom (SVG)'s Browse button, on a full-width widget line keyed "browse_sparse_infill_svg_path"
+        // so ConfigManipulation shows it with that pattern. A group drawn by the custom line control lays
+        // widget lines out after all of its option lines, so the Infill group ends right after the
+        // pattern combo (the button lands directly under it) and the remaining infill options continue
+        // in an untitled group below.
+        {
+            Line line = Line{ "", "" };
+            line.full_width = 1;
+            line.widget_key = "browse_sparse_infill_svg_path";
+            line.append_widget([this](wxWindow *parent) {
+                auto *btn = new ScalableButton(parent, wxID_ANY, "", _L("Browse for SVG file..."),
+                                               wxDefaultSize, wxDefaultPosition, wxBU_LEFT | wxBU_EXACTFIT, true);
+                btn->SetFont(wxGetApp().normal_font());
+                btn->Bind(wxEVT_BUTTON, [this, parent](wxCommandEvent &) {
+                    wxFileDialog dlg(parent, _L("Choose a file"), "", "", _L("SVG files") + " (*.svg)|*.svg;*.SVG",
+                                     wxFD_OPEN | wxFD_FILE_MUST_EXIST);
+                    if (dlg.ShowModal() != wxID_OK)
+                        return;
+                    // The text field takes a wxString, the config setter a std::string.
+                    const std::string path = into_u8(dlg.GetPath());
+                    if (Field *field = this->get_field("sparse_infill_svg_path"); field != nullptr)
+                        field->set_value(wxString::FromUTF8(path), false);
+                    this->load_key_value("sparse_infill_svg_path", path);
+                });
+                auto *sizer = new wxBoxSizer(wxHORIZONTAL);
+                sizer->Add(btn, 0, wxALIGN_CENTER_VERTICAL);
+                sizer->AddStretchSpacer(1);
+                return sizer;
+            });
+            optgroup->append_line(line);
+        }
+        optgroup = page->new_optgroup("");
         optgroup->append_single_option_line("adaptive_infill_mode", "strength_settings_patterns#adaptive-density");
         optgroup->append_single_option_line("adaptive_infill_interior_density", "strength_settings_patterns#interior-density");
         optgroup->append_single_option_line("adaptive_infill_gradient", "strength_settings_patterns#adaptive-gradient");
         optgroup->append_single_option_line("gyroid_optimized", "strength_settings_patterns#gyroid-optimized");
+        optgroup->append_single_option_line("sparse_infill_svg_path", "strength_settings_patterns#svg");
+        optgroup->append_single_option_line("sparse_infill_svg_scale", "strength_settings_patterns#svg");
+        optgroup->append_single_option_line("sparse_infill_single_wall", "strength_settings_patterns#svg");
         optgroup->append_single_option_line("sparse_infill_smooth_factor", "strength_settings_infill#sparse-infill-smooth-factor");
         optgroup->append_single_option_line("infill_direction", "strength_settings_infill#direction");
         optgroup->append_single_option_line("sparse_infill_rotate_template", "strength_settings_infill_rotation_template_metalanguage");
@@ -3569,6 +3608,77 @@ void TabPrint::update_description_lines()
 
 }
 
+// Tile the art of the current SVG pattern over the current plate at the scale it will print and
+// hand it to the 3D view as an overlay, while the page with the SVG settings is the active page of
+// the Process tab and an SVG pattern is selected; otherwise clear the overlay.
+void TabPrint::update_svg_infill_preview()
+{
+    Plater *plater = wxGetApp().plater();
+    if (plater == nullptr || m_type != Preset::TYPE_PRINT)
+        return;
+    const auto *density_opt = m_config->option<ConfigOptionPercent>("sparse_infill_density");
+    const InfillPattern pattern = m_config->opt_enum<InfillPattern>("sparse_infill_pattern");
+    const bool svg_page = m_active_page != nullptr && m_active_page->get_field("sparse_infill_svg_scale") != nullptr;
+    if (! svg_page || ! is_svg_infill_pattern(pattern) || density_opt == nullptr || density_opt->value <= 0.) {
+        if (! m_svg_infill_preview_key.empty()) {
+            m_svg_infill_preview_key.clear();
+            plater->set_svg_infill_preview(Polylines());
+        }
+        return;
+    }
+    const std::string svg_path      = m_config->opt_string("sparse_infill_svg_path");
+    const double      density       = 0.01 * density_opt->value;
+    const double      scale_percent = m_config->option<ConfigOptionPercent>("sparse_infill_svg_scale")->value;
+    const bool        single_wall   = m_config->opt_bool("sparse_infill_single_wall");
+    const double      direction     = m_config->opt_float("infill_direction");
+    const double      layer_height  = m_config->opt_float("layer_height");
+    const auto       &printer_cfg   = m_preset_bundle->printers.get_edited_preset().config;
+    const auto       *nozzles       = printer_cfg.option<ConfigOptionFloats>("nozzle_diameter");
+    const double      nozzle        = nozzles != nullptr && ! nozzles->values.empty() ? nozzles->values.front() : 0.4;
+    const double      spacing       = Flow::new_from_config_width(frInfill,
+        *m_config->option<ConfigOptionFloatOrPercent>("sparse_infill_line_width"), float(nozzle), float(layer_height)).spacing();
+    const BoundingBoxf3 plate = plater->get_partplate_list().get_curr_plate()->get_bounding_box();
+
+    std::shared_ptr<const SvgInfillTile> tile = FillSvg::tile_for(pattern, svg_path);
+    char key_buf[320];
+    std::snprintf(key_buf, sizeof(key_buf), "%d|%.6g|%.6g|%d|%.6g|%.6g|%p|%.6g,%.6g,%.6g,%.6g", int(pattern), density, scale_percent,
+                  int(single_wall), spacing, direction, static_cast<const void *>(tile.get()),
+                  plate.min.x(), plate.min.y(), plate.max.x(), plate.max.y());
+    const std::string key = std::string(key_buf) + "|" + svg_path;
+    if (key == m_svg_infill_preview_key)
+        return;
+    m_svg_infill_preview_key = key;
+
+    Polylines preview;
+    if (tile != nullptr && ! tile->empty()) {
+        double scale = FillSvg::tile_scale(*tile, density, spacing, scale_percent);
+        const double single_wall_width = single_wall ? FillSvg::kSingleWallMaxWidths * spacing : 0.;
+        const FillSvg::Art *art = &FillSvg::art(tile, scale, single_wall_width);
+        if (single_wall && scale_percent <= 0.) {
+            scale = FillSvg::tile_scale(*tile, density, spacing, 0., art->length_mm());
+            art   = &FillSvg::art(tile, scale, single_wall_width);
+        }
+        // Stamp over the plate in a frame rotated by the infill direction about the plate
+        // center, then rotate back, and keep what falls on the plate.
+        const Point  center = Point::new_scale(0.5 * (plate.min.x() + plate.max.x()), 0.5 * (plate.min.y() + plate.max.y()));
+        const double angle  = Geometry::deg2rad(direction);
+        Polygon plate_box({ Point::new_scale(plate.min.x(), plate.min.y()), Point::new_scale(plate.max.x(), plate.min.y()),
+                            Point::new_scale(plate.max.x(), plate.max.y()), Point::new_scale(plate.min.x(), plate.max.y()) });
+        Polygon rotated_box = plate_box;
+        rotated_box.rotate(-angle, center);
+        Polygons  loops;
+        Polylines lines;
+        FillSvg::stamp(*art, tile->size, scale, rotated_box.bounding_box(), loops, lines);
+        for (Polygon &poly : loops)
+            poly.rotate(angle, center);
+        for (Polyline &pl : lines)
+            pl.rotate(angle, center);
+        preview = intersection_pl(loops, Polygons{ plate_box });
+        append(preview, intersection_pl(lines, plate_box));
+    }
+    plater->set_svg_infill_preview(preview);
+}
+
 void TabPrint::toggle_options()
 {
     if (!m_active_page) return;
@@ -3579,6 +3689,7 @@ void TabPrint::toggle_options()
     }
 
     m_config_manipulation.toggle_print_fff_options(m_config, int(intptr_t(m_extruder_switch->GetClientData())), m_type < Preset::TYPE_COUNT);
+    update_svg_infill_preview();
 
     if (m_type == Preset::TYPE_PLATE) {
         const auto &printer_config = m_preset_bundle->printers.get_edited_preset().config;

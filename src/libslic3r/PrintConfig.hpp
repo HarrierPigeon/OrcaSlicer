@@ -134,6 +134,8 @@ enum InfillPattern : int {
     ipCrossHatch, ipTpmsD, ipTpmsFK, ipGyroid,
     ipConcentric, ipSpiralInset, ipHilbertCurve, ipArchimedeanChords, ipOctagramSpiral,
     ipSupportBase, ipConcentricInternal,
+    // SVG line art tiled per layer: the bundled cats, sharks and puppies, and a user file.
+    ipCatfill, ipSharkfill, ipPuppyfill, ipSvg,
     ipCount,
 };
 
@@ -175,6 +177,8 @@ inline bool is_separable_infill_pattern(InfillPattern pattern)
 inline bool is_octree_infill_pattern(InfillPattern pattern) { return pattern == ipAdaptiveCubic || pattern == ipSupportCubic; }
 // Orca: Infill patterns graded by the "adaptive_infill_mode" option.
 inline bool is_adaptive_infill_pattern(InfillPattern pattern) { return pattern == ipGyroid || pattern == ipTpmsD || pattern == ipTpmsFK; }
+// The patterns that tile SVG line art (Fill/FillSvg.hpp).
+inline bool is_svg_infill_pattern(InfillPattern pattern) { return pattern == ipCatfill || pattern == ipSharkfill || pattern == ipPuppyfill || pattern == ipSvg; }
 
 // Orca: Infill patterns that round their corners by the "sparse_infill_smooth_factor" option.
 // Grid, Triangles and Tri-hexagon only do so in their trapezoidal form, which is generated with more
@@ -1487,6 +1491,9 @@ PRINT_CONFIG_CLASS_DEFINE(
     ((ConfigOptionString,               sparse_infill_rotate_template))
     ((ConfigOptionPercent,              sparse_infill_density))
     ((ConfigOptionEnum<InfillPattern>,  sparse_infill_pattern))
+    ((ConfigOptionString,               sparse_infill_svg_path))
+    ((ConfigOptionPercent,              sparse_infill_svg_scale))
+    ((ConfigOptionBool,                 sparse_infill_single_wall))
     ((ConfigOptionPercent,              sparse_infill_smooth_factor))
     ((ConfigOptionFloat,                lateral_lattice_angle_1))
     ((ConfigOptionFloat,                lateral_lattice_angle_2))

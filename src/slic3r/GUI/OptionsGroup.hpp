@@ -66,6 +66,12 @@ public:
 	std::string	label_path;
     bool        undo_to_sys{false}; // BBS: object config
     bool        toggle_visible{true}; // BBS: hide some line
+    // A full-width widget line (no options of its own) can carry a key of its own so
+    // toggle_line(key) reaches it like an option line (e.g. a Browse button under a file-path
+    // field). ConfigOptionsGroup::update_visibility applies toggle_visible to it, since the group's
+    // Show(true) re-shows every line otherwise.
+    std::string widget_key;
+    wxSizer*    full_width_sizer {nullptr};
 
     size_t		full_width {0};
     widget_t	widget {nullptr};

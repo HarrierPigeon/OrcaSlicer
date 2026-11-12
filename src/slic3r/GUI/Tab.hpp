@@ -589,6 +589,10 @@ public:
 	void		update_description_lines() override;
 	void		toggle_options() override;
 	void		update() override;
+	// The SVG infill art tiled over the plate in the 3D view while the Process tab's page with the
+	// SVG settings is on screen; rebuilt from the current settings by toggle_options().
+	void		update_svg_infill_preview();
+	std::string m_svg_infill_preview_key;
 	void		clear_pages() override;
 	bool 		supports_printer_technology(const PrinterTechnology tech) const override { return tech == ptFFF; }
 	// Column of the extruder's variant in the per-variant process vectors, as the extruder switch
