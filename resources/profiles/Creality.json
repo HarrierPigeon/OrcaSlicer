@@ -1,6 +1,6 @@
 {
 	"name": "Creality",
-	"version": "02.03.02.89",
+	"version": "02.03.02.90",
 	"force_update": "0",
 	"description": "Creality configurations",
 	"machine_model_list": [
@@ -39,6 +39,10 @@
 		{
 			"name": "Creality CR-20 Pro",
 			"sub_path": "machine/Creality CR-20 Pro.json"
+		},
+		{
+			"name": "Creality CR-30",
+			"sub_path": "machine/Creality CR-30.json"
 		},
 		{
 			"name": "Creality CR-6 Max",
@@ -237,6 +241,10 @@
 		{
 			"name": "fdm_process_common",
 			"sub_path": "process/fdm_process_common.json"
+		},
+		{
+			"name": "0.20mm Standard @Creality CR-30 0.4 nozzle",
+			"sub_path": "process/0.20mm Standard @Creality CR-30 0.4 nozzle.json"
 		},
 		{
 			"name": "fdm_process_creality_common",
@@ -4985,6 +4993,14 @@
 			"sub_path": "filament/Generic PLA Silk @Creality K2-all.json"
 		},
 		{
+			"name": "Generic PETG @Creality CR-30 0.4 nozzle",
+			"sub_path": "filament/Generic PETG @Creality CR-30 0.4 nozzle.json"
+		},
+		{
+			"name": "Generic PLA @Creality CR-30 0.4 nozzle",
+			"sub_path": "filament/Generic PLA @Creality CR-30 0.4 nozzle.json"
+		},
+		{
 			"name": "fdm_filament_pva",
 			"sub_path": "filament/fdm_filament_pva.json"
 		}
@@ -5049,6 +5065,10 @@
 		{
 			"name": "Creality CR-20 Pro 0.4 nozzle",
 			"sub_path": "machine/Creality CR-20 Pro 0.4 nozzle.json"
+		},
+		{
+			"name": "Creality CR-30 0.4 nozzle",
+			"sub_path": "machine/Creality CR-30 0.4 nozzle.json"
 		},
 		{
 			"name": "Creality CR-6 Max 0.2 nozzle",
