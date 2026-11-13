@@ -383,8 +383,9 @@ jobs:
             retry xcrun stapler staple OrcaSlicer_profile_validator_Mac_universal_${{ env.ver }}.dmg
           fi
 
+      # A fork's main can't sign either, so it gets the unsigned DMG too.
       - name: Create DMG without notary
-        if: github.ref != 'refs/heads/main' && runner.os == 'macOS' && inputs.macos-combine-only
+        if: (github.ref != 'refs/heads/main' || github.repository != 'OrcaSlicer/OrcaSlicer') && runner.os == 'macOS' && inputs.macos-combine-only
         working-directory: ${{ github.workspace }}
         run: |
           # Load the `retry` and `create_dmg` helpers.
