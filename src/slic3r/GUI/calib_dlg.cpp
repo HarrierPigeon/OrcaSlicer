@@ -2,6 +2,7 @@
 #include "GUI_App.hpp"
 #include "MsgDialog.hpp"
 #include "I18N.hpp"
+#include "format.hpp"
 #include <algorithm>
 #include <sstream>
 #include <iterator>
@@ -848,6 +849,59 @@ VFA_Test_Dlg::VFA_Test_Dlg(wxWindow* parent, wxWindowID id, Plater* plater)
     auto_adjust_sizer->Add(auto_adjust_text, 0, wxALL | wxALIGN_CENTER_VERTICAL, FromDIP(2));
     settings_sizer->Add(auto_adjust_sizer, 0, wxLEFT | wxTOP, FromDIP(3));
 
+    // The tower model: Orca's own, or fins along chosen directions.
+    {
+        auto sizer = new wxBoxSizer(wxHORIZONTAL);
+        auto text  = new wxStaticText(this, wxID_ANY, _L("Test model"), wxDefaultPosition, wxDefaultSize, wxALIGN_LEFT);
+        m_cbModel  = new ComboBox(this, wxID_ANY, wxEmptyString, wxDefaultPosition, FromDIP(wxSize(260, -1)), 0, nullptr, wxCB_READONLY);
+        // Order as in vfa_test_models.
+        m_cbModel->Append(_L("Standard"));
+        m_cbModel->Append(_L("Major axes (0°, 45°, 90°, 135°)"));
+        m_cbModel->Append(_L("X and Y (0°, 90°)"));
+        m_cbModel->Append(_L("Diagonals (45°, 135°)"));
+        m_cbModel->Append(_L("Mixed angles (30°, 60°, 120°, 150°)"));
+        m_cbModel->SetSelection(0);
+        const wxString tip = _L("Which directions the tower's walls run in. On a CoreXY printer a wall at 45° or 135° runs one "
+                                "motor alone, and walls at 0° and 90° run both equally, so comparing them shows which motor causes "
+                                "an artifact. The angle models are from \"VFA Test - improved angles\" by 3D Printing Elves.");
+        m_cbModel->SetToolTip(tip);
+        text->SetToolTip(tip);
+        sizer->Add(text, 0, wxALL | wxALIGN_CENTER_VERTICAL, FromDIP(2));
+        sizer->Add(m_cbModel, 0, wxALL | wxALIGN_CENTER_VERTICAL, FromDIP(2));
+        settings_sizer->Add(sizer, 0, wxLEFT | wxTOP, FromDIP(3));
+    }
+
+    // Motor resonance avoidance: print the tower with it, without it, or both side by side.
+    {
+        auto sizer = new wxBoxSizer(wxHORIZONTAL);
+        auto text  = new wxStaticText(this, wxID_ANY, _L("Motor resonance avoidance"), wxDefaultPosition, wxDefaultSize, wxALIGN_LEFT);
+        m_cbMotorResonance = new ComboBox(this, wxID_ANY, wxEmptyString, wxDefaultPosition, FromDIP(wxSize(220, -1)), 0, nullptr, wxCB_READONLY);
+        m_cbMotorResonance->Append(_L("Disabled"));
+        m_cbMotorResonance->Append(_L("Enabled"));
+        m_cbMotorResonance->Append(_L("Both, side by side"));
+        m_cbMotorResonance->SetSelection(0);
+        bool has_bands = false;
+        if (const auto* preset_bundle = wxGetApp().preset_bundle) {
+            const auto& printer_config = preset_bundle->printers.get_edited_preset().config;
+            for (const char* key : { "motor_resonance_bands_x", "motor_resonance_bands_y" })
+                if (printer_config.has(key) && !printer_config.opt_string(key).empty())
+                    has_bands = true;
+        }
+        wxString tip = _L("Slow the tower's walls down to keep the X and Y steppers out of their resonant speed ranges.\n"
+                          "\"Both, side by side\" prints a second tower with avoidance, to the right of one without it. "
+                          "Vase mode prints a single object, so both towers are printed as single-wall towers instead.");
+        if (!has_bands) {
+            m_cbMotorResonance->Enable(false);
+            tip += "\n\n" + _L("Set the stepper resonant speeds in the printer's Motion ability settings first, for example "
+                                "by importing them from Shake&Tune.");
+        }
+        m_cbMotorResonance->SetToolTip(tip);
+        text->SetToolTip(tip);
+        sizer->Add(text, 0, wxALL | wxALIGN_CENTER_VERTICAL, FromDIP(2));
+        sizer->Add(m_cbMotorResonance, 0, wxALL | wxALIGN_CENTER_VERTICAL, FromDIP(2));
+        settings_sizer->Add(sizer, 0, wxLEFT | wxTOP, FromDIP(3));
+    }
+
     settings_sizer->AddSpacer(FromDIP(5));
 
     v_sizer->Add(settings_sizer, 0, wxTOP | wxRIGHT | wxLEFT | wxEXPAND, FromDIP(10));
@@ -1026,6 +1080,26 @@ void VFA_Test_Dlg::on_start(wxCommandEvent& event)
         }
     }
 
+    switch (m_cbMotorResonance->GetSelection()) {
+    case 1:  m_params.vfa_motor_resonance = Calib_Params::VfaMotorResonance::On; break;
+    case 2:  m_params.vfa_motor_resonance = Calib_Params::VfaMotorResonance::Compare; break;
+    default: m_params.vfa_motor_resonance = Calib_Params::VfaMotorResonance::Off; break;
+    }
+    m_params.test_model = std::clamp(m_cbModel->GetSelection(), 0, int(std::size(vfa_test_models)) - 1);
+    // A tower has as many speed blocks as its model; past that, the upper speeds would not be printed.
+    const int blocks      = int(std::floor((m_params.end - m_params.start) / m_params.step + 1e-6)) + 1;
+    const int model_blocks = vfa_test_models[m_params.test_model].blocks;
+    if (blocks > model_blocks) {
+        const double new_end = m_params.start + (model_blocks - 1) * m_params.step;
+        MessageDialog msg_dlg(nullptr,
+            format_wxstr(_L("This model is %1% speed blocks tall, but %2% mm/s to %3% mm/s in steps of %4% mm/s needs %5%, so the "
+                            "fastest speeds would not be printed.\n\nLower the end speed to %6% mm/s?"),
+                         model_blocks, m_params.start, m_params.end, m_params.step, blocks, new_end),
+            _L("VFA test"), wxICON_WARNING | wxYES_NO | wxNO_DEFAULT);
+        if (msg_dlg.ShowModal() != wxID_YES)
+            return;
+        m_params.end = new_end;
+    }
     m_params.mode = CalibMode::Calib_VFA_Tower;
     m_plater->calib_VFA(m_params);
     EndModal(wxID_OK);
@@ -1033,6 +1107,8 @@ void VFA_Test_Dlg::on_start(wxCommandEvent& event)
 
 void VFA_Test_Dlg::on_dpi_changed(const wxRect& suggested_rect)
 {
+    m_cbModel->Rescale();
+    m_cbMotorResonance->Rescale();
     this->Refresh();
     Fit();
 }

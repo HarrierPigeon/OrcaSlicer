@@ -4,6 +4,7 @@
 #include <Windows.h>
 #endif
 
+#include "ShakeTune/MotorResonance.hpp"
 #include "PrintBase.hpp"
 #include <utility>
 #include <string>
@@ -275,6 +276,8 @@ bool Print::invalidate_state_by_config_options(const ConfigOptionResolver & /* n
         "gcode_remap_x",
         "gcode_remap_y",
         "gcode_remap_z",
+        // Read only by the G-code export step (MotorResonanceAvoider).
+        "motor_resonance_kinematics", "motor_resonance_bands_x", "motor_resonance_bands_y",
         // Machine-frame transform (derived from belt tilt; only affects G-code output).
         "belt_frame_tilt_decouple", "belt_frame_tilt_angle",
         // Only inflates the GUI bed volume, like printable_area.
@@ -2164,6 +2167,14 @@ StringObjectException Print::validate(std::vector<StringObjectException> *warnin
 
     if (extruders.empty())
         return { L("No extrusions under current settings.") };
+
+    // Motor resonance speed ranges are typed into the printer settings as text.
+    for (const auto &[key, text] : { std::make_pair("motor_resonance_bands_x", &m_config.motor_resonance_bands_x.value),
+                                     std::make_pair("motor_resonance_bands_y", &m_config.motor_resonance_bands_y.value) }) {
+        ShakeTune::SpeedBands bands;
+        if (!ShakeTune::parse_speed_bands(*text, bands))
+            return { L("Motor resonance speed ranges must be written as ranges such as 45-52, 96-104."), nullptr, key };
+    }
 
     // A flow ratio of 0 would extrude nothing, and a nil one would write NaN extrusion lengths.
     {

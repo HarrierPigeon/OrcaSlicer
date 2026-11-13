@@ -18207,7 +18207,9 @@ void Plater::calib_VFA(const Calib_Params& params)
     if (params.mode != CalibMode::Calib_VFA_Tower)
         return;
 
-    if (!add_model(false, Slic3r::resources_dir() + "/calib/vfa/vfa.drc"))
+    const size_t      model_index = params.test_model >= 0 && size_t(params.test_model) < std::size(vfa_test_models) ? size_t(params.test_model) : 0;
+    const std::string model_path  = Slic3r::resources_dir() + "/calib/vfa/" + vfa_test_models[model_index].file;
+    if (!add_model(false, model_path))
         return;
     auto print_config = &wxGetApp().preset_bundle->prints.get_edited_preset().config;
     auto filament_config = &wxGetApp().preset_bundle->filaments.get_edited_preset().config;
@@ -18230,23 +18232,42 @@ void Plater::calib_VFA(const Calib_Params& params)
     // block height (vfa_layers_per_block * layer_height) in sync with the speed stepping in GCode::process_layer.
     // Subtract EPSILON (as the temperature tower does) so the cut lands just below the flat block surface instead
     // of exactly on it, which would otherwise add a degenerate extra layer.
-    auto obj_bb = model().objects[0]->bounding_box_exact();
-    auto height = vfa_base_block_height * ((params.end - params.start) / params.step + 1) - EPSILON;
-    if (height < obj_bb.size().z()) {
-        cut_horizontal(0, 0, height, ModelObjectCutAttribute::KeepLower);
-    }
-
     // When resizing is enabled, XY scales with the nozzle (footprint / line width) and Z scales so each base
     // block becomes vfa_layers_per_block layers of the resolved layer height. When disabled the 0.4 mm / 0.2 mm
     // reference model is printed as-is (preset layer height kept).
-    if (params.nozzle_based_resize) {
-        const double xy_scale = nozzle_diameter / vfa_base_nozzle_diameter;
-        const double z_scale  = (vfa_layers_per_block * layer_height) / vfa_base_block_height;
-        if (std::abs(xy_scale - 1.0) > EPSILON || std::abs(z_scale - 1.0) > EPSILON)
-            model().objects[0]->scale(xy_scale, xy_scale, z_scale);
-    }
+    // A cut deletes the object and appends the kept part, so `idx` must be the last object.
+    auto prepare_tower = [&](size_t idx) {
+        auto obj_bb = model().objects[idx]->bounding_box_exact();
+        auto height = vfa_base_block_height * ((params.end - params.start) / params.step + 1) - EPSILON;
+        if (height < obj_bb.size().z()) {
+            cut_horizontal(idx, 0, height, ModelObjectCutAttribute::KeepLower);
+        }
+        if (params.nozzle_based_resize) {
+            const double xy_scale = nozzle_diameter / vfa_base_nozzle_diameter;
+            const double z_scale  = (vfa_layers_per_block * layer_height) / vfa_base_block_height;
+            if (std::abs(xy_scale - 1.0) > EPSILON || std::abs(z_scale - 1.0) > EPSILON)
+                model().objects[idx]->scale(xy_scale, xy_scale, z_scale);
+        }
+        model().objects[idx]->ensure_on_bed();
+        auto& obj_cfg = model().objects[idx]->config;
+        if (params.nozzle_based_resize)
+            obj_cfg.set_key_value("layer_height", new ConfigOptionFloat(layer_height));
+        obj_cfg.set_key_value("brim_type", new ConfigOptionEnum<BrimType>(btOuterOnly));
+        obj_cfg.set_key_value("brim_width", new ConfigOptionFloat(3.0));
+        obj_cfg.set_key_value("brim_object_gap", new ConfigOptionFloat(0.0));
+    };
+    prepare_tower(0);
 
-    model().objects[0]->ensure_on_bed();
+    // Motor resonance avoidance: on the one tower, or on a second tower to the right of the first.
+    const bool compare_motor_resonance = params.vfa_motor_resonance == Calib_Params::VfaMotorResonance::Compare;
+    if (compare_motor_resonance && add_model(false, model_path) && model().objects.size() == 2) {
+        prepare_tower(1);
+        ModelObject* with = model().objects[1];
+        with->config.set_key_value("motor_resonance_avoidance", new ConfigOptionEnum<MotorResonanceAvoidance>(MotorResonanceAvoidance::OuterWalls));
+        const BoundingBoxf3 bb_without = model().objects[0]->instance_bounding_box(0);
+        const BoundingBoxf3 bb_with    = with->instance_bounding_box(0);
+        with->translate_instances(Vec3d(bb_without.max.x() + 10.0 - bb_with.min.x(), bb_without.center().y() - bb_with.center().y(), 0.0));
+    }
 
     printer_config->set_key_value("resonance_avoidance", new ConfigOptionBool{false});
     filament_config->set_key_value("slow_down_layer_time", new ConfigOptionFloats { 0.0 });
@@ -18258,18 +18279,17 @@ void Plater::calib_VFA(const Calib_Params& params)
     print_config->set_key_value("bottom_shell_layers", new ConfigOptionInt(1));
     print_config->set_key_value("sparse_infill_density", new ConfigOptionPercent(0));
     print_config->set_key_value("detect_thin_wall", new ConfigOptionBool(false));
-    print_config->set_key_value("spiral_mode", new ConfigOptionBool(true));
+    // Vase mode prints one object only.
+    print_config->set_key_value("spiral_mode", new ConfigOptionBool(model().objects.size() == 1));
+    print_config->set_key_value("motor_resonance_avoidance", new ConfigOptionEnum<MotorResonanceAvoidance>(
+        params.vfa_motor_resonance == Calib_Params::VfaMotorResonance::On ? MotorResonanceAvoidance::OuterWalls : MotorResonanceAvoidance::Disabled));
     print_config->set_key_value("enable_wrapping_detection", new ConfigOptionBool(false));
     print_config->set_key_value("precise_z_height", new ConfigOptionBool(false));
-    if (params.nozzle_based_resize) {
+    if (params.nozzle_based_resize)
         print_config->set_key_value("initial_layer_print_height", new ConfigOptionFloat(layer_height));
-        model().objects[0]->config.set_key_value("layer_height", new ConfigOptionFloat(layer_height));
-    }
-    model().objects[0]->config.set_key_value("brim_type", new ConfigOptionEnum<BrimType>(btOuterOnly));
-    model().objects[0]->config.set_key_value("brim_width", new ConfigOptionFloat(3.0));
-    model().objects[0]->config.set_key_value("brim_object_gap", new ConfigOptionFloat(0.0));
 
-    changed_objects({ 0 });
+    const std::vector<size_t> object_idx(boost::counting_iterator<size_t>(0), boost::counting_iterator<size_t>(model().objects.size()));
+    changed_objects(object_idx);
     wxGetApp().get_tab(Preset::TYPE_PRINT)->update_dirty();
     wxGetApp().get_tab(Preset::TYPE_FILAMENT)->update_dirty();
     wxGetApp().get_tab(Preset::TYPE_PRINT)->update_ui_from_settings();

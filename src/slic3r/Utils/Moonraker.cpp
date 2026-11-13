@@ -111,6 +111,31 @@ bool Moonraker::test(wxString &msg) const
     return res;
 }
 
+bool Moonraker::get(const std::string &path, std::string &body, wxString &error, long timeout_max_s,
+                    std::function<bool()> cancelled) const
+{
+    bool res  = true;
+    auto http = Http::get(make_url(path));
+    set_auth(http);
+    http.timeout_connect(5)
+        .timeout_max(timeout_max_s)
+        .on_error([&](std::string reply, std::string err, unsigned status) {
+            BOOST_LOG_TRIVIAL(error) << boost::format("Moonraker: GET %1% failed: %2%, HTTP %3%, body: `%4%`") % path % err % status % reply.substr(0, 500);
+            res   = false;
+            error = err.empty() ? wxString::Format("HTTP %u", status) : wxString::FromUTF8(err);
+        })
+        .on_complete([&](std::string reply, unsigned) { body = std::move(reply); })
+        .on_progress([&](Http::Progress, bool &cancel) {
+            if (cancelled && cancelled())
+                cancel = true;
+        })
+#ifdef WIN32
+        .ssl_revoke_best_effort(m_ssl_revoke_best_effort)
+#endif
+        .perform_sync();
+    return res;
+}
+
 bool Moonraker::get_storage(wxArrayString &storage_path, wxArrayString &storage_name) const
 {
     //ORCA: GET /server/files/roots enumerates Moonraker's storage roots (default "gcodes" plus any

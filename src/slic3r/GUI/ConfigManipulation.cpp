@@ -1276,6 +1276,10 @@ void ConfigManipulation::toggle_print_fff_options(DynamicPrintConfig *config, in
 
     toggle_line("slowdown_for_curled_perimeters", has_overhang_speed, variant_index, overhang_speed_reason);
 
+    toggle_line("motor_resonance_speed_change",
+                config->option<ConfigOptionEnum<MotorResonanceAvoidance>>("motor_resonance_avoidance")->value != MotorResonanceAvoidance::Disabled, -1,
+                _L("Choose which extrusions avoid motor resonances to use this setting."));
+
     toggle_line("flush_into_objects", !is_global_config, -1, _L("This setting is available in object settings rather than global print settings."));
 
     toggle_line("support_interface_not_for_body",config->opt_int("support_interface_filament")&&!config->opt_int("support_filament"), -1,

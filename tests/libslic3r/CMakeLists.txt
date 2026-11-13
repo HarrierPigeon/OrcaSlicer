@@ -7,6 +7,7 @@ target_sources(libslic3r_cgal PRIVATE texture_import_cgal.cpp)
 add_executable(${_TEST_NAME}_tests
     ${_TEST_NAME}_tests.cpp
     test_3mf.cpp
+    test_shaketune.cpp
     test_amf.cpp
     # Import naming policy is independent of the GUI and slicing pipeline.
     test_import_names.cpp

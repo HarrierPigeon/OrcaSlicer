@@ -55,6 +55,11 @@ struct Calib_Params
     // Scale the calibration model to the nozzle diameter and set the layer height accordingly (temp tower / VFA).
     // When false the 0.4 mm / 0.2 mm reference model is printed as-is.
     bool nozzle_based_resize = true;
+    // VFA tower: how motor resonance avoidance (motor_resonance_avoidance) is used. Compare prints a
+    // second tower with it on beside one with it off; vase mode allows one object, so both are
+    // printed as single-wall towers instead.
+    enum class VfaMotorResonance { Off, On, Compare };
+    VfaMotorResonance vfa_motor_resonance = VfaMotorResonance::Off;
 
     CalibMode mode;
 };
@@ -64,6 +69,20 @@ struct Calib_Params
 static constexpr int vfa_layers_per_block = 25;
 static constexpr double vfa_base_block_height = 5.0;
 static constexpr double vfa_base_nozzle_diameter = 0.4;
+
+// The VFA tower models, picked by Calib_Params::test_model, under resources/calib/vfa/, and how many
+// 5 mm speed blocks tall each is (the tower is cut to the blocks its speed range needs). Besides
+// Orca's own, fins along chosen directions, from "VFA Test - improved angles" by 3D Printing Elves
+// (GPL-3.0, used with the designer's permission): on a CoreXY, 45 and 135 degrees each run one
+// motor alone, 0 and 90 degrees run both equally.
+struct VfaTestModel
+{
+    const char *file;
+    int         blocks;
+};
+static constexpr VfaTestModel vfa_test_models[] = {
+    { "vfa.drc", 60 }, { "vfa_major_axes.drc", 20 }, { "vfa_0_90.drc", 20 }, { "vfa_45_135.drc", 20 }, { "vfa_30_60.drc", 20 },
+};
 
 enum FlowRatioCalibrationType {
     COMPLETE_CALIBRATION = 0,

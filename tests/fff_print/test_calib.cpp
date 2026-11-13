@@ -15,6 +15,7 @@
 
 #include "libslic3r/Config.hpp"
 #include "libslic3r/Flow.hpp"
+#include "libslic3r/Format/DRC.hpp"
 #include "libslic3r/Model.hpp"
 #include "libslic3r/Print.hpp"
 #include "libslic3r/PrintConfig.hpp"
@@ -146,4 +147,14 @@ TEST_CASE("The PA line test prints with the speed and extrusion of the filament 
     }
     for (const Move &move : box)
         CHECK_THAT(move.e_per_mm, Catch::Matchers::WithinRel(e_per_mm, 0.005));
+}
+
+TEST_CASE("Every VFA test model loads as a closed tower of its number of speed blocks", "[Calib]")
+{
+    const VfaTestModel model = GENERATE(from_range(std::begin(vfa_test_models), std::end(vfa_test_models)));
+    CAPTURE(model.file);
+    TriangleMesh mesh;
+    REQUIRE(load_drc((std::string(PROFILES_DIR) + "/../calib/vfa/" + model.file).c_str(), &mesh));
+    CHECK(its_num_open_edges(mesh.its) == 0);
+    CHECK_THAT(mesh.bounding_box().size().z(), Catch::Matchers::WithinAbs(model.blocks * vfa_base_block_height, 0.01));
 }

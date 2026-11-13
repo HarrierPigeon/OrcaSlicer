@@ -12,6 +12,7 @@
 #include "GCode/SmallAreaInfillFlowCompensator.hpp"
 #include "GCode/CoolingBuffer.hpp"
 #include "GCode/AdaptivePAProcessor.hpp"
+#include "GCode/MotorResonanceAvoider.hpp"
 #include "CustomGCode.hpp"
 #include "GCode/TimelapsePosPicker.hpp"
 #include "ExPolygon.hpp"
@@ -3709,6 +3710,32 @@ void GCode::_do_export(Print& print, GCodeOutputStream &file, ThumbnailsGenerato
     // Orca: Initialise AdaptivePA processor filter
     m_pa_processor = std::make_unique<AdaptivePAProcessor>(*this);
 
+    // Motor resonance bands, if the printer has any. Print::validate() has already rejected bands
+    // that do not parse.
+    m_motor_resonance_avoider.reset();
+    {
+        std::array<ShakeTune::SpeedBands, 2> bands;
+        if (ShakeTune::parse_speed_bands(print.config().motor_resonance_bands_x.value, bands[0]) &&
+            ShakeTune::parse_speed_bands(print.config().motor_resonance_bands_y.value, bands[1]) &&
+            !(bands[0].empty() && bands[1].empty())) {
+            MotorResonanceAvoider::Config avoider;
+            avoider.kinematics = print.config().motor_resonance_kinematics.value == MotorResonanceKinematics::CoreXY ?
+                                     ShakeTune::MotorKinematics::CoreXY : ShakeTune::MotorKinematics::Cartesian;
+            avoider.bands = std::move(bands);
+            // Orca sends machine_max_jerk_x to Klipper as its square corner velocity.
+            const std::vector<double> &jerk = print.config().machine_max_jerk_x.values;
+            avoider.square_corner_velocity  = !jerk.empty() && jerk.front() > 0. ? jerk.front() : 5.;
+            // The longest minimum layer time of the filaments that slow down to keep it.
+            for (unsigned int id : print.extruders())
+                if (print.config().slow_down_for_layer_cooling.get_at(id))
+                    avoider.min_layer_time = std::max(avoider.min_layer_time, print.config().slow_down_layer_time.get_at(id));
+            avoider.acceleration_command = [writer = &m_writer](unsigned int acceleration) {
+                return writer->print_acceleration_command(acceleration);
+            };
+            m_motor_resonance_avoider = std::make_unique<MotorResonanceAvoider>(std::move(avoider));
+        }
+    }
+
     // Update output variables after the extruders were initialized.
     m_placeholder_parser_integration.init(m_writer);
 
@@ -5218,6 +5245,11 @@ void GCode::process_layers(
                 return in.gcode;
             return cooling_buffer.process_layer(std::move(in.gcode), in.layer_id, in.cooling_buffer_flush);
         });
+    // After the cooling slowdown, which rescales feedrates, and before adaptive PA, which reads them.
+    const auto motor_resonance = tbb::make_filter<std::string, std::string>(slic3r_tbb_filtermode::serial_in_order,
+        [avoider = this->m_motor_resonance_avoider.get()](std::string in) -> std::string {
+            return avoider ? avoider->process_layer(std::move(in)) : in;
+        });
     const auto pa_processor_filter = tbb::make_filter<std::string, std::string>(slic3r_tbb_filtermode::serial_in_order,
             [&pa_processor = *this->m_pa_processor](std::string in) -> std::string {
                 return pa_processor.process_layer(std::move(in));
@@ -5250,13 +5282,13 @@ void GCode::process_layers(
 
     // The pipeline elements are joined using const references, thus no copying is performed.
     if (m_spiral_vase && m_pressure_equalizer)
-        tbb::parallel_pipeline(12, source & generator & spiral_mode & pressure_equalizer & cooling & fan_mover & output);
+        tbb::parallel_pipeline(12, source & generator & spiral_mode & pressure_equalizer & cooling & motor_resonance & fan_mover & output);
     else if (m_spiral_vase)
-    	tbb::parallel_pipeline(12, source & generator & spiral_mode & cooling & fan_mover & output);
+    	tbb::parallel_pipeline(12, source & generator & spiral_mode & cooling & motor_resonance & fan_mover & output);
     else if	(m_pressure_equalizer)
-        tbb::parallel_pipeline(12, source & generator & pressure_equalizer & cooling & fan_mover & pa_processor_filter & output);
+        tbb::parallel_pipeline(12, source & generator & pressure_equalizer & cooling & motor_resonance & fan_mover & pa_processor_filter & output);
     else
-    	tbb::parallel_pipeline(12, source & generator & cooling & fan_mover & pa_processor_filter & output);
+    	tbb::parallel_pipeline(12, source & generator & cooling & motor_resonance & fan_mover & pa_processor_filter & output);
     // The estimator's precomputed data points into this print's layers.
     m_extrusion_quality_estimator.set_precomputed_layers({});
 
@@ -5314,6 +5346,11 @@ void GCode::process_layers(
                 return in.gcode;
             return cooling_buffer.process_layer(std::move(in.gcode), in.layer_id, in.cooling_buffer_flush);
         });
+    // After the cooling slowdown, which rescales feedrates, and before adaptive PA, which reads them.
+    const auto motor_resonance = tbb::make_filter<std::string, std::string>(slic3r_tbb_filtermode::serial_in_order,
+        [avoider = this->m_motor_resonance_avoider.get()](std::string in) -> std::string {
+            return avoider ? avoider->process_layer(std::move(in)) : in;
+        });
     const auto pa_processor_filter = tbb::make_filter<std::string, std::string>(slic3r_tbb_filtermode::serial_in_order,
         [&pa_processor = *this->m_pa_processor](std::string in) -> std::string {
             return pa_processor.process_layer(std::move(in));
@@ -5344,13 +5381,13 @@ void GCode::process_layers(
 
     // The pipeline elements are joined using const references, thus no copying is performed.
     if (m_spiral_vase && m_pressure_equalizer)
-        tbb::parallel_pipeline(12, source & generator & spiral_mode & pressure_equalizer & cooling & fan_mover & output);
+        tbb::parallel_pipeline(12, source & generator & spiral_mode & pressure_equalizer & cooling & motor_resonance & fan_mover & output);
     else if (m_spiral_vase)
-    	tbb::parallel_pipeline(12, source & generator & spiral_mode & cooling & fan_mover & output);
+    	tbb::parallel_pipeline(12, source & generator & spiral_mode & cooling & motor_resonance & fan_mover & output);
     else if	(m_pressure_equalizer)
-        tbb::parallel_pipeline(12, source & generator & pressure_equalizer & cooling & fan_mover & pa_processor_filter & output);
+        tbb::parallel_pipeline(12, source & generator & pressure_equalizer & cooling & motor_resonance & fan_mover & pa_processor_filter & output);
     else
-    	tbb::parallel_pipeline(12, source & generator & cooling & fan_mover & pa_processor_filter & output);
+    	tbb::parallel_pipeline(12, source & generator & cooling & motor_resonance & fan_mover & pa_processor_filter & output);
     // The estimator's precomputed data points into this print's layers.
     m_extrusion_quality_estimator.set_precomputed_layers({});
 }
@@ -9983,6 +10020,29 @@ std::string GCode::_extrude_piece(const ExtrusionPath &path, const std::string &
             comment += ";_EXTERNAL_PERIMETER";
     }
 
+    // Bracket the moves of this path for the MotorResonanceAvoider when the region asks for its role.
+    bool motor_resonance_bracket = false;
+    if (m_motor_resonance_avoider) {
+        switch (m_config.motor_resonance_avoidance.value) {
+        case MotorResonanceAvoidance::OuterWalls:    motor_resonance_bracket = is_external_perimeter(path.role()); break;
+        case MotorResonanceAvoidance::AllWalls:      motor_resonance_bracket = is_perimeter(path.role()); break;
+        case MotorResonanceAvoidance::AllExtrusions: motor_resonance_bracket = true; break;
+        case MotorResonanceAvoidance::Disabled:      break;
+        }
+    }
+    if (motor_resonance_bracket) {
+        MotorResonanceAvoider::PathLimits limits;
+        limits.mode             = m_config.motor_resonance_speed_change.value == MotorResonanceSpeedChange::Nearest ?
+                                      MotorResonanceAvoider::Mode::Nearest : MotorResonanceAvoider::Mode::SlowDown;
+        limits.role             = int(path.role());
+        limits.speed            = speed;
+        limits.max_speed        = filament_max_volumetric_speed > 0. && _mm3_per_mm > 0. ? filament_max_volumetric_speed / _mm3_per_mm : 0.;
+        limits.acceleration     = m_writer.print_acceleration();
+        limits.max_acceleration = m_writer.max_print_acceleration();
+        gcode += MotorResonanceAvoider::start_marker(limits);
+        gcode += '\n';
+    }
+
     // Change fan speed based on current extrusion role
     auto append_role_based_fan_marker = [this, &gcode](const ExtrusionRole role, const std::string_view& marker_prefix, const bool fan_on) {
         assert(m_enable_cooling_markers);
@@ -10374,6 +10434,10 @@ std::string GCode::_extrude_piece(const ExtrusionPath &path, const std::string &
             prev = p;
 
         }
+    }
+    if (motor_resonance_bracket) {
+        gcode += MotorResonanceAvoider::END_MARKER;
+        gcode += '\n';
     }
     if (m_enable_cooling_markers) {
             gcode += ";_EXTRUDE_END\n";

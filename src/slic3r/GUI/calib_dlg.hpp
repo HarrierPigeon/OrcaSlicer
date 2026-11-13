@@ -109,6 +109,8 @@ protected:
     TextInput* m_tiStep;
     CheckBox*  m_cbAutoAdjust;
     CheckBox*  m_cbResize;
+    ComboBox*  m_cbModel;
+    ComboBox*  m_cbMotorResonance;
     Plater* m_plater;
 };
 
