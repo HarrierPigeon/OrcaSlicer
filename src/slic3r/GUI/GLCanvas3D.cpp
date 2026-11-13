@@ -45,6 +45,7 @@
 #include "slic3r/GUI/GLToolbar.hpp"
 #include <math.h>
 #include <Eigen/Core>
+#include <Eigen/Geometry>
 #include <iterator>
 #include <wx/app.h>
 #include <cstdlib>
@@ -170,6 +171,7 @@
 #include "libslic3r/MultiMaterialSegmentation.hpp"
 #include "libslic3r/SLA/Pad.hpp"
 #include "libslic3r/TextConfiguration.hpp"
+#include "libslic3r/Support/SupportDirection.hpp"
 #include "libslic3r/TriangleMesh.hpp"
 #include "slic3r/GUI/3DBed.hpp"
 #include "slic3r/GUI/FrameProfiler.hpp"
@@ -3439,6 +3441,7 @@ void GLCanvas3D::_render_scene(const Camera& camera, const Size& cnv_size)
         _render_sla_slices();
         _render_selection();
         _render_objects(GLVolumeCollection::ERenderType::Transparent, !m_gizmos.is_running());
+        _render_support_direction_arrows(camera.get_view_matrix(), camera.get_projection_matrix());
         _render_wireframe_overlay();
         m_frame_profiler.mark("transparent");
         _render_selection_outline();
@@ -10773,6 +10776,94 @@ void GLCanvas3D::_render_selection()
 
     if (!m_gizmos.is_running())
         m_selection.render(scale_factor);
+}
+
+void GLCanvas3D::_render_support_direction_arrows(const Transform3d& view_matrix, const Transform3d& projection_matrix)
+{
+    if (m_model == nullptr || m_selection.is_empty() || m_gizmos.is_dragging())
+        return;
+    const PresetBundle* preset_bundle = wxGetApp().preset_bundle;
+    if (preset_bundle == nullptr)
+        return;
+    const DynamicPrintConfig& print_cfg   = preset_bundle->prints.get_edited_preset().config;
+    const auto*               belt_opt    = preset_bundle->printers.get_edited_preset().config.option<ConfigOptionBool>("belt_printer");
+    const bool                belt        = belt_opt != nullptr && belt_opt->value;
+    // See world_up_bed_frame(): on a belt the plate tilt options carry the belt angle, not gravity.
+    const Vec3d               world_up    = belt ? Vec3d::UnitZ() : build_plate_tilt_up_direction();
+    // The object's own override wins over the process preset, as the slicer resolves it.
+    auto option = [&print_cfg](const ModelObject& obj, const char* key) -> const ConfigOption* {
+        const ConfigOption* opt = obj.config.option(key);
+        return opt != nullptr ? opt : print_cfg.option(key);
+    };
+
+    // Collect (instance world box, bed-frame direction) first so nothing is set up for an empty pass.
+    std::vector<std::pair<BoundingBoxf3, Vec3d>> arrows;
+    for (const auto& [obj_idx, inst_idxs] : m_selection.get_content()) {
+        if (obj_idx < 0 || obj_idx >= int(m_model->objects.size()))
+            continue;
+        const ModelObject* obj = m_model->objects[obj_idx];
+        if (obj == nullptr)
+            continue;
+        const auto* direction = dynamic_cast<const ConfigOptionEnum<SupportDirection>*>(option(*obj, "support_direction"));
+        if (direction == nullptr || direction->value == sdLayers)
+            continue;
+        const auto* support = dynamic_cast<const ConfigOptionBool*>(option(*obj, "enable_support"));
+        if (support == nullptr || !support->value)
+            continue;
+        PrintObjectConfig cfg;
+        cfg.support_direction.value = direction->value;
+        for (auto [key, field] : { std::make_pair("support_direction_tilt_x", &cfg.support_direction_tilt_x),
+                                   std::make_pair("support_direction_tilt_y", &cfg.support_direction_tilt_y) })
+            if (const auto* opt = dynamic_cast<const ConfigOptionFloat*>(option(*obj, key)))
+                field->value = opt->value;
+        const Vec3d dir = support_direction_bed_frame(cfg, world_up);
+        // Nothing leans when the direction is the bed normal on a printer whose layers follow the bed.
+        if (dir.squaredNorm() < EPSILON || (!belt && std::abs(dir.z() - 1.) < EPSILON))
+            continue;
+        for (int inst_idx : inst_idxs) {
+            // The scene's own boxes follow a drag at once; the model instance only when it ends.
+            BoundingBoxf3 box;
+            for (const GLVolume* v : m_volumes.volumes)
+                if (v->object_idx() == obj_idx && v->instance_idx() == inst_idx && !v->is_modifier)
+                    box.merge(v->transformed_convex_hull_bounding_box());
+            if (box.defined)
+                arrows.emplace_back(box, dir);
+        }
+    }
+    if (arrows.empty())
+        return;
+
+    GLShaderProgram* shader = wxGetApp().get_shader("flat");
+    if (shader == nullptr)
+        return;
+
+    if (!m_support_direction_arrow.is_initialized()) {
+        // A unit arrow along +Z: shaft from 0 to 0.75, head from 0.75 to 1.
+        const double         fa    = 2. * PI / 24.;
+        indexed_triangle_set arrow = its_make_cylinder(0.03, 0.75, fa);
+        indexed_triangle_set head  = its_make_cone(0.1, 0.25, fa);
+        for (Vec3f& v : head.vertices)
+            v.z() += 0.75f;
+        its_merge(arrow, head);
+        m_support_direction_arrow.init_from(arrow);
+    }
+    if (!m_support_direction_arrow.is_initialized())
+        return;
+    m_support_direction_arrow.set_color(ColorRGBA(1.0f, 0.55f, 0.1f, 1.0f));
+
+    shader->start_using();
+    shader->set_uniform("projection_matrix", projection_matrix);
+    for (const auto& [box, dir] : arrows) {
+        // Start a little above the instance and size the arrow to it, within reason.
+        const double      length = std::clamp(0.4 * box.size().maxCoeff(), 10., 40.);
+        const Vec3d       origin(box.center().x(), box.center().y(), box.max.z() + 2.);
+        const Transform3d model  = Geometry::translation_transform(origin)
+            * Transform3d(Eigen::Quaterniond::FromTwoVectors(Vec3d::UnitZ(), dir))
+            * Geometry::scale_transform(length);
+        shader->set_uniform("view_model_matrix", view_matrix * model);
+        m_support_direction_arrow.render();
+    }
+    shader->stop_using();
 }
 
 void GLCanvas3D::_render_sequential_clearance()

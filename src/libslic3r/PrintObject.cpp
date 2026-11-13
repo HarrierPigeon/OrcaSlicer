@@ -23,6 +23,7 @@
 #include "SLA/IndexedMesh.hpp"
 #include "Support/SupportMaterial.hpp"
 #include "Support/SupportCommon.hpp"
+#include "Support/SupportDirection.hpp"
 #include "Support/SupportSpotsGenerator.hpp"
 #include "Support/TreeSupport.hpp"
 #include "Surface.hpp"
@@ -1020,7 +1021,28 @@ void PrintObject::generate_support_material(bool with_belt_brim)
         if ((this->has_support() && m_layers.size() > 1) || (this->has_raft() && !m_layers.empty())) {
             m_print->set_status(50, L("Generating support"));
 
-            this->_generate_support_material();
+            {
+                // Lean the support along the configured direction by generating it in a sheared
+                // frame. A no-op for the default "follow layers"; the scope puts the layers back
+                // before anything else reads them. See Support/SupportDirection.hpp.
+                ScopedSupportShear shear(*this);
+                if (shear.floor_unreachable())
+                    this->active_step_add_warning(PrintStateBase::WarningLevel::NON_CRITICAL,
+                        // TRN %1% is the object name.
+                        Slic3r::format(L("The support direction of object %1% never reaches the belt, so its support follows the layers instead."),
+                                       this->model_object()->name));
+                else if (shear.clamped())
+                    this->active_step_add_warning(PrintStateBase::WarningLevel::NON_CRITICAL,
+                        // TRN %1% is the object name, %2% the configured "Max lean" angle (the degree sign follows it).
+                        Slic3r::format(L("The support direction of object %1% is more than %2%° from the layer normal; the lean was limited to that angle (\"Max lean\")."),
+                                       this->model_object()->name, int(std::lround(m_config.support_direction_max_lean.value))));
+                else if (shear.active() && shear.lean_deg() > SupportLean::safe_lean_deg() + EPSILON)
+                    this->active_step_add_warning(PrintStateBase::WarningLevel::NON_CRITICAL,
+                        // TRN %1% is the object name, %2% the lean angle in effect and %3% the angle beyond which support overhangs itself (the degree sign follows each).
+                        Slic3r::format(L("The support of object %1% leans %2%° from the layer normal. Beyond %3%° the support overhangs itself; tune and test-print this before relying on it."),
+                                       this->model_object()->name, int(std::lround(shear.lean_deg())), int(std::lround(SupportLean::safe_lean_deg()))));
+                this->_generate_support_material();
+            }
             m_print->throw_if_canceled();
         }
         // Orca: the tree support collision/avoidance caches and support nodes are only used while this step runs
@@ -1384,8 +1406,8 @@ void PrintObject::clear_support_layers()
 //
 // The tilt test is answered from the print CONFIG, not from SlicingParameters:
 // invalidating posSupportMaterial clears m_slicing_params.valid, and this is
-// queried from Print::process() dispatch, Brim.cpp and the G-code emitter, where
-// a stale zero shear factor would silently drop the brim.  BeltBrim.cpp itself
+// queried from Print::process() dispatch, Print::validate() and the G-code emitter,
+// where a stale zero shear factor would silently drop the brim.  BeltBrim.cpp itself
 // reads the real belt floor through BeltFloorContext, where the parameters are
 // guaranteed current.
 bool PrintObject::has_belt_brim() const
@@ -1396,6 +1418,15 @@ bool PrintObject::has_belt_brim() const
     // this keeps it brimless whatever its config says, so a brim on the parts never blocks purging.
     if (m_config.belt_purge_tower_object.value)
         return false;
+    if (this->has_raft())
+        return false;
+    // Supports on a belt always get their first layer from the belt brim machinery: a
+    // skin bead under every foot, laid band by band (BeltBrim.cpp, step 1c).
+    return this->has_support() || this->wants_belt_brim_ring();
+}
+
+bool PrintObject::wants_belt_brim_ring() const
+{
     if (m_config.brim_type == btNoBrim)
         return false;
     // An inner-only brim has no leading/extra geometry: leading_brim_length and
@@ -1404,14 +1435,10 @@ bool PrintObject::has_belt_brim() const
     // satisfied by any one of the three widths.  Requiring the width here (instead of
     // "any width") stops has_belt_brim() - and therefore Print::validate() - from
     // rejecting the prime tower / spiral vase for a brim that would never be drawn.
-    if (m_config.brim_type == btInnerOnly) {
-        if (m_config.brim_width.value <= 0.)
-            return false;
-    } else if (m_config.brim_width.value <= 0. && m_config.leading_brim_length.value <= 0.
-               && m_config.extra_brim_width.value <= 0.) {
-        return false;
-    }
-    return ! this->has_raft();
+    if (m_config.brim_type == btInnerOnly)
+        return m_config.brim_width.value > 0.;
+    return m_config.brim_width.value > 0. || m_config.leading_brim_length.value > 0.
+        || m_config.extra_brim_width.value > 0.;
 }
 
 unsigned int PrintObject::belt_brim_filament() const
@@ -1487,6 +1514,7 @@ bool PrintObject::invalidate_state_by_config_options(
         if (   opt_key == "brim_width"
             || opt_key == "leading_brim_length"
             || opt_key == "extra_brim_width"
+            || opt_key == "support_brim"
             || opt_key == "brim_object_gap"
             || opt_key == "brim_use_efc_outline"
             || opt_key == "brim_type"
@@ -1629,6 +1657,10 @@ bool PrintObject::invalidate_state_by_config_options(
             || opt_key == "support_expansion"
             || opt_key == "independent_support_layer_height" // Orca
             || opt_key == "support_threshold_angle"
+            || opt_key == "support_direction"
+            || opt_key == "support_direction_tilt_x"
+            || opt_key == "support_direction_tilt_y"
+            || opt_key == "support_direction_max_lean"
             || opt_key == "support_threshold_overlap"
             || opt_key == "support_ironing"
             || opt_key == "support_ironing_pattern"
@@ -5144,8 +5176,11 @@ void PrintObject::_generate_support_material()
             PrintObjectSupportMaterial support_material(this, m_slicing_params);
             support_material.generate(*this);
         } catch (...) {
-            if (unshift)
+            if (unshift) {
                 shift_object_frame(1.);
+                for (SupportLayer *sl : m_support_layers)
+                    sl->print_z += global_z;
+            }
             throw;
         }
         if (unshift) {
@@ -5522,7 +5557,8 @@ static void project_triangles_to_slabs(ConstLayerPtrsAdaptor layers, const index
 void PrintObject::project_and_append_custom_facets(
         bool seam, EnforcerBlockerType type, std::vector<Polygons>& out, std::vector<std::pair<Vec3f, Vec3f>>* vertical_points) const
 {
-    const Transform3d object_trafo = this->trafo_sliced();
+    const Transform3d        object_trafo = this->trafo_sliced();
+    const std::vector<float> zs           = zs_from_layers(this->layers());
     for (const ModelVolume* mv : this->model_object()->volumes)
         if (mv->is_model_part()) {
             const indexed_triangle_set custom_facets = seam
@@ -5535,8 +5571,25 @@ void PrintObject::project_and_append_custom_facets(
                         seam, out);
                 else {
                     std::vector<Polygons> projected;
+                    const size_t          first_vertical_point = vertical_points == nullptr ? 0 : vertical_points->size();
                     // Support blockers or enforcers. Project downward facing painted areas upwards to their respective slicing plane.
-                    slice_mesh_slabs(custom_facets, zs_from_layers(this->layers()), object_trafo * mv->get_matrix(), nullptr, &projected, vertical_points, [](){});
+                    slice_mesh_slabs(custom_facets, zs, object_trafo * mv->get_matrix(), nullptr, &projected, vertical_points, [](){});
+                    // Follow the layers into the sheared support frame. Only what was added here: `out`
+                    // is already in that frame.
+                    if (m_support_lean.active()) {
+                        for (size_t i = 0; i < projected.size(); ++ i)
+                            Slic3r::translate(projected[i], this->support_lean_shift(i));
+                        if (vertical_points != nullptr)
+                            for (size_t k = first_vertical_point; k < vertical_points->size(); ++ k) {
+                                // Scaled XY with z in mm, matched to a layer the way the tree generators do.
+                                Vec3f &pt = (*vertical_points)[k].first;
+                                if (auto it = std::lower_bound(zs.begin(), zs.end(), pt.z()); it != zs.end()) {
+                                    const Point shift = this->support_lean_shift(size_t(it - zs.begin()));
+                                    pt.x() += float(shift.x());
+                                    pt.y() += float(shift.y());
+                                }
+                            }
+                    }
                     // Merge these projections with the output, layer by layer.
                     assert(! projected.empty());
                     assert(out.empty() || out.size() == projected.size());

@@ -393,6 +393,15 @@ inline bool is_auto(SupportType stype)
     return std::set<SupportType>{stNormalAuto, stTreeAuto}.count(stype) != 0;
 };
 
+// The direction support columns grow along, independent of the layer normal (see
+// Support/SupportDirection.hpp). sdLayers: along the layer normal (default). sdVertical: against
+// gravity, whatever rotation the object is sliced at (on a belt printer: perpendicular to the belt;
+// on a tilted build plate: the plate tilt's up). sdCustom: the bed-frame direction given by
+// support_direction_tilt_x / _y.
+enum SupportDirection {
+    sdLayers, sdVertical, sdCustom
+};
+
 enum SeamPosition {
     spNearest, spAligned, spAlignedBack, spRear, spRandom
 };
@@ -813,6 +822,7 @@ CONFIG_OPTION_ENUM_DECLARE_STATIC_MAPS(SupportMaterialStyle)
 CONFIG_OPTION_ENUM_DECLARE_STATIC_MAPS(SupportMaterialInterfacePattern)
 // BBS
 CONFIG_OPTION_ENUM_DECLARE_STATIC_MAPS(SupportType)
+CONFIG_OPTION_ENUM_DECLARE_STATIC_MAPS(SupportDirection)
 CONFIG_OPTION_ENUM_DECLARE_STATIC_MAPS(SeamPosition)
 CONFIG_OPTION_ENUM_DECLARE_STATIC_MAPS(SeamScarfType)
 CONFIG_OPTION_ENUM_DECLARE_STATIC_MAPS(SLADisplayOrientation)
@@ -1290,6 +1300,7 @@ PRINT_CONFIG_CLASS_DEFINE(
     ((ConfigOptionFloat,               brim_width))
     ((ConfigOptionFloat,               leading_brim_length))
     ((ConfigOptionFloat,               extra_brim_width))
+    ((ConfigOptionBool,                support_brim))
     ((ConfigOptionFloat,               brim_ears_detection_length))
     ((ConfigOptionFloat,               brim_ears_max_angle))
     ((ConfigOptionBool,                brim_ears_outer_only))
@@ -1317,6 +1328,12 @@ PRINT_CONFIG_CLASS_DEFINE(
     ((ConfigOptionBool,                enable_support))
     // Automatic supports (generated based on support_threshold_angle).
     ((ConfigOptionEnum<SupportType>,   support_type))
+    // See SupportDirection. The tilts are bed-frame degrees in the build_plate_tilt_x/y convention
+    // (Geometry::tilt_up_direction), read only for sdCustom.
+    ((ConfigOptionEnum<SupportDirection>, support_direction))
+    ((ConfigOptionFloat,               support_direction_tilt_x))
+    ((ConfigOptionFloat,               support_direction_tilt_y))
+    ((ConfigOptionFloat,               support_direction_max_lean))
     // Direction of the support pattern (in XY plane).`
     ((ConfigOptionFloat,               support_angle))
     ((ConfigOptionBool,                support_on_build_plate_only))

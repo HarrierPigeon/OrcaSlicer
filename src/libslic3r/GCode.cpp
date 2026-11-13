@@ -6176,8 +6176,8 @@ LayerResult GCode::process_belt_brim_layer(
     // (CoolingBuffer.cpp), and every apron band is first-layer material by the only
     // definition that means anything on a belt: it lies on the belt plane itself.  Numbering
     // the bands 1, 2, 3... would ramp the fan up while still printing on the belt.
-    // spiral_vase_enable false: spiral vase is refused alongside belt brim in
-    // Print::validate().  cooling_buffer_flush true: an apron layer is a complete layer, and
+    // spiral_vase_enable false: an apron band lies on the belt below the object and is
+    // never part of the spiral.  cooling_buffer_flush true: an apron layer is a complete layer, and
     // the default (object_layer || raft_layer || last_layer) is false here, so fan and
     // slowdown would otherwise never be applied to it.
     LayerResult result { {}, 0, false, true };
@@ -6668,6 +6668,29 @@ LayerResult GCode::process_layer(
     m_enable_loop_clipping = true;
     if (m_spiral_vase && layers.size() == 1 && support_layer == nullptr) {
         bool enable = (layer.id() > 0 || !print.has_brim()) && (layer.id() >= (size_t)print.config().skirt_height.value && ! print.has_infinite_skirt());
+        // Belt printers lay the brim over many layers; a layer that carries one of its
+        // bands is a brim layer like layer 0 above, so it is printed flat. The spiral
+        // starts once the object (and the feet of its supports) has left the belt.
+        if (enable && layer.object()->has_belt_brim()) {
+            const std::vector<ExtrusionEntityCollection> &bands = layer.object()->belt_brim_by_layer();
+            if (layer.id() < bands.size() && ! bands[layer.id()].empty())
+                enable = false;
+            // A support layer of its own printed since the layer below (independent support
+            // layer heights) leaves the nozzle on the support, not at the loop's start the
+            // spiral would continue from: this layer is printed flat too.
+            if (enable) {
+                const auto sls = layer.object()->support_layers();
+                const coordf_t lo = layer.lower_layer != nullptr ? layer.lower_layer->print_z + EPSILON
+                                                                 : -std::numeric_limits<coordf_t>::max();
+                for (auto it = std::lower_bound(sls.begin(), sls.end(), lo,
+                                                [](const SupportLayer *sl, coordf_t z) { return sl->print_z < z; });
+                     it != sls.end() && (*it)->print_z < layer.print_z - EPSILON; ++ it)
+                    if (! (*it)->support_fills.empty()) {
+                        enable = false;
+                        break;
+                    }
+            }
+        }
         if (enable) {
             for (const LayerRegion *layer_region : layer.regions())
                 if (size_t(layer_region->region().config().bottom_shell_layers.value) > layer.id() ||
@@ -8157,6 +8180,10 @@ LayerResult GCode::process_layer(
         for (const LayerToPrint &ltp : layers) {
             const PrintObject *obj = ltp.original_object;
             if (obj == nullptr || ! obj->has_belt_brim() || ltp.object_layer == nullptr)
+                continue;
+            // Nothing to lay on this layer: no toolchange for it either.
+            if (const auto &by_layer = obj->belt_brim_by_layer();
+                ltp.object_layer->id() >= by_layer.size() || by_layer[ltp.object_layer->id()].empty())
                 continue;
             const size_t       ltp_idx = size_t(&ltp - layers.data());
             const unsigned int brim0   = (unsigned int)(obj->belt_brim_filament() - 1);

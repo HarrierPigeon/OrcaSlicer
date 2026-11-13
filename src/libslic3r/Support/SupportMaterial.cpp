@@ -12,6 +12,7 @@
 #include "libslic3r/Support/SupportLayer.hpp"
 #include "libslic3r/PrintConfig.hpp"
 #include "SupportCommon.hpp"
+#include "SupportDirection.hpp"
 #include "BeltFloorContext.hpp"
 #include "Geometry.hpp"
 #include "Point.hpp"
@@ -663,6 +664,8 @@ Polygons belt_floor_surface_polygon(
     BeltFloorContext ctx;
     if (!ctx.init(slicing_params, print_config))
         return {};
+    // The generator works in the object-local frame; the offset maps its print_z onto the global one.
+    ctx.set_lean(object.support_lean(), object.belt_global_z_offset());
     return ctx.surface_polygon(print_z);
 }
 
@@ -678,6 +681,8 @@ static Polygons belt_floor_valid_region_polygon(
     BeltFloorContext ctx;
     if (!ctx.init(slicing_params, print_config))
         return {};
+    // Local frame, see belt_floor_surface_polygon().
+    ctx.set_lean(object.support_lean(), object.belt_global_z_offset());
     return ctx.valid_region_polygon(print_z);
 }
 
@@ -1472,9 +1477,10 @@ static inline ExPolygons detect_overhangs(
     const double threshold_rad = Geometry::deg2rad(thresh_angle);
     const bool bridge_no_support = object_config.bridge_no_support.value;
     const coordf_t xy_expansion = scale_(object_config.support_expansion.value);
-    // Build plate tilt: compute per-layer XY shift for tilted gravity direction
+    // Build plate tilt: compute per-layer XY shift for tilted gravity direction. While the support
+    // leans, overhangs are judged against the support direction instead (Support/SupportDirection.hpp).
     const Vec2d  tilt_slope = build_plate_tilt_slope(print_config);
-    const bool   has_tilt   = tilt_slope.cwiseAbs().maxCoeff() > EPSILON;
+    const bool   has_tilt   = tilt_slope.cwiseAbs().maxCoeff() > EPSILON && ! layer.object()->support_lean().active();
     float lower_layer_offset = 0;
 
     if (layer_id == 0)
@@ -1516,6 +1522,28 @@ static inline ExPolygons detect_overhangs(
             tilted_lower = lower_layer_polygons;
             translate(tilted_lower, Point::new_scale(tilt_slope * lower_layer.height));
             effective_lower = &tilted_lower;
+        }
+        // Belt printers, while the support leans: the belt surface counts as support from underneath,
+        // as it does for classic tree support, else the belt-contact face (flatter than the belt angle
+        // in the sheared frame) reads as an overhang on every layer. Evaluated at the bottom of the
+        // layer and clipped to it, so Clipper never mixes the half-plane with millimetre geometry.
+        Polygons   belt_lower;
+        ExPolygons belt_surface_ex;   // the belt under this layer, for the sharp-tail test below
+        if (layer.object()->support_lean().active()) {
+            Polygons belt_surface = belt_floor_surface_polygon(layer.object()->slicing_parameters(), print_config, *layer.object(), layer.print_z - layer.height);
+            if (! belt_surface.empty()) {
+                BoundingBox clip_bb = get_extents(layer.lslices);
+                clip_bb.merge(get_extents(*effective_lower));
+                clip_bb.offset(scale_(10.));
+                belt_surface = intersection(belt_surface, Polygons{ clip_bb.polygon() });
+                if (! belt_surface.empty()) {
+                    belt_surface_ex = union_ex(belt_surface);
+                    belt_lower = *effective_lower;
+                    append(belt_lower, belt_surface);
+                    belt_lower = union_(belt_lower);
+                    effective_lower = &belt_lower;
+                }
+            }
         }
 
         for (LayerRegion *layerm : layer.regions()) {
@@ -1571,7 +1599,10 @@ static inline ExPolygons detect_overhangs(
                         // 1. nothing below
                         // Check whether this is a sharp tail region.
                         // Should use lower_layer_expolys without any offset. Otherwise, it may missing sharp tails near the main body.
-                        if (!overlaps(offset_ex(expoly, 0.5 * fw), lower_layer_expolys)) {
+                        // A small island resting on the belt is held by the belt, not a sharp tail
+                        // (belt_surface_ex is empty unless the support leans, see above).
+                        if (!overlaps(offset_ex(expoly, 0.5 * fw), lower_layer_expolys) &&
+                            (belt_surface_ex.empty() || !overlaps(offset_ex(expoly, 0.5 * fw), belt_surface_ex))) {
                             is_sharp_tail = expoly.area() < area_thresh_well_supported && !offset_ex(expoly, -0.1 * fw).empty();
                         }
 
@@ -3314,6 +3345,8 @@ static void trim_support_layers_by_belt_floor(
     BeltFloorContext ctx;
     if (!ctx.init(slicing_params, print_config))
         return;
+    // Local frame, see belt_floor_surface_polygon().
+    ctx.set_lean(object.support_lean(), object.belt_global_z_offset());
 
     tbb::parallel_for(tbb::blocked_range<size_t>(0, support_layers.size()),
         [&](const tbb::blocked_range<size_t> &range) {

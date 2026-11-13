@@ -352,13 +352,16 @@ void ConfigManipulation::update_print_fff_config(DynamicPrintConfig* config, con
     // the fields that would clear them are greyed out in belt mode, so a preset that
     // carries either could not be sliced at all. Reset them instead of only disabling
     // the fields.
-    if (GUI::wxGetApp().preset_bundle != nullptr) {
-        const auto *belt_opt = GUI::wxGetApp().preset_bundle->printers.get_edited_preset().config.option<ConfigOptionBool>("belt_printer");
+    bool belt_printer = false;
+    if (GUI::wxGetApp().preset_bundle != nullptr)
+        if (const auto *belt_opt = GUI::wxGetApp().preset_bundle->printers.get_edited_preset().config.option<ConfigOptionBool>("belt_printer"))
+            belt_printer = belt_opt->value;
+    {
         const auto *raft_opt = config->option<ConfigOptionInt>("raft_layers");
         const auto *shield_opt = config->option<ConfigOptionEnum<DraftShield>>("draft_shield");
         const bool has_raft   = raft_opt != nullptr && raft_opt->value > 0;
         const bool has_shield = shield_opt != nullptr && shield_opt->value != dsDisabled;
-        if (belt_opt != nullptr && belt_opt->value && (has_raft || has_shield)) {
+        if (belt_printer && (has_raft || has_shield)) {
             const wxString msg_text = _(L("Raft and draft shield are not available on belt printers.\nThey have been disabled."));
             MessageDialog dialog(m_msg_dlg_parent, msg_text, "", wxICON_WARNING | wxOK);
             DynamicPrintConfig new_conf = *config;
@@ -472,13 +475,19 @@ void ConfigManipulation::update_print_fff_config(DynamicPrintConfig* config, con
     int    fill_multiline        = config->option<ConfigOptionInt>("fill_multiline")->value;
     auto timelapse_type = config->opt_enum<TimelapseType>("timelapse_type");
 
+    // Belt printer: supports and spiral vase coexist. A support layer never
+    // spiralizes (GCode::process_layer), and the counter-rotated calibration
+    // objects stand on a support wedge printed entirely before the object, so
+    // the spiral cleanup must not switch supports off there (and the CLI check
+    // in Slic3r::validate() lets the same combination through).
+    const bool supports_off = belt_printer || (! config->opt_bool("enable_support") && config->opt_int("enforce_support_layers") == 0);
+
     if (!is_plate_config &&
         config->opt_bool("spiral_mode") &&
         ! (config->opt_int("wall_loops") == 1 &&
            config->opt_int("top_shell_layers") == 0 &&
            sparse_infill_density == 0 &&
-           ! config->opt_bool("enable_support") &&
-           config->opt_int("enforce_support_layers") == 0 &&
+           supports_off &&
            ! config->opt_bool("detect_thin_wall") &&
            ! config->opt_bool("overhang_reverse") &&
             config->opt_enum<TimelapseType>("timelapse_type") == TimelapseType::tlTraditional &&
@@ -491,8 +500,10 @@ void ConfigManipulation::update_print_fff_config(DynamicPrintConfig* config, con
             new_conf.set_key_value("wall_loops", new ConfigOptionInt(1));
             new_conf.set_key_value("top_shell_layers", new ConfigOptionInt(0));
             new_conf.set_key_value("sparse_infill_density", new ConfigOptionPercent(0));
-            new_conf.set_key_value("enable_support", new ConfigOptionBool(false));
-            new_conf.set_key_value("enforce_support_layers", new ConfigOptionInt(0));
+            if (!belt_printer) {
+                new_conf.set_key_value("enable_support", new ConfigOptionBool(false));
+                new_conf.set_key_value("enforce_support_layers", new ConfigOptionInt(0));
+            }
             new_conf.set_key_value("detect_thin_wall", new ConfigOptionBool(false));
             new_conf.set_key_value("overhang_reverse", new ConfigOptionBool(false));
             new_conf.set_key_value("timelapse_type", new ConfigOptionEnum<TimelapseType>(tlTraditional));
@@ -1024,6 +1035,18 @@ void ConfigManipulation::toggle_print_fff_options(DynamicPrintConfig *config, in
         toggle_line(el, is_belt_tilted, -1, _L("This setting requires a belt printer with a tilted slicing plane."));
         toggle_field(el, is_belt_tilted && have_brim, -1, _L("Enable a brim on a belt printer with a tilted slicing plane to use this setting."));
     }
+    // The support brim rides on the object's brim and needs normal supports to go under:
+    // tree supports grow their own base (Tree support brim width).  On a tilted belt the
+    // support feet always take it (BeltBrim.cpp), so the switch is moot; an untilted belt
+    // prints no plate brim at all (Brim.cpp).
+    const bool have_supports_for_brim   = config->opt_bool("enable_support") || config->opt_int("enforce_support_layers") > 0;
+    const bool normal_supports_for_brim = have_supports_for_brim && !is_tree(config->opt_enum<SupportType>("support_type"));
+    toggle_field("support_brim", have_brim && normal_supports_for_brim && !is_belt_printer, -1,
+                 is_belt_tilted   ? _L("On a tilted belt the support feet always take the brim, together with a first layer of their own.")
+                 : is_belt_printer ? _L("Belt printers lay a brim only when the slicing plane is tilted.")
+                 : have_brim && have_supports_for_brim
+                                  ? _L("Tree supports grow their own base; this setting applies to normal supports.")
+                                  : _L("Enable support and select a brim type other than No brim to use this setting."));
     // Wall filament selectors use the same logic as in Print::extruders().
     const wxString wall_filament_reason = _L("Enable walls or a brim to select the wall filament.");
     toggle_field("outer_wall_filament_id", have_perimeters || have_brim, -1, wall_filament_reason);
@@ -1068,6 +1091,14 @@ void ConfigManipulation::toggle_print_fff_options(DynamicPrintConfig *config, in
         "support_type", "support_on_build_plate_only", "support_critical_regions_only", "support_interface_not_for_body",
         "support_object_xy_distance", "support_object_first_layer_gap", "independent_support_layer_height"})
         toggle_field(el, have_support_material, -1, support_reason);
+    const SupportDirection support_direction = config->opt_enum<SupportDirection>("support_direction");
+    toggle_field("support_direction", have_support_material, -1, support_reason);
+    for (auto el : { "support_direction_tilt_x", "support_direction_tilt_y" }) {
+        toggle_line(el, support_direction == sdCustom, -1, _L("Set the support direction to Custom to show this setting."));
+        toggle_field(el, have_support_material, -1, support_reason);
+    }
+    toggle_line("support_direction_max_lean", support_direction != sdLayers, -1, _L("Select a support direction other than Follow layers to show this setting."));
+    toggle_field("support_direction_max_lean", have_support_material, -1, support_reason);
     toggle_field("support_threshold_angle", have_support_material && is_auto(support_type), -1,
                  !have_support_material ? support_reason : _L("Select an automatic support type to edit the threshold angle."));
     toggle_field("support_threshold_overlap", config->opt_int("support_threshold_angle") == 0 && have_support_material && is_auto(support_type), -1,
@@ -1138,12 +1169,17 @@ void ConfigManipulation::toggle_print_fff_options(DynamicPrintConfig *config, in
     toggle_field("raft_expansion", !(is_tree(support_type) && (support_style == smsTreeSlim || support_style == smsTreeStrong || support_style == smsTreeHybrid)), -1,
                  _L("Slim, Strong and Hybrid tree supports use first layer expansion instead of raft expansion."));
 
-    // Orca: First-layer density is available for supports broadly.
-    toggle_field("raft_first_layer_density", have_support_material, -1, support_reason);
+    // Orca: First-layer density is available for supports broadly.  On a tilted belt the
+    // supports' first layer is one bead per layer band, gap-free by construction
+    // (BeltBrim.cpp), so there is no density to set.
+    toggle_field("raft_first_layer_density", have_support_material && !is_belt_tilted, -1,
+                 is_belt_tilted ? _L("On a tilted belt the supports' first layer is laid as one solid bead per layer, so it has no density setting.")
+                                : support_reason);
     // Orca: For regular tree (Slim/Strong) without raft, hide first-layer expansion.
     // Keep it enabled for non-tree supports, organic tree, hybrid tree, and any raft case.
+    // On a tilted belt it widens the skin under every support foot, whatever the style.
     toggle_field("raft_first_layer_expansion",
-                 have_support_material && ((!support_is_normal_tree || support_style == smsTreeHybrid) || have_raft), -1,
+                 have_support_material && ((!support_is_normal_tree || support_style == smsTreeHybrid) || have_raft || is_belt_tilted), -1,
                  !have_support_material ? support_reason : _L("Add a raft or choose a tree support style other than Slim or Strong to edit first layer expansion."));
 
     bool has_ironing = (config->opt_enum<IroningType>("ironing_type") != IroningType::NoIroning);
@@ -1448,8 +1484,14 @@ void ConfigManipulation::toggle_print_sla_options(DynamicPrintConfig* config)
 
 int ConfigManipulation::show_spiral_mode_settings_dialog(bool is_object_config)
 {
-    wxString msg_text = _(L("Spiral mode only works when wall loops is 1, support is disabled, clumping detection by probing is disabled, top shell layers is 0, sparse infill density is 0 and timelapse type is traditional."));
-    auto printer_structure_opt = wxGetApp().preset_bundle->printers.get_edited_preset().config.option<ConfigOptionEnum<PrinterStructure>>("printer_structure");
+    // On a belt printer supports stay on: a layer carrying support prints flat and the
+    // spiral continues above it (GCode::process_layer), which the calibrations rely on.
+    const auto &printer_config = wxGetApp().preset_bundle->printers.get_edited_preset().config;
+    const auto *belt_opt = printer_config.option<ConfigOptionBool>("belt_printer");
+    wxString msg_text = belt_opt != nullptr && belt_opt->value
+        ? _(L("Spiral mode only works when wall loops is 1, clumping detection by probing is disabled, top shell layers is 0, sparse infill density is 0 and timelapse type is traditional. On a belt printer supports may stay on; a layer that carries support is printed flat."))
+        : _(L("Spiral mode only works when wall loops is 1, support is disabled, clumping detection by probing is disabled, top shell layers is 0, sparse infill density is 0 and timelapse type is traditional."));
+    auto printer_structure_opt = printer_config.option<ConfigOptionEnum<PrinterStructure>>("printer_structure");
     if (printer_structure_opt && printer_structure_opt->value == PrinterStructure::psI3) {
         msg_text += _(L(" But machines with I3 structure will not generate timelapse videos."));
     }

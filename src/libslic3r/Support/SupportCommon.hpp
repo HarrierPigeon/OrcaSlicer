@@ -66,10 +66,14 @@ std::vector<unsigned int> support_exclusion_filaments(
 // Build conservative, object-local exclusion masks for generated support.
 // `interface_material` selects the support-interface filament; false selects
 // the base support filament. Each pair describes the actual extrusion slab.
+// `z_offset_to_global` is what to add to the ranges to get global print_z (see
+// BeltFloorContext::set_lean()); while the support leans, the masks are moved
+// into the sheared frame the support is generated in.
 std::vector<Polygons> support_exclusion_areas_for_layers(
     const PrintObject &object,
     const std::vector<std::pair<coordf_t, coordf_t>> &layer_z_ranges,
-    bool interface_material);
+    bool interface_material,
+    double z_offset_to_global);
 
 // Remove exclusion volumes from every support and raft polygon category before
 // SupportLayer installation and toolpath generation.

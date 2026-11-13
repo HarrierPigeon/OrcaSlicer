@@ -2322,29 +2322,21 @@ StringObjectException Print::validate(std::vector<StringObjectException> *warnin
         if (m_config.draft_shield != dsDisabled)
             return { L("Draft shield is not compatible with belt printer mode.") };
 
-        // Belt brim spans many layers and owns the layers below the object, which
-        // spiral vase cannot share. The prime tower setting is no obstacle: belt
+        // Belt brim beside spiral vase is fine: the apron bands below the object are
+        // never spiralized (GCode::process_belt_brim_layer), and an object layer that
+        // carries a brim band is left flat the way the first layer is on a flat bed
+        // (GCode::process_layer). The prime tower setting is no obstacle either: belt
         // printers never print the classic tower, and the belt purge prism is an
         // ordinary object that never takes a brim.
-        if (this->has_belt_brim()) {
-            if (m_config.spiral_mode.value)
-                return { L("Brim is not compatible with spiral vase mode on a belt printer. "
-                           "Disable one of them.") };
-        }
 
+        bool any_wants_brim = false;
         for (const PrintObject *object : m_objects) {
             const PrintObjectConfig &ocfg = object->config();
-            // Mirror PrintObject::has_belt_brim(): an inner-only brim needs a positive
-            // brim_width (leading/extra widen only the outer ring), so keep this
-            // predicate in step or the belt-brim warnings below would fire for a brim
-            // that has_belt_brim() rejects.
-            const bool wants_brim = ocfg.brim_type != btNoBrim
-                                 && (ocfg.brim_type == btInnerOnly
-                                         ? ocfg.brim_width.value > 0.
-                                         : (ocfg.brim_width.value > 0. || ocfg.leading_brim_length.value > 0.
-                                            || ocfg.extra_brim_width.value > 0.));
-            if (! wants_brim)
+            // The brim half of has_belt_brim(): the other half, supports and their skin,
+            // has no leading brim for these warnings to be about.
+            if (! object->wants_belt_brim_ring())
                 continue;
+            any_wants_brim = true;
 
             if (! this->has_tilted_belt()) {
                 if (std::abs(m_config.belt_slice_rotation_angle.value) > BELT_BRIM_MAX_TILT_DEG)
@@ -2367,7 +2359,7 @@ StringObjectException Print::validate(std::vector<StringObjectException> *warnin
                        "brim length."),
                      "brim_object_gap", object->model_object());
         }
-        if (this->has_belt_brim() && m_objects.size() > 1)
+        if (any_wants_brim && this->has_tilted_belt() && m_objects.size() > 1)
             warn(L("Leading brim length extends ahead of each object along the belt, and Arrange does "
                    "not reserve that space. Leave room between objects."),
                  "leading_brim_length");

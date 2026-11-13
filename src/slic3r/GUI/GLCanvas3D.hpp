@@ -1037,6 +1037,9 @@ public:
     std::optional<size_t> m_presented_signature;
     GLModel m_plate_shadow_mask;
     std::string m_plate_shadow_mask_key;
+    // Unit arrow (along +Z, 1 unit long) drawn per selected instance whose object leans its
+    // support; see _render_support_direction_arrows().
+    GLModel m_support_direction_arrow;
     // Depth-based shadow map used to cast object shadows onto other objects and themselves.
     unsigned int m_shadow_map_fbo{ 0 };
     unsigned int m_shadow_map_texture_id{ 0 };
@@ -1689,6 +1692,9 @@ private:
     void _render_plane() const;
     void _render_selection();
     void _render_sequential_clearance();
+    // Support direction arrows: one above each selected instance whose object leans its support,
+    // pointing along the configured bed-frame direction (before the "Max lean" limit).
+    void _render_support_direction_arrows(const Transform3d& view_matrix, const Transform3d& projection_matrix);
 #if ENABLE_RENDER_SELECTION_CENTER
     void _render_selection_center() { m_selection.render_center(m_gizmos.is_dragging()); }
 #endif // ENABLE_RENDER_SELECTION_CENTER

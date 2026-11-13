@@ -28,6 +28,8 @@
 #include <map>
 #include <numeric>
 #include "Config.hpp"
+#include "Line.hpp"
+#include "Polyline.hpp"
 #include "MultiMaterialSegmentation.hpp"
 #include "ObjectID.hpp"
 
@@ -55,6 +57,81 @@ LayerRegion* Layer::add_region(const PrintRegion *print_region)
 {
     m_regions.emplace_back(new LayerRegion(this, print_region));
     return m_regions.back();
+}
+
+// Translate every path of an extrusion tree in place, including the scarf-seam start/end ramps an
+// ExtrusionLoopSloped caches, so the whole tree moves as one. A symmetric second call undoes
+// exactly what the first did, so nothing drifts.
+static void translate_extrusions(ExtrusionEntityCollection &collection, const Point &shift)
+{
+    const Point3 shift3(shift.x(), shift.y(), coord_t(0));
+    for (ExtrusionEntity *ee : collection.entities) {
+        if (ee->is_collection())
+            translate_extrusions(*static_cast<ExtrusionEntityCollection*>(ee), shift);
+        else if (auto *loop = dynamic_cast<ExtrusionLoop*>(ee)) {
+            for (ExtrusionPath &path : loop->paths)
+                path.polyline.translate(shift3);
+            if (auto *sloped = dynamic_cast<ExtrusionLoopSloped*>(loop)) {
+                for (ExtrusionPathSloped &path : sloped->starts)
+                    path.polyline.translate(shift3);
+                for (ExtrusionPathSloped &path : sloped->ends)
+                    path.polyline.translate(shift3);
+            }
+        } else if (auto *multi = dynamic_cast<ExtrusionMultiPath*>(ee))
+            for (ExtrusionPath &path : multi->paths)
+                path.polyline.translate(shift3);
+        else if (auto *path = dynamic_cast<ExtrusionPath*>(ee))
+            path->polyline.translate(shift3);
+        else
+            assert(false);
+    }
+}
+
+void Layer::translate(const Point &shift)
+{
+    if (shift == Point(0, 0))
+        return;
+    // Heights and lslices_separated_component_ids (indices, not geometry) stay; everything else moves.
+    Slic3r::translate(this->lslices, shift);
+    Slic3r::translate(this->lslices_extrudable, shift);
+    for (BoundingBox &bb : this->lslices_bboxes)
+        bb.translate(shift);
+    Slic3r::translate(this->loverhangs, shift);
+    this->loverhangs_bbox.translate(shift);
+    Slic3r::translate(this->sharp_tails, shift);
+    Slic3r::translate(this->cantilevers, shift);
+    for (CurledLine &line : this->curled_lines)
+        line.translate(shift);
+    for (LayerRegion *layerm : m_regions) {
+        for (Surface &surface : layerm->slices.surfaces)
+            surface.expolygon.translate(shift);
+        for (Surface &surface : layerm->fill_surfaces.surfaces)
+            surface.expolygon.translate(shift);
+        Slic3r::translate(layerm->raw_slices, shift);
+        Slic3r::translate(layerm->fill_expolygons, shift);
+        Slic3r::translate(layerm->fill_no_overlap_expolygons, shift);
+        for (Polyline &pl : layerm->unsupported_bridge_edges)
+            pl.translate(shift);
+        translate_extrusions(layerm->perimeters, shift);
+        translate_extrusions(layerm->fills, shift);
+        translate_extrusions(layerm->thin_fills, shift);
+    }
+}
+
+void SupportLayer::translate(const Point &shift)
+{
+    if (shift == Point(0, 0))
+        return;
+    Layer::translate(shift);
+    // The area lists are moved in place, point by point, so the raw pointers area_groups keeps
+    // into them stay valid.
+    Slic3r::translate(this->support_islands, shift);
+    Slic3r::translate(this->base_areas, shift);
+    Slic3r::translate(this->roof_areas, shift);
+    Slic3r::translate(this->roof_1st_layer, shift);
+    Slic3r::translate(this->floor_areas, shift);
+    Slic3r::translate(this->roof_gap_areas, shift);
+    translate_extrusions(this->support_fills, shift);
 }
 
 // merge all regions' slices to get islands

@@ -15,6 +15,7 @@
 #include "Fill/AdaptiveInfillField.hpp"
 
 #include "BoundingBox.hpp"
+#include "Support/SupportDirection.hpp"
 #include "ExtrusionEntityCollection.hpp"
 #include "Flow.hpp"
 #include "Point.hpp"
@@ -380,6 +381,13 @@ public:
     // trafo_centered() with the belt pre-slice transforms applied: the frame the layers were sliced in (Layer::slice_z).
     // Equal to trafo_centered() unless a belt rotation or pre-slice remap is active.
     Transform3d                  trafo_sliced() const;
+    // The support lean in effect WHILE this object's support is being generated (the layers are
+    // sheared for that duration, see Support/SupportDirection.hpp). Inactive at any other time, so
+    // readers outside support generation always see plain slice-frame geometry.
+    const SupportLean&           support_lean() const   { return m_support_lean; }
+    // The translation ScopedSupportShear applied to object layer layer_idx; zero while no lean is active.
+    Point                        support_lean_shift(size_t layer_idx) const
+        { return layer_idx < m_support_lean_shifts.size() ? m_support_lean_shifts[layer_idx] : Point(0, 0); }
     const PrintInstances&        instances() const      { return m_instances; }
     // Orca: Bounding box of each connected body, indexed by Layer::lslices_separated_component_ids.
     const std::vector<BoundingBox>& separated_body_bboxes() const { return m_separated_body_bboxes; }
@@ -431,8 +439,12 @@ public:
     // BeltBrim.cpp and stored per layer here.  Deliberately separate from
     // has_brim(): that predicate feeds PrintRegion extruder collection, support
     // trimming and the spiral vase probe, and widening it would perturb belt
-    // support output.
+    // support output.  True for an object that wants a brim ring and for one with
+    // supports, whose feet get a skin; see BeltBrim.cpp.
     bool                         has_belt_brim() const;
+    // The brim half of has_belt_brim(): the object's own brim settings ask for a ring
+    // that would be drawn.  Config only, no slicing state.
+    bool                         wants_belt_brim_ring() const;
     // Brim filament for this object's belt brim, returned in the 1-based domain of
     // PrintRegion::outer_wall_filament_id and the raw values pushed into
     // LayerTools::extruders in ToolOrdering::collect_extruders (ToolOrdering reindexes
@@ -560,6 +572,7 @@ public:
   private:
     // to be called from Print only.
     friend class Print;
+    friend class ScopedSupportShear;
 
 	PrintObject(Print* print, ModelObject* model_object, const Transform3d& trafo, PrintInstances&& instances);
 	~PrintObject();
@@ -737,6 +750,9 @@ private:
     // posSlice is invalidated.
     double                                  m_belt_floor_z_shift_cached { 0.0 };
     bool                                    m_belt_floor_z_shift_cache_valid { false };
+    // See support_lean(). Set and cleared by ScopedSupportShear only.
+    SupportLean                             m_support_lean;
+    std::vector<Point>                      m_support_lean_shifts;
 public:
     double belt_global_z_offset() const { return m_belt_global_z_offset; }
 private:
@@ -1112,9 +1128,9 @@ public:
     // and must not run, whatever the per-object brim settings say - in particular
     // brim_type "Auto", which has_brim() reports as enabled even at width 0.
     bool                has_tilted_belt() const;
-    // True when at least one object actually gets a tilted-belt brim generated.
-    // Implies has_tilted_belt(), but additionally requires the object's own brim
-    // settings to ask for one.
+    // True when the belt brim machinery runs for at least one object: a brim ring
+    // its settings ask for, or the skin under its supports' feet.  Implies
+    // has_tilted_belt().
     bool                has_belt_brim() const;
     //BBS
     bool                has_auto_brim() const    {

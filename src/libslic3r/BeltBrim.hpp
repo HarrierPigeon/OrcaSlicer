@@ -142,8 +142,19 @@ std::vector<coord_t> belt_brim_line_positions(coord_t u_lo,
 
 // ---------------------------------------------------------------- pipeline
 
+// How far above the belt, along slice Z, a support layer's own material is kept so the
+// belt band under it is left to the skin bead that is the support's first layer there
+// (make_belt_brim, step 1c).  The bead sits at the support wall's clearance - half a
+// layer, plus the height the belt drops under half a support line across the tilt - and
+// is one band tall, so the material starts half a band above that.  The layer above
+// then rests on the bead with a full layer under it, the way layer two rests on the
+// first-layer flange on a flat bed.
+inline coordf_t belt_support_keep_z(coordf_t layer_height, double support_wall_width, double shear)
+    { return layer_height + 0.5 * support_wall_width * std::abs(shear); }
+
 // One brim-only layer printed BEFORE the object's first layer, carrying the
-// apron that has to be stuck to the belt ahead of the part.
+// apron that has to be stuck to the belt ahead of the part.  With supports on the
+// belt it also carries the skin bands ahead of the first foot.
 //
 // Deliberately not a Layer subclass.  A synthetic Layer would inherit id()
 // semantics that leak into initial-layer temperature selection, the spiral vase
@@ -158,7 +169,8 @@ struct BeltBrimBand
 {
     coordf_t                  print_z = 0.;
     coordf_t                  height  = 0.;
-    // erBrim paths in the object's local slicing frame, untranslated.
+    // erBrim (ring, apron) and erSupportMaterial (support skin) paths in the object's
+    // local slicing frame, untranslated.
     ExtrusionEntityCollection fills;
     // Footprint of those paths, for the first-layer convex hull / bbox.
     ExPolygons                areas;
@@ -167,10 +179,14 @@ struct BeltBrimBand
 class PrintObject;
 
 // Generate the belt brim for one object: fills its per-object-layer bands and
-// its apron prologue.  No-op unless PrintObject::has_belt_brim().
+// its apron prologue.  On a belt the object's supports also get their first layer
+// here - a skin bead under every foot, laid like a brim band - and their own
+// toolpaths are cut clear of the belt band to make room for it.  No-op unless
+// PrintObject::has_belt_brim().
 //
 // Runs inside posSupportMaterial rather than the brim step, because the prologue
-// print_z values must exist before ToolOrdering is built at psWipeTower.
+// print_z values must exist before ToolOrdering is built at psWipeTower, and
+// because it rewrites the support toolpaths that step produced.
 void make_belt_brim(PrintObject &object);
 
 } // namespace Slic3r

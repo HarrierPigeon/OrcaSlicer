@@ -907,4 +907,14 @@ bool is_point_inside_polygon_corner(const Point &a, const Point &b, const Point 
     }
 }
 
+double tilt_slope(double tilt_deg)
+{
+    return std::tan(deg2rad(std::clamp(tilt_deg, -89., 89.)));
+}
+
+Vec3d tilt_up_direction(double tilt_x_deg, double tilt_y_deg)
+{
+    return Vec3d(tilt_slope(tilt_y_deg), tilt_slope(tilt_x_deg), 1.).normalized();
+}
+
 }} // namespace Slic3r::Geometry

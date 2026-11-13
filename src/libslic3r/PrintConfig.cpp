@@ -485,6 +485,13 @@ static t_config_enum_values s_keys_map_SupportType{
 };
 CONFIG_OPTION_ENUM_DEFINE_STATIC_MAPS(SupportType)
 
+static t_config_enum_values s_keys_map_SupportDirection{
+    { "layers",   sdLayers },
+    { "vertical", sdVertical },
+    { "custom",   sdCustom }
+};
+CONFIG_OPTION_ENUM_DEFINE_STATIC_MAPS(SupportDirection)
+
 static t_config_enum_values s_keys_map_SeamPosition {
     { "nearest",        spNearest },
     { "aligned",        spAligned },
@@ -2112,6 +2119,17 @@ void PrintConfigDef::init_fff_params()
     def->max = 100;
     def->mode = comAdvanced;
     def->set_default_value(new ConfigOptionFloat(0.));
+
+    def = this->add("support_brim", coBool);
+    def->label = L("Brim under supports");
+    def->category = L("Support");
+    def->tooltip = L("Lay the brim around the feet of normal supports as well as around the object, "
+                     "using the same brim type, width and gap. Tree supports keep their own base brim. "
+                     "On a tilted belt the support feet always take the brim, together with a first "
+                     "layer of their own under every foot, widened by the support's first layer "
+                     "expansion and printed with the brim's filament.");
+    def->mode = comAdvanced;
+    def->set_default_value(new ConfigOptionBool(false));
 
     def = this->add("brim_type", coEnum);
     def->label = L("Brim type");
@@ -7336,6 +7354,64 @@ void PrintConfigDef::init_fff_params()
     def->enum_labels.push_back(L("Tree (manual)"));
     def->mode = comSimple;
     def->set_default_value(new ConfigOptionEnum<SupportType>(stNormalAuto));
+
+    // Support direction, see SupportDirection in PrintConfig.hpp and Support/SupportDirection.hpp.
+    def = this->add("support_direction", coEnum);
+    // TRN Label of the setting that picks the direction support columns grow along.
+    def->label = L("Direction");
+    def->category = L("Support");
+    def->tooltip = L("The direction support columns grow along. \"Follow layers\" stacks support along the layer "
+                     "normal. \"World vertical\" and \"Custom\" lean it towards a direction fixed in the bed's frame, "
+                     "whatever rotation the object is sliced at. \"World vertical\" is against gravity: on a belt "
+                     "printer the support grows perpendicular to the belt instead of along the tilted gantry, and "
+                     "on a tilted build plate it grows along the plate tilt's up. Overhangs are then judged "
+                     "against that direction too. The lean away from the layer normal is limited by \"Max lean\".");
+    def->enum_keys_map = &ConfigOptionEnum<SupportDirection>::get_enum_values();
+    def->enum_values.push_back("layers");
+    def->enum_values.push_back("vertical");
+    def->enum_values.push_back("custom");
+    def->enum_labels.push_back(L("Follow layers"));
+    def->enum_labels.push_back(L("World vertical"));
+    def->enum_labels.push_back(L("Custom"));
+    def->mode = comAdvanced;
+    def->set_default_value(new ConfigOptionEnum<SupportDirection>(sdLayers));
+
+    def = this->add("support_direction_tilt_x", coFloat);
+    def->label = L("Direction tilt X");
+    def->category = L("Support");
+    def->tooltip = L("Custom support direction: tilt of the support direction about the X axis, in degrees, in the "
+                     "same convention as \"Build plate tilt X\". A positive value leans the support towards +Y. "
+                     "0 with tilt Y = 0 is the bed normal.");
+    def->sidetext = u8"\u00B0";
+    def->min = -89;
+    def->max = 89;
+    def->mode = comAdvanced;
+    def->set_default_value(new ConfigOptionFloat(0));
+
+    def = this->add("support_direction_tilt_y", coFloat);
+    def->label = L("Direction tilt Y");
+    def->category = L("Support");
+    def->tooltip = L("Custom support direction: tilt of the support direction about the Y axis, in degrees, in the "
+                     "same convention as \"Build plate tilt Y\". A positive value leans the support towards +X.");
+    def->sidetext = u8"\u00B0";
+    def->min = -89;
+    def->max = 89;
+    def->mode = comAdvanced;
+    def->set_default_value(new ConfigOptionFloat(0));
+
+    def = this->add("support_direction_max_lean", coFloat);
+    def->label = L("Max lean");
+    def->category = L("Support");
+    def->tooltip = L("How far, in degrees, the support may lean away from the layer normal. A direction that "
+                     "would lean further keeps its heading and is pulled back to this angle. A leaning column "
+                     "overhangs itself by the lean angle, so a lean above 45° needs tuning and test prints for the "
+                     "material and support settings in use, and slicing warns about it. On a belt printer "
+                     "\"World vertical\" leans by the belt angle, so a belt steeper than this needs a higher limit.");
+    def->sidetext = u8"\u00B0";
+    def->min = 0;
+    def->max = 85;
+    def->mode = comAdvanced;
+    def->set_default_value(new ConfigOptionFloat(45));
 
     def = this->add("support_object_xy_distance", coFloat);
     def->label = L("Support/object XY distance");
@@ -12573,11 +12649,14 @@ std::map<std::string, std::string> validate(const FullPrintConfig &cfg, bool und
             //return "Spiral vase mode is not compatible with top solid layers";
         }
 
-        if (cfg.enable_support ) {
+        // A belt printer keeps its supports: a layer carrying support never spiralizes
+        // (GCode::process_layer), and the belt calibration tests stand their spiral
+        // objects on a support wedge (Plater::_calib_apply_belt_mode).
+        if (cfg.enable_support && !cfg.belt_printer) {
             error_message.emplace("enable_support", _u8L("Invalid value when spiral vase mode is enabled: ") + std::to_string(cfg.enable_support));
             //return "Spiral vase mode is not compatible with support";
         }
-        if (cfg.enforce_support_layers > 0) {
+        if (cfg.enforce_support_layers > 0 && !cfg.belt_printer) {
             error_message.emplace("enforce_support_layers", _u8L("Invalid value when spiral vase mode is enabled: ") + std::to_string(cfg.enforce_support_layers));
             //return "Spiral vase mode is not compatible with support";
         }

@@ -877,3 +877,22 @@ TEST_CASE("Skew is detected with and without a mirror", "[Geometry]")
     const Transform3d matrix = Transform3d(test_rotations()[2]) * skewed * Geometry::scale_transform(Vec3d(mirrored ? -1. : 1., 1., 1.));
     CHECK(Geometry::Transformation(matrix).has_skew());
 }
+
+TEST_CASE("A tilt's up direction follows the build-plate tilt convention", "[Geometry]")
+{
+    using Catch::Matchers::WithinAbs;
+    CHECK(Geometry::tilt_up_direction(0., 0.) == Vec3d::UnitZ());
+    // Tilt X rotates about X and tips +Z towards +Y; tilt Y rotates about Y and tips +Z towards +X.
+    const Vec3d x30 = Geometry::tilt_up_direction(30., 0.);
+    CHECK_THAT(x30.norm(), WithinAbs(1., 1e-12));
+    CHECK_THAT(x30.x(), WithinAbs(0., 1e-12));
+    CHECK_THAT(x30.y() / x30.z(), WithinAbs(std::tan(Geometry::deg2rad(30.)), 1e-12));
+    const Vec3d y30 = Geometry::tilt_up_direction(0., 30.);
+    CHECK_THAT(y30.x() / y30.z(), WithinAbs(std::tan(Geometry::deg2rad(30.)), 1e-12));
+    CHECK_THAT(y30.y(), WithinAbs(0., 1e-12));
+    CHECK(Geometry::tilt_up_direction(0., -30.).x() < 0.);
+    // Past +-89 degrees the tilt is clamped, so the direction never flips.
+    CHECK(Geometry::tilt_up_direction(120., 0.) == Geometry::tilt_up_direction(89., 0.));
+    CHECK_THAT(Geometry::tilt_slope(45.), WithinAbs(1., 1e-12));
+    CHECK_THAT(Geometry::tilt_slope(-89.5), WithinAbs(std::tan(Geometry::deg2rad(-89.)), 1e-9));
+}

@@ -575,6 +575,15 @@ Transformation generate_transform(const Vec3d &x_dir, const Vec3d &y_dir, const 
  */
 bool is_point_inside_polygon_corner(const Point &a, const Point &b, const Point &c, const Point &query_point);
 
+// tan of a build-plate tilt angle in degrees, clamped to +-89: the drift per unit height of the
+// plate's "up" direction along the axis the tilt tips it towards.
+double tilt_slope(double tilt_deg);
+// The "up" direction of a plane tilted about the X and Y axes, in degrees, in the convention of
+// the build_plate_tilt_x / build_plate_tilt_y printer options: tilt X rotates about the X axis
+// and tips +Z towards +Y, tilt Y rotates about the Y axis and tips +Z towards +X, so
+// up = normalize(tilt_slope(tilt_y), tilt_slope(tilt_x), 1) and 0/0 is +Z.
+Vec3d tilt_up_direction(double tilt_x_deg, double tilt_y_deg);
+
 } } // namespace Slicer::Geometry
 
 #endif
