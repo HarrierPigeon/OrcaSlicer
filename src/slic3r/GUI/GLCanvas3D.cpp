@@ -3442,6 +3442,7 @@ void GLCanvas3D::_render_scene(const Camera& camera, const Size& cnv_size)
         _render_selection();
         _render_objects(GLVolumeCollection::ERenderType::Transparent, !m_gizmos.is_running());
         _render_support_direction_arrows(camera.get_view_matrix(), camera.get_projection_matrix());
+        _render_svg_infill_preview(camera.get_view_matrix(), camera.get_projection_matrix());
         _render_wireframe_overlay();
         m_frame_profiler.mark("transparent");
         _render_selection_outline();
@@ -9643,6 +9644,54 @@ void GLCanvas3D::_render_background()
     }
 
     glsafe(::glEnable(GL_DEPTH_TEST));
+}
+
+void GLCanvas3D::set_svg_infill_preview(const Polylines& lines, double z)
+{
+    m_svg_infill_preview.reset();
+    GLModel::Geometry geometry;
+    geometry.format = { GLModel::Geometry::EPrimitiveType::Lines, GLModel::Geometry::EVertexLayout::P3 };
+    size_t n_vertices = 0;
+    for (const Polyline &pl : lines)
+        n_vertices += pl.points.size();
+    geometry.reserve_vertices(n_vertices);
+    geometry.reserve_indices(2 * n_vertices);
+    unsigned int id = 0;
+    for (const Polyline &pl : lines) {
+        if (pl.points.size() < 2)
+            continue;
+        const unsigned int first = id;
+        for (const Point &p : pl.points) {
+            geometry.add_vertex(Vec3f(float(unscaled<double>(p.x())), float(unscaled<double>(p.y())), float(z)));
+            if (id > first)
+                geometry.add_line(id - 1, id);
+            ++ id;
+        }
+    }
+    if (id > 0)
+        m_svg_infill_preview.init_from(std::move(geometry));
+    set_as_dirty();
+    request_extra_frame();
+}
+
+void GLCanvas3D::_render_svg_infill_preview(const Transform3d& view_matrix, const Transform3d& projection_matrix)
+{
+    if (! m_svg_infill_preview.is_initialized())
+        return;
+    GLShaderProgram* shader = wxGetApp().get_shader("flat");
+    if (shader == nullptr)
+        return;
+    shader->start_using();
+    shader->set_uniform("view_model_matrix", view_matrix);
+    shader->set_uniform("projection_matrix", projection_matrix);
+    glsafe(::glEnable(GL_DEPTH_TEST));
+    glsafe(::glEnable(GL_BLEND));
+    glsafe(::glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA));
+    glsafe(::glLineWidth(1.5f));
+    m_svg_infill_preview.set_color(ColorRGBA(0.92f, 0.47f, 0.78f, 0.9f)); // sparse infill's preview pink
+    m_svg_infill_preview.render();
+    glsafe(::glDisable(GL_BLEND));
+    shader->stop_using();
 }
 
 void GLCanvas3D::_render_bed(const Transform3d& view_matrix, const Transform3d& projection_matrix, bool bottom, bool show_axes)

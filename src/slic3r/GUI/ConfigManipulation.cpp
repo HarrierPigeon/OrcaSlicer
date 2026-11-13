@@ -866,6 +866,15 @@ void ConfigManipulation::toggle_print_fff_options(DynamicPrintConfig *config, in
     // hide the whole line otherwise.
     toggle_line("gyroid_optimized", have_infill && pattern == ipGyroid && !have_adaptive_infill, -1, _L("Select Gyroid infill with nonzero sparse infill density and disable adaptive density to use this setting."));
 
+    // The SVG line-art patterns: the bundled art, and Custom (SVG) with its file.
+    const bool     svg_art         = is_svg_infill_pattern(pattern);
+    const wxString svg_file_reason = _L("Select Custom (SVG) infill with nonzero sparse infill density to use this setting.");
+    toggle_line("sparse_infill_svg_path", have_infill && pattern == ipSvg, -1, svg_file_reason);
+    toggle_line("browse_sparse_infill_svg_path", have_infill && pattern == ipSvg, -1, svg_file_reason);
+    const wxString svg_art_reason = _L("Select Catfill, Sharkfill, Puppyfill or Custom (SVG) infill with nonzero sparse infill density to use this setting.");
+    toggle_line("sparse_infill_svg_scale", have_infill && svg_art, -1, svg_art_reason);
+    toggle_line("sparse_infill_single_wall", have_infill && svg_art, -1, svg_art_reason);
+
     // If there is infill, enable/disable fill_multiline according to whether the pattern supports multiline infill.
     if (have_infill) {
         toggle_field("fill_multiline", have_multiline_infill_pattern, -1, _L("The selected sparse infill pattern does not support multiline infill."));

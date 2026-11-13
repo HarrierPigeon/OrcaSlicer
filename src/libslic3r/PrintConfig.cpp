@@ -336,7 +336,11 @@ static t_config_enum_values s_keys_map_InfillPattern {
     { "spiralinset", ipSpiralInset },
     { "hilbertcurve", ipHilbertCurve },
     { "archimedeanchords", ipArchimedeanChords },
-    { "octagramspiral", ipOctagramSpiral }
+    { "octagramspiral", ipOctagramSpiral },
+    { "catfill", ipCatfill },
+    { "sharkfill", ipSharkfill },
+    { "puppyfill", ipPuppyfill },
+    { "svg", ipSvg }
 };
 CONFIG_OPTION_ENUM_DEFINE_STATIC_MAPS(InfillPattern)
 
@@ -3905,6 +3909,10 @@ void PrintConfigDef::init_fff_params()
     def->enum_values.push_back("hilbertcurve");
     def->enum_values.push_back("archimedeanchords");
     def->enum_values.push_back("octagramspiral");
+    def->enum_values.push_back("catfill");
+    def->enum_values.push_back("sharkfill");
+    def->enum_values.push_back("puppyfill");
+    def->enum_values.push_back("svg");
     def->enum_labels.push_back(L("Rectilinear"));
     def->enum_labels.push_back(L("Aligned Rectilinear"));
     def->enum_labels.push_back(L("Zig Zag"));
@@ -3931,7 +3939,41 @@ void PrintConfigDef::init_fff_params()
     def->enum_labels.push_back(L("Hilbert Curve"));
     def->enum_labels.push_back(L("Archimedean Chords"));
     def->enum_labels.push_back(L("Octagram Spiral"));
+    def->enum_labels.push_back(L("Catfill"));
+    def->enum_labels.push_back(L("Sharkfill"));
+    def->enum_labels.push_back(L("Puppyfill"));
+    def->enum_labels.push_back(L("Custom (SVG)"));
     def->set_default_value(new ConfigOptionEnum<InfillPattern>(ipCrossHatch));
+
+    def           = this->add("sparse_infill_svg_path", coString);
+    def->label    = L("SVG infill file");
+    def->category = L("Strength");
+    def->tooltip  = L("SVG file whose line art is repeated as the sparse infill when the pattern is Custom (SVG). "
+                      "The outline of every filled shape and the centerline of every stroked path are printed as "
+                      "single lines; the drawing's document size is the repeat.");
+    def->mode     = comAdvanced;
+    def->set_default_value(new ConfigOptionString(""));
+
+    def           = this->add("sparse_infill_svg_scale", coPercent);
+    def->label    = L("SVG infill scale");
+    def->category = L("Strength");
+    // xgettext:no-c-format, no-boost-format
+    def->tooltip  = L("Size of the SVG tile as a percentage of its native size for the Catfill, Sharkfill, Puppyfill "
+                      "and Custom (SVG) patterns. 0 sizes the tile automatically from the sparse infill density.");
+    def->sidetext = "%";
+    def->min      = 0;
+    def->max      = 10000;
+    def->mode     = comAdvanced;
+    def->set_default_value(new ConfigOptionPercent(0));
+
+    def           = this->add("sparse_infill_single_wall", coBool);
+    def->label    = L("Single wall infill");
+    def->category = L("Strength");
+    def->tooltip  = L("Print the art of the SVG patterns (Catfill, Sharkfill, Puppyfill, Custom) as one line: filled "
+                      "bands narrower than six line widths (a stroked drawing exported as a fill) are printed "
+                      "along their centerline instead of both edges.");
+    def->mode     = comAdvanced;
+    def->set_default_value(new ConfigOptionBool(false));
 
     def = this->add("sparse_infill_smooth_factor", coPercent);
     def->label = L("Sparse infill smooth factor");

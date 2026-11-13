@@ -2,6 +2,7 @@
 #define slic3r_GLCanvas3D_hpp_
 
 #include "libslic3r/Point.hpp"
+#include "libslic3r/Polyline.hpp"
 #include "libslic3r/ConnectedBodies.hpp"
 #include "libslic3r/GCode/GCodeProcessor.hpp"
 #include "libslic3r/TriangleMesh.hpp"
@@ -785,6 +786,9 @@ private:
     // exactly through the modeling origin; built once and rebuilt only when the bed shape changes.
     GLModel m_cad_grid_minor;
     GLModel m_cad_grid_major;
+    // The SVG infill art tiled over the current plate at print scale, shown while the Process
+    // tab's SVG settings are being edited (TabPrint -> Plater::set_svg_infill_preview).
+    GLModel m_svg_infill_preview;
     // Geometry the CAD grid models were last built from, so they are rebuilt on bed-shape change
     // rather than every frame.
     BoundingBoxf m_cad_grid_bb;
@@ -1546,6 +1550,9 @@ public:
         m_sequential_print_clearance.set_polygons(Polygons(), std::vector<std::pair<Polygon, float>>());
     }
 
+    // Replace the SVG infill preview lines (mm, drawn at height z); empty clears it.
+    void set_svg_infill_preview(const Polylines& lines, double z);
+
     void set_sequential_print_clearance_visible(bool visible) {
         m_sequential_print_clearance.set_visible(visible);
     }
@@ -1649,6 +1656,7 @@ private:
     void _capture_scene_cache(const Camera& camera);
     void _render_background();
     void _render_bed(const Transform3d& view_matrix, const Transform3d& projection_matrix, bool bottom, bool show_axes);
+    void _render_svg_infill_preview(const Transform3d& view_matrix, const Transform3d& projection_matrix);
     // Build the light-space depth shadow map (consumed by gouraud/phong for object & self shadows)
     // and cast it onto the build plate. Realistic view only.
     void _render_shadows(const Transform3d& view_matrix, const Transform3d& projection_matrix);

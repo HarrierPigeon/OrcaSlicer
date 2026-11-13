@@ -1602,7 +1602,11 @@ Polylines Layer::generate_sparse_infill_polylines_for_anchoring(const FillAdapti
         case ipOctagramSpiral:
         case ipZigZag:
         case ipCrossZag:
-		case ipLockedZag: break;
+		case ipLockedZag:
+        case ipCatfill:
+        case ipSharkfill:
+        case ipPuppyfill:
+        case ipSvg: break;
         }
 
         // Create the filler object.

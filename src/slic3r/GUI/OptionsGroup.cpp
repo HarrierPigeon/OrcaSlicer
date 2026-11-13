@@ -296,6 +296,8 @@ void OptionsGroup::append_line(const Line& line)
 Line* OptionsGroup::get_line(const std::string& opt_key)
 {
     for (int index = 0; index < m_lines.size(); index++) {
+        if (! m_lines[index].widget_key.empty() && m_lines[index].widget_key == opt_key)
+            return &(m_lines[index]);
         for (auto& opt : m_lines[index].get_options())
             if (opt.opt_id == opt_key)
                 return &(m_lines[index]);
@@ -317,6 +319,7 @@ void OptionsGroup::activate_line(Line& line)
         // BBS: new layout
         const auto h_sizer = new wxBoxSizer(wxHORIZONTAL);
         sizer->Add(h_sizer, 1, wxEXPAND | wxALL, (wxOSX && !staticbox) ? 0 : 15);
+        line.full_width_sizer = h_sizer;
         if (line.widget != nullptr) {
             // description lines
             sizer->Add(line.widget(this->ctrl_parent()), 0, wxEXPAND | wxALL, (wxOSX && !staticbox) ? 0 : 15);
@@ -926,6 +929,11 @@ bool ConfigOptionsGroup::update_visibility(ConfigOptionMode mode)
     if (custom_ctrl) {
         bool show = custom_ctrl->update_visibility(mode);
         this->Show(show);
+        if (show)
+            // Keyed widget lines honour toggle_line(): Show(true) above re-showed them.
+            for (const Line &line : m_lines)
+                if (line.full_width_sizer != nullptr && ! line.widget_key.empty())
+                    sizer->Show(line.full_width_sizer, line.toggle_visible, true);
         return show;
     }
 
