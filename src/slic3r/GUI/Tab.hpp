@@ -301,6 +301,9 @@ protected:
 
 	DynamicPrintConfig 	m_cache_config;
     std::vector<std::string> m_cache_options;
+    // Changes left out of a transfer: put back to the saved value when the cache is applied,
+    // for the case where the edited preset survives the switch (see apply_config_from_cache).
+    std::vector<std::string> m_cache_revert_options;
 
 
 	bool				m_page_switch_running = false;
@@ -507,6 +510,7 @@ public:
 	virtual void	activate_option(const std::string& opt_key, const wxString& category);
     void			apply_searcher();
 	void			cache_config_diff(const std::vector<std::string>& selected_options, const DynamicPrintConfig* config = nullptr);
+	void			cache_config_revert(const std::vector<std::string>& unselected_options) { m_cache_revert_options = unselected_options; }
 	void			apply_config_from_cache();
     void            show_timelapse_warning_dialog();
 

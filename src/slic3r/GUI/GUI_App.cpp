@@ -9416,12 +9416,12 @@ bool GUI_App::check_and_keep_current_preset_changes(const wxString& caption, con
                             static_cast<TabPrinter*>(tab)->cache_extruder_cnt();
                         }
                     }
-                    std::vector<std::string> selected_options2;
-                    std::transform(selected_options.begin(), selected_options.end(), std::back_inserter(selected_options2), [](auto & o) {
-                        auto i = o.find('#');
-                        return i != std::string::npos ? o.substr(0, i) : o;
-                    });
-                    tab->cache_config_diff(selected_options2);
+                    // A "#<index>" key keeps just that one value, so a per-extruder option can be
+                    // kept for some extruders only. The changes left out are reverted when the
+                    // cache is applied: with a postponed apply the edited preset is kept as it is
+                    // until then, so discarding is not what removes them.
+                    tab->cache_config_diff(selected_options);
+                    tab->cache_config_revert(dlg.get_unselected_options(type));
                     if (!is_called_from_configwizard)
                         tab->m_presets->discard_current_changes();
                 }

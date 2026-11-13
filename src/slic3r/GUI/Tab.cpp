@@ -2808,6 +2808,16 @@ void Tab::apply_config_from_cache()
     if (m_type == Preset::TYPE_PRINTER)
         was_applied = static_cast<TabPrinter*>(this)->apply_extruder_cnt_from_cache();
 
+    // The edited preset may have come through the switch as it was (a dependent preset that
+    // stayed compatible, a preset kept for a new project): the changes left out of the
+    // transfer go back to the saved values first. After a switch to another preset this is
+    // a no-op, as the edited config already equals the saved one.
+    if (!m_cache_revert_options.empty()) {
+        m_presets->get_edited_preset().config.apply_only(m_presets->get_selected_preset().config, m_cache_revert_options, true);
+        m_cache_revert_options.clear();
+        was_applied = true;
+    }
+
     if (!m_cache_config.empty()) {
         m_presets->get_edited_preset().config.apply_only(m_cache_config, m_cache_options);
         m_cache_config.clear();
@@ -8028,6 +8038,7 @@ bool Tab::may_discard_current_dirty_preset(PresetCollection *presets /*= nullptr
     else if (dlg.transfer_changes()) // move selected changes
     {
         std::vector<std::string> selected_options = dlg.get_selected_options();
+        const std::vector<std::string> unselected_options = dlg.get_unselected_options(presets->type());
         if (!no_transfer && no_transfer_variant) {
             auto & options_list = wxGetApp().get_tab(presets->type())->m_options_list;
             bool has_variants = false;
@@ -8061,9 +8072,13 @@ bool Tab::may_discard_current_dirty_preset(PresetCollection *presets /*= nullptr
 
             // copy selected options to the cache from edited preset
             cache_config_diff(selected_options);
+            cache_config_revert(unselected_options);
         }
-        else
-            wxGetApp().get_tab(presets->type())->cache_config_diff(selected_options);
+        else {
+            Tab* tab = wxGetApp().get_tab(presets->type());
+            tab->cache_config_diff(selected_options);
+            tab->cache_config_revert(unselected_options);
+        }
     }
 
     return true;
