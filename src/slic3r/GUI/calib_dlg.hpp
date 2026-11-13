@@ -48,6 +48,8 @@ protected:
 	CheckBox* m_cbPrintNum;
 	TextInput* m_tiBMAccels;
 	TextInput* m_tiBMSpeeds;
+	RadioGroup* m_rbSplitVary;
+	TextInput* m_tiSplitFixedPA;
 
 	Plater* m_plater;
 };

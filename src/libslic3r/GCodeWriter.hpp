@@ -73,6 +73,9 @@ public:
     unsigned int max_print_acceleration() const;
     // The command that sets the print acceleration, without clamping it or recording it as set.
     std::string print_acceleration_command(unsigned int acceleration) const { return acceleration_command(Acceleration::Print, acceleration); }
+    // The acceleration printing moves run at as this writer last set it, after its machine limit clamp (travel moves
+    // set it too on flavors without a separate travel acceleration). 0 if it has set none since it was invalidated.
+    unsigned int get_print_acceleration() const { return m_last_acceleration; }
     std::string set_jerk_xy(double jerk);
     // Orca: set acceleration and jerk in one command for Klipper
     std::string set_accel_and_jerk(unsigned int acceleration, double jerk);
